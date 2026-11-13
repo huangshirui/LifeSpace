@@ -2,6 +2,15 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-11-13 — Hono 安全维护 / Security patch（Production #43383749799）
+
+- **Verified release:** SHA `07d2eafe83fefb55b74bc1645fa9061eff783150`；[Dependabot #557](https://github.com/huangshirui/LifeSpace/pull/557)、[Staging #43381875181](https://github.com/huangshirui/LifeSpace/actions/runs/43381875181)、[Production #43383749799](https://github.com/huangshirui/LifeSpace/actions/runs/43383749799) 成功；Production 三个 Job（发布来源、APAC gate、正式部署与验证）全部通过。
+- **Security:** Core 与 Identity 的 Hono 从 `4.13.1` 升级到 `4.13.16`，覆盖上游路由/中间件、表单校验、HTML 注入、CSRF 和 JWT 校验安全修复。依赖声明与 lockfile 一并更新。
+- **No capability-level changes / 无能力层变化：** Core Kernel 0.54.0 / schema 78；Identity 0.19.0 / schema 18；active Model Contract `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246fed4b4b6b2f4`；未重复发布模型语义，未变更 API、数据库结构或授权策略。既有独立 Console、Account 和 MCP Adapter 部署记录保持不变。
+- **Limits:** 生产 HTTP、schema、Model Contract、Service Token、隔离与 External private route 发布验证通过；真实生产 OAuth/MCP、用户审批及下游业务场景仍按既有边界独立验收。未核实完整 Dependabot 告警清单，不声称告警清零。后续 [Production #43393528444](https://github.com/huangshirui/LifeSpace/actions/runs/43393528444) 在发布来源检查因新 SHA 尚无 exact Staging 成功证据而被拒绝，未执行部署，不改变上述生产基线。
+
+---
+
 ## 2026-11-13 — OAuth / MCP、Account、Native File 与平台性能（Production #43360660813）
 
 - **Verified release:** `4161c2b6132e5b1e17550384ffe962e0b86d5210`；[Staging #43355839007](https://github.com/huangshirui/LifeSpace/actions/runs/43355839007)、[APAC #43359902997](https://github.com/huangshirui/LifeSpace/actions/runs/43359902997) 和 [Production #43360660813](https://github.com/huangshirui/LifeSpace/actions/runs/43360660813) 成功；正式发布三个 Job 全部 PASS。此条补齐自本目录 10-28 基线以来的累计已部署变化，不将所有变化误称本次首次上线。
