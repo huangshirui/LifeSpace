@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import { appendFileSync, chmodSync, existsSync, writeFileSync } from "node:fs";
 import process from "node:process";
 import { STAGING_EXPECTATIONS, assertStagingServiceUrl } from "./staging-expectations.mjs";
@@ -63,9 +64,6 @@ if (suppliedCoreBearer && !suppliedCoreBearer.startsWith("lsp_svc_") && !supplie
   throw new Error("LIFESPACE_STAGING_CONSOLE_CORE_BEARER must be an lsp_svc_*/legacy lsp_pat_* token or service JWT");
 }
 
-function mask(value) {
-  if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
-}
 mask(bootstrapSecret);
 mask(suppliedApplicationCredential);
 mask(suppliedCoreBearer);
@@ -132,7 +130,7 @@ async function requireStagingConvergence() {
     || String(identityData?.schemaVersion) !== String(STAGING_EXPECTATIONS.identity.schemaVersion)
     || identityData?.contractVersion !== STAGING_EXPECTATIONS.identity.contractVersion
   ) {
-    throw new Error(`Identity staging is not converged to schema v${STAGING_EXPECTATIONS.identity.schemaVersion} / contract ${STAGING_EXPECTATIONS.identity.contractVersion}: ${identity.response.status} ${JSON.stringify(identity.payload)}`);
+    throw new Error(`Identity staging is not converged to schema v${STAGING_EXPECTATIONS.identity.schemaVersion} / contract ${STAGING_EXPECTATIONS.identity.contractVersion}: ${identity.response.status}`);
   }
   if (
     core.response.status !== 200
@@ -140,7 +138,7 @@ async function requireStagingConvergence() {
     || String(coreData?.schemaVersion) !== String(STAGING_EXPECTATIONS.core.schemaVersion)
     || coreData?.contractVersion !== STAGING_EXPECTATIONS.core.contractVersion
   ) {
-    throw new Error(`Core staging is not converged to schema v${STAGING_EXPECTATIONS.core.schemaVersion} / contract ${STAGING_EXPECTATIONS.core.contractVersion}: ${core.response.status} ${JSON.stringify(core.payload)}`);
+    throw new Error(`Core staging is not converged to schema v${STAGING_EXPECTATIONS.core.schemaVersion} / contract ${STAGING_EXPECTATIONS.core.contractVersion}: ${core.response.status}`);
   }
   return { identity: identityData, core: coreData };
 }
@@ -165,7 +163,7 @@ async function createApplication() {
     },
   });
   if (result.response.status !== 201 || result.payload?.data?.id !== applicationId) {
-    throw new Error(`Console application creation failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Console application creation failed: ${result.response.status}`);
   }
   const clientSecret = result.payload?.data?.clientSecret;
   if (typeof clientSecret !== "string" || !clientSecret.startsWith("lsa_")) throw new Error("Identity did not return the initial Console lsa_* credential");
@@ -192,7 +190,7 @@ async function createReplacementApplicationCredential(source) {
     method: "POST",
     bootstrap: true,
   });
-  if (created.response.status !== 201) throw new Error(`Console application credential creation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+  if (created.response.status !== 201) throw new Error(`Console application credential creation failed: ${created.response.status}`);
   const clientSecret = created.payload?.data?.clientSecret;
   if (typeof clientSecret !== "string" || !clientSecret.startsWith("lsa_")) throw new Error("Identity did not return replacement Console lsa_*");
   persistSecret("LIFESPACE_STAGING_CONSOLE_APPLICATION_CREDENTIAL", clientSecret);
@@ -218,13 +216,13 @@ async function ensureAudience() {
   const path = `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/access-audiences`;
   const before = await request(identityBase, path, { bootstrap: true });
   if (before.response.status !== 200 || !Array.isArray(before.payload?.data)) {
-    throw new Error(`Console Access audience listing failed: ${before.response.status} ${JSON.stringify(before.payload)}`);
+    throw new Error(`Console Access audience listing failed: ${before.response.status}`);
   }
   const current = before.payload.data.find((entry) => entry?.audience === accessAudience && entry?.status === "active");
   if (current) return { created: false, audience: current };
   const created = await request(identityBase, path, { method: "POST", bootstrap: true, body: { audience: accessAudience } });
   if (![200, 201].includes(created.response.status) || created.payload?.data?.audience !== accessAudience) {
-    throw new Error(`Console Access audience registration failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+    throw new Error(`Console Access audience registration failed: ${created.response.status}`);
   }
   return { created: created.response.status === 201, audience: created.payload.data };
 }
@@ -235,7 +233,7 @@ async function ensurePlatformAdministrator() {
     bootstrap: true,
   });
   if (result.response.status !== 200 || result.payload?.data?.userId !== platformAdminUserId) {
-    throw new Error(`Platform administrator assignment failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Platform administrator assignment failed: ${result.response.status}`);
   }
   return result.payload.data;
 }
@@ -243,7 +241,7 @@ async function ensurePlatformAdministrator() {
 async function listServicePrincipals(applicationCredential) {
   const result = await request(identityBase, "/api/v1/service-principals", { bearer: applicationCredential });
   if (result.response.status !== 200 || !Array.isArray(result.payload?.data)) {
-    throw new Error(`Console service-principal listing failed; verify supplied lsa_* belongs to ${applicationId}: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Console service-principal listing failed; verify supplied lsa_* belongs to ${applicationId}: ${result.response.status}`);
   }
   return result.payload.data;
 }
@@ -264,7 +262,7 @@ async function ensureCoreExecutor(applicationCredential) {
       },
     });
     if (created.response.status !== 201 || !created.payload?.data?.id?.startsWith("svc_")) {
-      throw new Error(`Console Core executor creation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+      throw new Error(`Console Core executor creation failed: ${created.response.status}`);
     }
     return { created: true, principal: created.payload.data };
   }
@@ -280,14 +278,14 @@ async function ensureCoreExecutor(applicationCredential) {
     bearer: applicationCredential,
     body: patch,
   });
-  if (updated.response.status !== 200) throw new Error(`Console Core executor reconciliation failed: ${updated.response.status} ${JSON.stringify(updated.payload)}`);
+  if (updated.response.status !== 200) throw new Error(`Console Core executor reconciliation failed: ${updated.response.status}`);
   return { created: false, updated: true, principal: updated.payload?.data };
 }
 
 async function ensureCoreExecutorToken(applicationCredential, principalId) {
   const list = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(principalId)}/tokens`, { bearer: applicationCredential });
   if (list.response.status !== 200 || !Array.isArray(list.payload?.data)) {
-    throw new Error(`Console Core executor token listing failed: ${list.response.status} ${JSON.stringify(list.payload)}`);
+    throw new Error(`Console Core executor token listing failed: ${list.response.status}`);
   }
   const active = list.payload.data.filter((entry) => entry?.revokedAt == null && (!entry?.expiresAt || Date.parse(entry.expiresAt) > Date.now()));
 
@@ -313,7 +311,7 @@ async function ensureCoreExecutorToken(applicationCredential, principalId) {
     },
   });
   if (created.response.status !== 201 || typeof created.payload?.data?.token !== "string" || !created.payload.data.token.startsWith("lsp_svc_")) {
-    throw new Error(`Console Core executor token creation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+    throw new Error(`Console Core executor token creation failed: ${created.response.status}`);
   }
   persistSecret("LIFESPACE_STAGING_CONSOLE_CORE_BEARER", created.payload.data.token);
   return { bearer: created.payload.data.token, created: true, source: rotateCredentials ? "rotation" : "initial", activeTokenCount: active.length + 1 };
@@ -335,7 +333,7 @@ async function verifyCoreBearer(applicationCredential, coreBearer, principal, ac
   if (coreBearer.startsWith("lsp_svc_") || coreBearer.startsWith("lsp_pat_")) {
     const tokens = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(principal.id)}/tokens`, { bearer: applicationCredential });
     if (tokens.response.status !== 200 || !Array.isArray(tokens.payload?.data)) {
-      throw new Error(`Console Core executor token metadata lookup failed: ${tokens.response.status} ${JSON.stringify(tokens.payload)}`);
+      throw new Error(`Console Core executor token metadata lookup failed: ${tokens.response.status}`);
     }
     const current = tokens.payload.data.filter((entry) =>
       entry?.principalId === principal.id
@@ -357,7 +355,7 @@ async function verifyCoreBearer(applicationCredential, coreBearer, principal, ac
 
   const result = await request(coreBase, "/api/v1/model-admin/models", { bearer: coreBearer });
   if (result.response.status !== 200 || !Array.isArray(result.payload?.data)) {
-    throw new Error(`Console Core bearer does not authorize the service-only Model Admin read boundary: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Console Core bearer does not authorize the service-only Model Admin read boundary: ${result.response.status}`);
   }
   return { id: principal.id, clientId: principal.clientId, scopes: tokenScopes };
 }
@@ -372,7 +370,7 @@ if (applicationLookup.response.status === 404) {
   applicationLookup = await loadApplication();
 }
 if (applicationLookup.response.status !== 200 || applicationLookup.payload?.data?.id !== applicationId) {
-  throw new Error(`Console application lookup failed: ${applicationLookup.response.status} ${JSON.stringify(applicationLookup.payload)}`);
+  throw new Error(`Console application lookup failed: ${applicationLookup.response.status}`);
 }
 
 const applicationState = requireExistingApplicationPolicy(applicationLookup.payload.data);
@@ -409,13 +407,11 @@ console.log(JSON.stringify({
     allowedScopes: APPLICATION_SCOPES,
   },
   accessAudience: {
-    audience: accessAudience,
-    issuer: audienceState.audience?.issuer ?? null,
+    registered: audienceState.audience?.status === "active",
     created: audienceState.created,
     status: audienceState.audience?.status ?? null,
   },
   platformAdministrator: {
-    userId: platformAdminUserId,
     status: administratorState.status,
     assignmentRequested: applicationCreated || recoverPlatformAdmin,
   },
@@ -425,15 +421,14 @@ console.log(JSON.stringify({
     plaintextLogged: false,
   },
   coreExecutor: {
-    principalId: executorState.principal.id,
     principalCreated: executorState.created,
     principalUpdated: executorState.updated ?? false,
     scopes: CORE_EXECUTOR_SCOPES,
     tokenSource: coreTokenState.source,
     tokenCreated: coreTokenState.created,
     activeTokenCount: coreTokenState.activeTokenCount,
-    authenticatedPrincipalId: corePrincipal.id,
+    authenticatedPrincipalVerified: true,
   },
-  credentialOutput: credentialOutput || (githubEnv ? "GITHUB_ENV" : null),
+  credentialOutput: credentialOutput ? "restricted-file" : (githubEnv ? "GITHUB_ENV" : null),
   productionTouched: false,
 }, null, 2));
