@@ -1,0 +1,160 @@
+name: Benchmark LifeSpace staging Native File uploads
+
+# Owner-only manual diagnostic. Does not dispatch or substitute either canonical deployment.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+
+jobs:
+  diagnose:
+    concurrency:
+      group: lifespace-staging-apac-performance
+      cancel-in-progress: false
+    name: Native File benchmark from APAC (diagnostic only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
+      LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
+      LIFESPACE_IDENTITY_STAGING_URL: https://auth-staging.aisr.online
+      LIFESPACE_APAC_PROBE_NAME: lifespace-staging-file-benchmark-probe
+
+    steps:
+      - name: Checkout exact gate candidate
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Require direct repository-owner diagnosis on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch" || { echo "APAC diagnosis must be manually dispatched" >&2; exit 1; }
+          test "$GITHUB_ACTOR" = "huangshirui" || { echo "APAC diagnosis must be started by the repository owner" >&2; exit 1; }
+          test "$GITHUB_TRIGGERING_ACTOR" = "huangshirui" || { echo "APAC diagnosis must be triggered by the repository owner" >&2; exit 1; }
+          test "$GITHUB_REF_NAME" = "main" || { echo "APAC diagnosis must run from main" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || { echo "APAC checkout does not match workflow candidate SHA" >&2; exit 1; }
+          echo "APAC candidate SHA: $GITHUB_SHA"
+          echo "LIFESPACE_APAC_PROBE_NAME=${LIFESPACE_APAC_PROBE_NAME}-${GITHUB_RUN_ID}" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Validate staging credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured" >&2; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured" >&2; exit 1; }
+          test ${#LIFESPACE_STAGING_BOOTSTRAP_SECRET} -ge 32 || { echo "LIFESPACE_STAGING_BOOTSTRAP_SECRET must be at least 32 characters" >&2; exit 1; }
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve expected staging versions
+        run: node infra/scripts/staging-expectations.mjs
+
+      - name: Resolve staging D1 IDs
+        run: node infra/scripts/resolve-staging-d1.mjs
+
+      - name: Validate diagnostic sources
+        run: |
+          node --check infra/scripts/staging-file-benchmark.mjs
+          node --check infra/performance-probe/file-worker.mjs
+          pnpm --dir apps/core exec wrangler deploy --dry-run --config ../../infra/performance-probe/file-wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
+
+      - name: Verify live staging service identity matches candidate
+        run: node infra/scripts/verify-staging-candidate-identity.mjs
+
+      - name: Verify live staging database and active Model Contract match candidate
+        env:
+          REQUIRE_ACTIVE_MODEL_CONTRACT: "1"
+        run: node infra/scripts/verify-staging-db.mjs
+
+      - name: Prepare ephemeral authenticated staging smoke
+        run: node infra/scripts/prepare-staging-smoke.mjs
+
+      - name: Verify authenticated staging Model Contract matches candidate
+        run: node infra/scripts/verify-staging-http.mjs
+
+      - name: Prepare exact run-owned synthetic File model
+        run: node infra/scripts/staging-file-benchmark.mjs prepare
+
+      - name: Generate ephemeral probe credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROBE_TOKEN="$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(32).toString("hex"))')"
+          echo "::add-mask::$PROBE_TOKEN"
+          echo "LIFESPACE_APAC_PROBE_TOKEN=$PROBE_TOKEN" >> "$GITHUB_ENV"
+
+      - name: Deploy temporary APAC probe
+        run: pnpm --dir apps/core exec wrangler deploy --config ../../infra/performance-probe/file-wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
+
+      - name: Configure ephemeral probe secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            process.stdout.write(JSON.stringify({
+              PROBE_TOKEN: process.env.LIFESPACE_APAC_PROBE_TOKEN,
+              CORE_URL: process.env.LIFESPACE_CORE_STAGING_URL,
+              USER_BEARER: process.env.LIFESPACE_STAGING_USER_BEARER,
+              MODEL_KEY: process.env.LIFESPACE_FILE_BENCH_MODEL,
+              SPACE_ID: process.env.LIFESPACE_STAGING_SPACE_ID,
+            }));
+          ' | pnpm --dir apps/core exec wrangler secret bulk --config ../../infra/performance-probe/file-wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
+
+      - name: Resolve APAC probe URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail --silent --show-error \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          SUBDOMAIN="$(printf '%s' "$RESPONSE" | node --input-type=module -e '
+            import fs from "node:fs";
+            const body = JSON.parse(fs.readFileSync(0, "utf8"));
+            if (!body.success || !body.result?.subdomain) process.exit(1);
+            process.stdout.write(body.result.subdomain);
+          ')"
+          PROBE_URL="https://${LIFESPACE_APAC_PROBE_NAME}.${SUBDOMAIN}.workers.dev"
+          echo "LIFESPACE_APAC_PROBE_URL=$PROBE_URL" >> "$GITHUB_ENV"
+          echo "APAC probe URL resolved"
+
+      - name: Measure Native upload, finalize, save and verify (15 per size)
+        run: node infra/scripts/staging-file-benchmark.mjs measure
+
+      - name: Delete temporary APAC probe
+        if: ${{ always() }}
+        run: pnpm --dir apps/core exec wrangler delete --config ../../infra/performance-probe/file-wrangler.jsonc --name "$LIFESPACE_APAC_PROBE_NAME"
+
+      - name: Recover and retire exact run-owned File fixtures
+        if: ${{ always() }}
+        run: node infra/scripts/staging-file-benchmark.mjs cleanup
+
+      - name: Cleanup ephemeral staging authority
+        if: ${{ always() }}
+        run: node infra/scripts/cleanup-staging-smoke.mjs
+
+      - name: Summarize diagnostic scope
+        if: ${{ always() }}
+        run: |
+          echo "Native File diagnostics only; no release threshold or Production mutation. Four sizes, 15 samples each, APAC synthetic client. Finalize request IDs correlate existing Core phase logs. Runner-to-probe includes verification and cleanup; not browser UX latency." >> "$GITHUB_STEP_SUMMARY"
