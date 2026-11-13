@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "../../../infra/scripts/runner-secret.mjs";
 import process from "node:process";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
@@ -19,7 +20,7 @@ assertStagingUrl(coreBase, "Core URL");
 if (bootstrapSecret.length < 32) throw new Error("LIFESPACE_STAGING_BOOTSTRAP_SECRET must contain at least 32 characters");
 if (!/^app_[0-9A-Za-z_-]+$/u.test(consoleApplicationId)) throw new Error("Console application id is invalid");
 if (explicitAdminUserId && !/^usr_[0-9A-Za-z_-]+$/u.test(explicitAdminUserId)) throw new Error("Explicit platform admin user id is invalid");
-console.log(`::add-mask::${bootstrapSecret}`);
+mask(bootstrapSecret);
 
 async function request(base, path, { method = "GET", bootstrap = false, bearer = "", actor = "", body } = {}) {
   const response = await fetch(`${base}${path}`, {
@@ -45,14 +46,11 @@ async function request(base, path, { method = "GET", bootstrap = false, bearer =
 function requireStatus(result, expected, label) {
   const allowed = Array.isArray(expected) ? expected : [expected];
   if (!allowed.includes(result.response.status)) {
-    throw new Error(`${label} expected HTTP ${allowed.join("/")}, got ${result.response.status}: ${JSON.stringify(result.payload)}`);
+    throw new Error(`${label} expected HTTP ${allowed.join("/")}, got ${result.response.status}`);
   }
   return result.payload?.data;
 }
 
-function mask(value) {
-  if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
-}
 
 async function resolveAdminUserId() {
   if (explicitAdminUserId) return explicitAdminUserId;
@@ -103,20 +101,20 @@ function admin(path, options = {}) {
 
 async function bestEffort(label, fn) {
   try { await fn(); }
-  catch (error) { console.error(`${label}: ${error instanceof Error ? error.message : String(error)}`); }
+  catch { console.error(`${label}: failed`); }
 }
 
 async function revokeToken() {
   if (!cleanup.targetApplicationId || !cleanup.principalId || !cleanup.tokenId || cleanup.tokenRevoked) return;
   const result = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/service-principals/${encodeURIComponent(cleanup.principalId)}/tokens/${encodeURIComponent(cleanup.tokenId)}`, { method: "DELETE" });
-  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Token cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Token cleanup failed: ${result.response.status}`);
   cleanup.tokenRevoked = true;
 }
 
 async function revokeAgentCredential() {
   if (!cleanup.targetApplicationId || !cleanup.agentId || !cleanup.agentCredentialId || cleanup.agentCredentialRevoked) return;
   const result = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}/api-credentials/${encodeURIComponent(cleanup.agentCredentialId)}`, { method: "DELETE" });
-  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Agent credential cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Agent credential cleanup failed: ${result.response.status}`);
   cleanup.agentCredentialRevoked = true;
 }
 
@@ -126,7 +124,7 @@ async function disableAgent() {
     method: "PATCH",
     body: { displayName: `Disabled staging acceptance Agent ${runSuffix}`, status: "disabled" },
   });
-  if (result.response.status !== 200 && result.response.status !== 404) throw new Error(`Agent cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  if (result.response.status !== 200 && result.response.status !== 404) throw new Error(`Agent cleanup failed: ${result.response.status}`);
   cleanup.agentDisabled = true;
 }
 
@@ -136,21 +134,21 @@ async function disablePrincipal() {
     method: "PATCH",
     body: { status: "disabled" },
   });
-  if (result.response.status !== 200 && result.response.status !== 404) throw new Error(`Principal cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  if (result.response.status !== 200 && result.response.status !== 404) throw new Error(`Principal cleanup failed: ${result.response.status}`);
   cleanup.principalDisabled = true;
 }
 
 async function revokeAudience() {
   if (!cleanup.targetApplicationId || !cleanup.audienceId || cleanup.audienceRevoked) return;
   const result = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/access-audiences/${encodeURIComponent(cleanup.audienceId)}`, { method: "DELETE" });
-  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Audience cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Audience cleanup failed: ${result.response.status}`);
   cleanup.audienceRevoked = true;
 }
 
 async function revokeTargetCredential(id, flag) {
   if (!cleanup.targetApplicationId || !id || cleanup[flag]) return;
   const result = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/credentials/${encodeURIComponent(id)}`, { method: "DELETE" });
-  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Target credential cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Target credential cleanup failed: ${result.response.status}`);
   cleanup[flag] = true;
 }
 
@@ -160,7 +158,7 @@ async function disableTargetApplication() {
     method: "PATCH",
     body: { status: "disabled" },
   });
-  if (result.response.status !== 200 && result.response.status !== 404) throw new Error(`Target application cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  if (result.response.status !== 200 && result.response.status !== 404) throw new Error(`Target application cleanup failed: ${result.response.status}`);
   cleanup.targetApplicationDisabled = true;
 }
 
@@ -170,7 +168,7 @@ async function revokeConsoleCredential() {
     method: "DELETE",
     bootstrap: true,
   });
-  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Console credential cleanup failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+  if (result.response.status !== 204 && result.response.status !== 404) throw new Error(`Console credential cleanup failed: ${result.response.status}`);
   cleanup.consoleCredentialId = "";
   cleanup.consoleCredential = "";
 }
@@ -254,7 +252,7 @@ try {
     },
   }), 200, "Update target Application policy");
   if (updated?.name !== `${targetName} Updated` || updated?.accessTokenTtlSeconds !== 1200 || !updated?.allowedScopes?.includes("resources:manage")) {
-    throw new Error(`Target Application update did not persist expected policy: ${JSON.stringify(updated)}`);
+    throw new Error(`Target Application update did not persist expected policy`);
   }
 
   const audienceValue = `console-mvp-acceptance-${runSuffix}`;
@@ -263,7 +261,7 @@ try {
     body: { audience: audienceValue },
   }), [200, 201], "Register target Access audience");
   cleanup.audienceId = audience?.id ?? "";
-  if (!cleanup.audienceId || audience?.audience !== audienceValue || audience?.status !== "active") throw new Error(`Unexpected Access audience result: ${JSON.stringify(audience)}`);
+  if (!cleanup.audienceId || audience?.audience !== audienceValue || audience?.status !== "active") throw new Error(`Unexpected Access audience result`);
 
   const audiences = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/access-audiences`), 200, "List target Access audiences");
   if (!Array.isArray(audiences) || !audiences.some((entry) => entry?.id === cleanup.audienceId && entry?.status === "active")) throw new Error("Registered Access audience did not appear in metadata list");
@@ -306,7 +304,7 @@ try {
     body: { scopes: ["resources:read"], expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() },
   }), 200, "Reduce target Agent API credential scope");
   if (!Array.isArray(reducedAgentCredential?.scopes) || reducedAgentCredential.scopes.length !== 1 || reducedAgentCredential.scopes[0] !== "resources:read") {
-    throw new Error(`Agent credential scope reduction did not persist: ${JSON.stringify(reducedAgentCredential)}`);
+    throw new Error(`Agent credential scope reduction did not persist`);
   }
 
   const agentExpansion = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}/api-credentials/${encodeURIComponent(cleanup.agentCredentialId)}`, {
@@ -314,7 +312,7 @@ try {
     body: { scopes: ["resources:read", "resources:write"] },
   });
   if (agentExpansion.response.status !== 422 && agentExpansion.response.status !== 403) {
-    throw new Error(`Agent credential scope expansion should be denied, got ${agentExpansion.response.status}: ${JSON.stringify(agentExpansion.payload)}`);
+    throw new Error(`Agent credential scope expansion should be denied, got ${agentExpansion.response.status}`);
   }
 
   const agentCredentialRows = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/agents/${encodeURIComponent(cleanup.agentId)}/api-credentials`), 200, "List Agent API credential metadata");
@@ -358,14 +356,14 @@ try {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     },
   }), 200, "Reduce target Service API Token scope");
-  if (!Array.isArray(reduced?.scopes) || reduced.scopes.length !== 1 || reduced.scopes[0] !== "resources:read") throw new Error(`Service token scope reduction did not persist: ${JSON.stringify(reduced)}`);
+  if (!Array.isArray(reduced?.scopes) || reduced.scopes.length !== 1 || reduced.scopes[0] !== "resources:read") throw new Error(`Service token scope reduction did not persist`);
 
   const expansion = await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/service-principals/${encodeURIComponent(cleanup.principalId)}/tokens/${encodeURIComponent(cleanup.tokenId)}`, {
     method: "PATCH",
     body: { scopes: ["resources:read", "resources:write"] },
   });
   if (expansion.response.status !== 422 && expansion.response.status !== 403) {
-    throw new Error(`Service token scope expansion should be denied, got ${expansion.response.status}: ${JSON.stringify(expansion.payload)}`);
+    throw new Error(`Service token scope expansion should be denied, got ${expansion.response.status}`);
   }
 
   const tokenRows = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}/service-principals/${encodeURIComponent(cleanup.principalId)}/tokens`), 200, "List Service API Token metadata");
@@ -382,7 +380,7 @@ try {
   await disableTargetApplication();
 
   const finalApp = requireStatus(await admin(`/internal/v1/platform-admin/applications/${encodeURIComponent(cleanup.targetApplicationId)}`), 200, "Read final target Application state");
-  if (finalApp?.status !== "disabled") throw new Error(`Acceptance Application was not disabled after cleanup: ${JSON.stringify(finalApp)}`);
+  if (finalApp?.status !== "disabled") throw new Error(`Acceptance Application was not disabled after cleanup`);
 
   const afterAudit = requireStatus(await admin("/internal/v1/platform-admin/audit?limit=200"), 200, "Read Identity audit after acceptance");
   const newAuditRows = Array.isArray(afterAudit) ? afterAudit.filter((entry) => entry?.id && !beforeAuditIds.has(entry.id)) : [];
@@ -397,9 +395,9 @@ try {
     cleanup.agentCredentialId,
   ].filter(Boolean));
   const relevantAudit = newAuditRows.filter((entry) => entry?.actorUserId === adminUserId && targetIds.has(entry?.targetId));
-  if (relevantAudit.length < 13) throw new Error(`Expected at least 13 human-attributed target audit entries, found ${relevantAudit.length}: ${JSON.stringify(relevantAudit)}`);
+  if (relevantAudit.length < 13) throw new Error(`Expected at least 13 human-attributed target audit entries, found ${relevantAudit.length}`);
   for (const operation of ["agent.create", "agent.update", "agent.api_credential.create", "agent.api_credential.update", "agent.api_credential.revoke"]) {
-    if (!relevantAudit.some((entry) => entry?.operation === operation)) throw new Error(`Missing human-attributed ${operation} audit entry: ${JSON.stringify(relevantAudit)}`);
+    if (!relevantAudit.some((entry) => entry?.operation === operation)) throw new Error(`Missing human-attributed ${operation} audit entry`);
   }
   const auditSerialized = JSON.stringify(relevantAudit);
   for (const secret of [cleanup.targetInitialSecret, cleanup.targetReplacementSecret, cleanup.tokenSecret, cleanup.agentCredentialSecret]) {
@@ -411,8 +409,8 @@ try {
     environment: "staging",
     identityContractVersion: identityData?.contractVersion ?? null,
     coreContractVersion: coreData?.contractVersion ?? null,
-    actorUserId: adminUserId,
-    targetApplicationId: cleanup.targetApplicationId,
+    actorVerified: true,
+    targetApplicationVerified: true,
     targetApplicationFinalStatus: finalApp?.status,
     accessAudienceRegisteredAndRevoked: true,
     applicationCredentialRotationProven: true,
@@ -426,7 +424,7 @@ try {
   }));
 } catch (error) {
   primaryError = error;
-  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+  console.error("Configuration Center acceptance failed; inspect failing operation and HTTP status.");
 } finally {
   await bestEffort("Cleanup token", revokeToken);
   await bestEffort("Cleanup Agent credential", revokeAgentCredential);
