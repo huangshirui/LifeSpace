@@ -10,3 +10,5 @@
 .mcp-recovery code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 
 .mcp-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px!important;overflow-wrap:anywhere}.mcp-inline-help{font-size:12px;color:#b45309;margin:10px 0 0}
+
+.mcp-read-fields{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px 18px;align-items:start;font-size:14px}.mcp-read-fields>span:nth-child(odd){color:#687386;font-size:12px}.mcp-read-fields>span,.mcp-read-fields>strong{overflow-wrap:anywhere}.mcp-add{align-items:flex-start}.mcp-add>.console-combobox{flex:1;max-width:480px;margin-bottom:0}.mcp-add>button{margin-top:22px;flex-shrink:0}@media(max-width:680px){.mcp-add>.console-combobox{flex-basis:100%;max-width:none}.mcp-add>button{margin-top:0}.mcp-read-fields{grid-template-columns:80px minmax(0,1fr)}}
