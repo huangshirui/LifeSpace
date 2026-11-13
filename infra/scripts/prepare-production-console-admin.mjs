@@ -1,3 +1,4 @@
+import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import { appendFileSync } from "node:fs";
 import process from "node:process";
 import { PRODUCTION_EXPECTATIONS, assertProductionServiceUrl } from "./production-expectations.mjs";
@@ -48,9 +49,6 @@ if (!/^app_[0-9A-Za-z_-]+$/u.test(applicationId)) throw new Error("LIFESPACE_PRO
 if (suppliedAdminUserId && !/^usr_[0-9A-Za-z_-]+$/u.test(suppliedAdminUserId)) throw new Error("LIFESPACE_PRODUCTION_PLATFORM_ADMIN_USER_ID must use a usr_* identifier");
 if (!githubEnv) throw new Error("GITHUB_ENV is required as the ephemeral secret sink");
 
-function mask(value) {
-  if (typeof value === "string" && value) console.log(`::add-mask::${value}`);
-}
 mask(bootstrapSecret);
 mask(cloudflareApiToken);
 
@@ -100,7 +98,7 @@ async function requireProductionConvergence() {
     || String(identityData?.schemaVersion) !== String(PRODUCTION_EXPECTATIONS.identity.schemaVersion)
     || identityData?.contractVersion !== PRODUCTION_EXPECTATIONS.identity.contractVersion
   ) {
-    throw new Error(`Identity production must already be schema v${PRODUCTION_EXPECTATIONS.identity.schemaVersion} / contract ${PRODUCTION_EXPECTATIONS.identity.contractVersion}; got ${identity.response.status} ${JSON.stringify(identity.payload)}`);
+    throw new Error(`Identity production must already be schema v${PRODUCTION_EXPECTATIONS.identity.schemaVersion} / contract ${PRODUCTION_EXPECTATIONS.identity.contractVersion}; got ${identity.response.status}`);
   }
   if (
     core.response.status !== 200
@@ -108,7 +106,7 @@ async function requireProductionConvergence() {
     || String(coreData?.schemaVersion) !== String(PRODUCTION_EXPECTATIONS.core.schemaVersion)
     || coreData?.contractVersion !== PRODUCTION_EXPECTATIONS.core.contractVersion
   ) {
-    throw new Error(`Core production must already be schema v${PRODUCTION_EXPECTATIONS.core.schemaVersion} / contract ${PRODUCTION_EXPECTATIONS.core.contractVersion}; got ${core.response.status} ${JSON.stringify(core.payload)}`);
+    throw new Error(`Core production must already be schema v${PRODUCTION_EXPECTATIONS.core.schemaVersion} / contract ${PRODUCTION_EXPECTATIONS.core.contractVersion}; got ${core.response.status}`);
   }
   return { identity: identityData, core: coreData };
 }
@@ -124,7 +122,7 @@ async function resolveAccessAudience() {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.success !== true || !Array.isArray(payload?.result)) {
-    throw new Error(`Could not inspect Cloudflare Access applications: ${response.status} ${JSON.stringify(payload)}`);
+    throw new Error(`Could not inspect Cloudflare Access applications: ${response.status}`);
   }
   const matches = payload.result.filter((entry) => {
     const domains = [entry?.domain, ...(Array.isArray(entry?.self_hosted_domains) ? entry.self_hosted_domains : [])].filter(Boolean);
@@ -141,7 +139,7 @@ async function resolveAccessAudience() {
 async function resolvePlatformAdminUserId() {
   const result = await request(identityBase, "/bootstrap/v1/platform-administrators", { bootstrap: true });
   if (result.response.status !== 200 || !Array.isArray(result.payload?.data)) {
-    throw new Error(`Could not list production platform administrators: ${result.response.status} ${JSON.stringify(result.payload)}`);
+    throw new Error(`Could not list production platform administrators: ${result.response.status}`);
   }
   const active = result.payload.data.filter((entry) => entry?.status === "active" && entry?.userStatus === "active" && typeof entry?.userId === "string");
   if (suppliedAdminUserId) {
@@ -178,14 +176,14 @@ async function createOrReconcileApplication() {
     });
     initialSecret = result.payload?.data?.clientSecret ?? "";
     if (result.response.status !== 201 || result.payload?.data?.id !== applicationId || !initialSecret.startsWith("lsa_")) {
-      throw new Error(`Production Console application creation failed: ${result.response.status} ${JSON.stringify(result.payload)}`);
+      throw new Error(`Production Console application creation failed: ${result.response.status}`);
     }
     mask(initialSecret);
     created = true;
     lookup = await loadApplication();
   }
   if (lookup.response.status !== 200 || lookup.payload?.data?.id !== applicationId) {
-    throw new Error(`Production Console application lookup failed: ${lookup.response.status} ${JSON.stringify(lookup.payload)}`);
+    throw new Error(`Production Console application lookup failed: ${lookup.response.status}`);
   }
 
   const existing = lookup.payload.data;
@@ -206,7 +204,7 @@ async function createOrReconcileApplication() {
       bootstrap: true,
       body: patch,
     });
-    if (updated.response.status !== 200) throw new Error(`Production Console application reconciliation failed: ${updated.response.status} ${JSON.stringify(updated.payload)}`);
+    if (updated.response.status !== 200) throw new Error(`Production Console application reconciliation failed: ${updated.response.status}`);
   }
   return { created, initialSecret };
 }
@@ -215,7 +213,7 @@ async function ensureAudience(audience, applicationCreated) {
   const path = `/bootstrap/v1/applications/${encodeURIComponent(applicationId)}/access-audiences`;
   const list = await request(identityBase, path, { bootstrap: true });
   if (list.response.status !== 200 || !Array.isArray(list.payload?.data)) {
-    throw new Error(`Production Console Access audience listing failed: ${list.response.status} ${JSON.stringify(list.payload)}`);
+    throw new Error(`Production Console Access audience listing failed: ${list.response.status}`);
   }
   const current = list.payload.data.find((entry) => entry?.audience === audience && entry?.status === "active");
   if (current) return { created: false, entry: current };
@@ -224,7 +222,7 @@ async function ensureAudience(audience, applicationCreated) {
   }
   const created = await request(identityBase, path, { method: "POST", bootstrap: true, body: { audience } });
   if (![200, 201].includes(created.response.status) || created.payload?.data?.audience !== audience) {
-    throw new Error(`Production Console Access audience registration failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+    throw new Error(`Production Console Access audience registration failed: ${created.response.status}`);
   }
   return { created: created.response.status === 201, entry: created.payload.data };
 }
@@ -238,7 +236,7 @@ async function rotateApplicationCredential(applicationCreated, initialSecret) {
     });
     secret = created.payload?.data?.clientSecret ?? "";
     if (created.response.status !== 201 || !secret.startsWith("lsa_")) {
-      throw new Error(`Production Console application credential rotation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+      throw new Error(`Production Console application credential rotation failed: ${created.response.status}`);
     }
   }
   if (!secret.startsWith("lsa_")) throw new Error("Production Console application credential was not produced");
@@ -256,7 +254,7 @@ async function rotateApplicationCredential(applicationCreated, initialSecret) {
 async function ensureCoreExecutor(applicationCredential, adminUserId) {
   const list = await request(identityBase, "/api/v1/service-principals", { bearer: applicationCredential });
   if (list.response.status !== 200 || !Array.isArray(list.payload?.data)) {
-    throw new Error(`Could not list production Console service principals: ${list.response.status} ${JSON.stringify(list.payload)}`);
+    throw new Error(`Could not list production Console service principals: ${list.response.status}`);
   }
   const matches = list.payload.data.filter((entry) => entry?.displayName === CORE_EXECUTOR_NAME);
   if (matches.length > 1) throw new Error(`Multiple production service principals use reserved name ${CORE_EXECUTOR_NAME}`);
@@ -273,7 +271,7 @@ async function ensureCoreExecutor(applicationCredential, adminUserId) {
       },
     });
     principal = created.payload?.data;
-    if (created.response.status !== 201 || !principal?.id?.startsWith("svc_")) throw new Error(`Production Console Core executor creation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+    if (created.response.status !== 201 || !principal?.id?.startsWith("svc_")) throw new Error(`Production Console Core executor creation failed: ${created.response.status}`);
   } else {
     if (principal.clientId !== applicationId) throw new Error(`Production Console Core executor belongs to ${String(principal.clientId)}, expected ${applicationId}`);
     const patch = {};
@@ -286,7 +284,7 @@ async function ensureCoreExecutor(applicationCredential, adminUserId) {
         bearer: applicationCredential,
         body: patch,
       });
-      if (updated.response.status !== 200) throw new Error(`Production Console Core executor reconciliation failed: ${updated.response.status} ${JSON.stringify(updated.payload)}`);
+      if (updated.response.status !== 200) throw new Error(`Production Console Core executor reconciliation failed: ${updated.response.status}`);
       principal = updated.payload?.data;
     }
   }
@@ -312,13 +310,13 @@ async function rotateCoreToken(applicationCredential, principalId, adminUserId) 
   const tokenId = created.payload?.data?.id ?? "";
   const token = created.payload?.data?.token ?? "";
   if (created.response.status !== 201 || !tokenId.startsWith("sat_") || !token.startsWith("lsp_svc_")) {
-    throw new Error(`Production Console Core token rotation failed: ${created.response.status} ${JSON.stringify(created.payload)}`);
+    throw new Error(`Production Console Core token rotation failed: ${created.response.status}`);
   }
   mask(token);
 
   const verified = await request(coreBase, "/api/v1/model-admin/models", { bearer: token });
   if (verified.response.status !== 200 || !Array.isArray(verified.payload?.data)) {
-    throw new Error(`New production Console Core token failed Model Admin verification: ${verified.response.status} ${JSON.stringify(verified.payload)}`);
+    throw new Error(`New production Console Core token failed Model Admin verification: ${verified.response.status}`);
   }
   return { token, id: tokenId, oldIds: before.map((entry) => entry.id).filter((id) => id !== tokenId) };
 }
@@ -355,9 +353,9 @@ console.log(JSON.stringify({
   schemas: { identity: convergence.identity.schemaVersion, core: convergence.core.schemaVersion },
   access: { domain: ACCESS_DOMAIN, audienceSource: access.source, registered: audience.entry?.status === "active" },
   application: { id: applicationId, created: application.created, scopes: APPLICATION_SCOPES },
-  platformAdministrator: { userId: adminUserId, status: "verified-active", assignmentRequested: false },
-  identityExecutor: { currentCredentialId: applicationCredential.id, supersededCredentialCount: applicationCredential.oldIds.length, plaintextLogged: false },
-  coreExecutor: { principalId: principal.id, currentTokenId: coreToken.id, supersededTokenCount: coreToken.oldIds.length, scopes: CORE_EXECUTOR_SCOPES, plaintextLogged: false },
+  platformAdministrator: { status: "verified-active", assignmentRequested: false },
+  identityExecutor: { credentialVerified: true, supersededCredentialCount: applicationCredential.oldIds.length, plaintextLogged: false },
+  coreExecutor: { tokenVerified: true, supersededTokenCount: coreToken.oldIds.length, scopes: CORE_EXECUTOR_SCOPES, plaintextLogged: false },
   businessDataTouched: false,
   coreIdentityDeploymentPerformed: false,
 }, null, 2));
