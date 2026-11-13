@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { GrantGranteePicker, GrantGranteeLabel, grantGranteeSummary, useGrantLabels, type GrantGranteeType } from "./GrantGranteePicker";
 
 type GrantPermission = "free_busy" | "read" | "write" | "manage";
 type GrantResourceType = "space" | "model";
-type GrantGranteeType = "user" | "space" | "service" | "device" | "agent";
 
 type DataGrant = {
   id: string;
@@ -122,9 +122,9 @@ function toUtcInstant(value: string): string | null {
   return date.toISOString();
 }
 
-function grantSummary(grant: DataGrant) {
+function grantSummary(grant: DataGrant, labels: ReturnType<typeof useGrantLabels>) {
   const resource = grant.resourceType === "space" ? "Whole Space" : grant.resourceId ?? "model";
-  return `${grant.granteeType}:${grant.granteeId} → ${resource} · ${grant.permission}`;
+  return `${grantGranteeSummary(grant, labels)} → ${resource} · ${grant.permission}`;
 }
 
 function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose: () => void }) {
@@ -157,6 +157,7 @@ function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose:
 
   useEffect(() => { void load(); }, [spaceId]);
 
+  const labels = useGrantLabels(space?.grants ?? []);
   const activeGrants = useMemo(() => space?.grants.filter((grant) => !grant.revokedAt) ?? [], [space]);
   const revokedGrants = useMemo(() => space?.grants.filter((grant) => grant.revokedAt) ?? [], [space]);
 
@@ -241,7 +242,7 @@ function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose:
         <div className="cp-access-table">
           <div className="cp-access-head"><span>Grantee</span><span>Resource</span><span>Permission / expiry</span></div>
           {activeGrants.map((grant) => <div className="cp-access-row" key={grant.id}>
-            <div><strong>{grant.granteeType}</strong><small>{grant.granteeId}</small></div>
+            <div><GrantGranteeLabel grant={grant} labels={labels} /></div>
             <div><strong>{grant.resourceType === "space" ? "Whole Space" : grant.resourceId}</strong><small>{grant.id}</small></div>
             <div><strong>{grant.permission}</strong><small>{grant.expiresAt ? new Date(grant.expiresAt).toLocaleString() : "Never expires"}</small><div className="cp-row"><button className="cp-secondary" onClick={() => startEdit(grant)}>Edit</button><button className="cp-danger" onClick={() => startRevoke(grant)}>Revoke</button></div></div>
           </div>)}
@@ -250,8 +251,8 @@ function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose:
 
         {mode?.type === "create" && <div className="cp-danger-box">
           <strong>Create Data Grant</strong>
-          <label className="cp-field"><span>Grantee type</span><select value={granteeType} onChange={(event) => setGranteeType(event.target.value as GrantGranteeType)}><option value="service">Service</option><option value="agent">Agent</option><option value="user">User</option><option value="space">Space</option><option value="device">Device</option></select></label>
-          <label className="cp-field"><span>Grantee ID</span><input value={granteeId} onChange={(event) => setGranteeId(event.target.value)} placeholder={granteeType === "service" ? "svc_*" : `${granteeType} id`} /></label>
+          <label className="cp-field"><span>Grantee type</span><select value={granteeType} onChange={(event) => { setGranteeType(event.target.value as GrantGranteeType); setGranteeId(""); setConfirmed(false); }}><option value="service">Service</option><option value="agent">Agent</option><option value="user">User</option><option value="space">Space</option><option value="device">Device</option></select></label>
+          <GrantGranteePicker key={granteeType} type={granteeType} value={granteeId} sourceSpaceId={spaceId} onChange={id => { setGranteeId(id); setConfirmed(false); }} />
           <label className="cp-field"><span>Resource</span><select value={resourceType} onChange={(event) => { const next = event.target.value as GrantResourceType; setResourceType(next); if (next === "model" && permission === "free_busy") setPermission("read"); }}><option value="space">Whole Space</option><option value="model">Specific Model</option></select></label>
           {resourceType === "model" && <label className="cp-field"><span>Model</span><select value={resourceId} onChange={(event) => setResourceId(event.target.value)}><option value="">Select model…</option>{models.map((model) => <option key={model.key} value={model.key}>{model.key}</option>)}</select></label>}
           <label className="cp-field"><span>Permission</span><select value={permission} onChange={(event) => setPermission(event.target.value as GrantPermission)}>{resourceType === "space" && <option value="free_busy">free_busy</option>}<option value="read">read</option><option value="write">write</option><option value="manage">manage</option></select></label>
@@ -261,7 +262,7 @@ function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose:
         </div>}
 
         {mode?.type === "edit" && <div className="cp-danger-box">
-          <strong>Edit {mode.grant.id}</strong><span>{grantSummary(mode.grant)}</span>
+          <strong>Edit {mode.grant.id}</strong><span>{grantSummary(mode.grant, labels)}</span>
           <label className="cp-field"><span>Permission</span><select value={permission} onChange={(event) => setPermission(event.target.value as GrantPermission)}>{mode.grant.resourceType === "space" && <option value="free_busy">free_busy</option>}<option value="read">read</option><option value="write">write</option><option value="manage">manage</option></select></label>
           <label className="cp-field"><span>Expires (empty = never)</span><input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
           <label className="cp-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>我确认修改此 Grant 的权限/有效期。</span></label>
@@ -269,7 +270,7 @@ function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose:
         </div>}
 
         {mode?.type === "revoke" && <div className="cp-danger-box">
-          <strong>Revoke {mode.grant.id}</strong><span>{grantSummary(mode.grant)}</span>
+          <strong>Revoke {mode.grant.id}</strong><span>{grantSummary(mode.grant, labels)}</span>
           <label className="cp-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>我确认撤销此 Data Grant；后续 Authority 检查将不再使用它。</span></label>
           <button className="cp-danger" disabled={busy || !confirmed} onClick={() => void revokeGrant()}>{busy ? "撤销中…" : "Revoke Grant"}</button>
         </div>}
