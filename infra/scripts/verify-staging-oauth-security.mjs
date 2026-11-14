@@ -239,6 +239,26 @@ async function runCimd() {
     const granted = await api("SELECT count(*) AS total FROM oauth_authorizations WHERE request_id=?", [requestId]);
     assert.equal(granted[0]?.total, 0);
     passed("CIMD real pending Consent without authorization: " + new URL(clientId).hostname);
+    // Live cache acceptance without granting a real User authorization.
+    // A publisher may intentionally send noncacheable metadata; report that
+    // case as not verified rather than pretending a cache hit succeeded.
+    const freshness = await api(
+      "SELECT m.redirect_uris,m.policy_revision,m.fresh_until_ms,p.revision FROM oauth_cimd_metadata_cache m JOIN oauth_client_admission_policy p ON p.id=1 WHERE m.client_id=?",
+      [clientId],
+    );
+    if (freshness[0]?.fresh_until_ms > Date.now()) {
+      assert.ok(freshness[0].fresh_until_ms <= Date.now()+300_000);
+      assert.equal(freshness[0].policy_revision,freshness[0].revision);
+      assert.ok(JSON.parse(freshness[0].redirect_uris).includes(redirect));
+      const repeated = await request(authorizeUrl(clientId,redirect,selectedResource));
+      assert.equal(repeated.status,302);
+      const after = await api("SELECT fresh_until_ms FROM oauth_cimd_metadata_cache WHERE client_id=?",[clientId]);
+      assert.equal(after[0]?.fresh_until_ms,freshness[0].fresh_until_ms,
+        "Reading fresh CIMD metadata must not renew its freshness");
+      passed("CIMD live bounded HTTP freshness reuse: "+new URL(clientId).hostname);
+    } else {
+      console.log("CIMD live freshness NOT VERIFIED: publisher response not cacheable or freshness expired: "+new URL(clientId).hostname);
+    }
     const wrong = await request(authorizeUrl(clientId, "https://oauth-acceptance.example.org/not-registered", selectedResource));
     assert.equal(wrong.status, 400);
     passed("CIMD exact callback denial: " + new URL(clientId).hostname);
