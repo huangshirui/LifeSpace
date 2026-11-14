@@ -2,6 +2,16 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-11-14 (UTC+8) — 依赖安全、CodeQL 与 Console UX / Security and UX（Production #43530179347）
+
+- **Verified release:** SHA `533321d0884675ada6aba8558a850d686e700608`；Staging platform [#43450310604](https://github.com/huangshirui/LifeSpace/actions/runs/43450310604)（attempt 4）、Console [#43527880000](https://github.com/huangshirui/LifeSpace/actions/runs/43527880000)、Account [#43528290890](https://github.com/huangshirui/LifeSpace/actions/runs/43528290890) 均成功；Production platform [#43530179347](https://github.com/huangshirui/LifeSpace/actions/runs/43530179347)、Console [#43533673820](https://github.com/huangshirui/LifeSpace/actions/runs/43533673820)、Account [#43534485019](https://github.com/huangshirui/LifeSpace/actions/runs/43534485019) 均为同一 SHA。平台三个 Job（发布来源、APAC gate、生产部署及验证）全通过。
+- **Security:** #567 修复剩余 43 条 Dependabot 告警；#575/#576 分两轮修复日志与异常泄露、URL 校验等 CodeQL 告警。Owner 确认两类开放告警均为零；main [#43449474890](https://github.com/huangshirui/LifeSpace/actions/runs/43449474890) 与 CodeQL [#43449474278](https://github.com/huangshirui/LifeSpace/actions/runs/43449474278) 成功，无告警 dismiss。保留 Hono 4.13.16；升级 Wrangler 4.161.0、Vite 8.3.8、Vitest 4.1.12 等工具链，新增经审计的官方 Actions masking 工具库。零告警不等同于全面安全审计。
+- **Console UX:** #564/#570/#571/#573/#574 的可搜索 Grant 授权对象、独立编辑对话框、Application/凭据/External Data 分离编辑、MCP/OAuth 只读详情与显式编辑已独立部署。Account 代码更新保留既有凭据；private MCP Adapter 仍为前次独立发布 cc15736。
+- **No platform capability-level changes / 平台能力层不变：** Core 0.54.0 / schema 78；Identity 0.19.0 / schema 18；active Model Contract `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246fed4b4b6b2f4`；19 个普通模型，无重复语义发布。Notion Provider 固定 revision `4a95fde4ce2a00e359f67a2c02b136a5de668223` 部署成功。API、授权策略、数据库结构不变。
+- **Limits:** 生产 HTTP/schema/Model Contract/Service Token/隔离及 External private route 验证成功；Staging Eventing 与撤权通过。Console 可选真实控制面写验收未启用；生产 OAuth/MCP/Delegation、Notion 业务 CRUD 与浏览器场景仍需独立验收。此前 Staging Cloudflare 10013 经重试恢复，根因未确定。无下游应用自动发布。
+
+---
+
 ## 2026-11-13 — Hono 安全维护 / Security patch（Production #43383749799）
 
 - **Verified release:** SHA `07d2eafe83fefb55b74bc1645fa9061eff783150`；[Dependabot #557](https://github.com/huangshirui/LifeSpace/pull/557)、[Staging #43381875181](https://github.com/huangshirui/LifeSpace/actions/runs/43381875181)、[Production #43383749799](https://github.com/huangshirui/LifeSpace/actions/runs/43383749799) 成功；Production 三个 Job（发布来源、APAC gate、正式部署与验证）全部通过。
