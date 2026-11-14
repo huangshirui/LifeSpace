@@ -235,13 +235,18 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string, phas
     // Cache only a valid 200, bound to the exact current registration and
     // current admission revision. A subsequent disable, callback edit,
     // revision change or expiration invalidates reuse immediately.
-    await c.env.DB.prepare(
+    const cached = await c.env.DB.prepare(
       "INSERT INTO oauth_cimd_metadata_cache(client_id,redirect_uris,policy_revision,fresh_until_ms) " +
       "SELECT c.id,c.redirect_uris,p.revision,? FROM oauth_clients c JOIN oauth_client_admission_policy p ON p.id=1 " +
       "WHERE c.id=? AND c.status='active' AND c.redirect_uris=? AND p.cimd_enabled=1 AND p.revision=? " +
       "ON CONFLICT(client_id) DO UPDATE SET redirect_uris=excluded.redirect_uris," +
       "policy_revision=excluded.policy_revision,fresh_until_ms=excluded.fresh_until_ms"
     ).bind(result.freshUntilMs,clientId,redirects,policy.revision).run();
+    if (cached.meta.changes !== 1) return reject("cimd_registration_or_policy_changed");
+  } else {
+    // A newly validated but noncacheable representation does not renew or
+    // retain earlier freshness. Never promote an old cache entry on failure.
+    await c.env.DB.prepare("DELETE FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).run();
   }
   return registered;
 }
