@@ -81,10 +81,11 @@ function fixture(requestedScopes = ["resources:read"]) {
         assert.equal(query.get("resource"), "https://mcp.example.test/mcp/tasks");
         return Response.json({ data: {
           kind: "pre_policy_upper_bound",
-          nativeModelsOnly: true, modelPolicyApplied: false,
+          nativeModelsOnly: false, modelPolicyApplied: false,
           resourceCapabilityApplied: true,
           models: [{ key: "task", name: "Task", access: ["read", "write"],
-            operations: ["query", "create", "update"] }],
+            operations: ["query", "create", "update"] },
+            {key:"person",name:"Person",access:["read","write"],operations:["query","get","create","update"]}],
           truncated: false,
         } });
       }
@@ -209,7 +210,9 @@ test("permission projection is bounded by current Identity OAuth scopes, not use
   assert.equal(data.kind, "pre_policy_upper_bound");
   assert.equal(data.resourceCapabilityApplied, true);
   assert.equal(data.modelPolicyApplied, false);
-  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"], operations: ["query"] }]);
+  assert.equal(data.nativeModelsOnly,false);
+  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"], operations: ["query"] },
+    {key:"person",name:"Person",access:["read"],operations:["query","get"]}]);
   assert.deepEqual(data.requestedScopes, ["resources:read"]);
   assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&scope=resources:write")).status, 400);
   assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&agent_id=" + agent)).status, 400);
@@ -228,7 +231,7 @@ test("explicit read+write client consent previews only Core-selected supported o
   assert.deepEqual(data.models, [{
     key: "task", name: "Task", access: ["read", "write"],
     operations: ["query", "create", "update"],
-  }]);
+  },{key:"person",name:"Person",access:["read","write"],operations:["query","get","create","update"]}]);
   assert.deepEqual(data.requestedScopes, ["resources:read", "resources:write"]);
 });
 

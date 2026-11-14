@@ -151,7 +151,7 @@
     },
     "/api/oauth/capabilities": {
       "get": {
-        "summary": "Account BFF builds current Agent Direct model-level pre-policy upper bound, narrowed by Identity pending OAuth Scope",
+        "summary": "Account BFF previews current Agent Direct Native model and Kernel Person operations as a pre-policy upper bound, narrowed by Identity pending OAuth Scope",
         "parameters": [
           {
             "name": "request_id",
@@ -192,7 +192,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Bounded current Native model access projection, explicitly not Policy/resource verified"
+            "description": "Bounded current Native and Person operation preview; selected MCP Server and current Agent Grants applied, Identity pending Scope narrows the result; not record Policy or future execution authority"
           },
           "400": {
             "description": "Invalid or duplicate selector"

@@ -108,6 +108,17 @@ async function personMay(env:Bindings,p:Principal,spaceId:string,access:Access) 
   try {await requirePersonDirectoryPermission(env,discoveryPrincipal(p,access),spaceId,access);return true;}
   catch(e){if(e instanceof ApiError&&[403,404].includes(e.status))return false;throw e;}
 }
+// Shared current Person authority projection for discovery and Account Consent.
+export async function projectMcpPersonOperations(env:Bindings,p:Principal,spaceId:string,configured:readonly string[]):Promise<string[]>{
+  const choices=[...new Set(configured.map(op=>op==="list"?"query":op))]
+    .filter(op=>["query","get","create","update","delete"].includes(op));
+  if(!choices.length)return [];
+  const [read,write]=await Promise.all([
+    choices.some(op=>op==="query"||op==="get")?personMay(env,p,spaceId,"read"):false,
+    choices.some(op=>op!=="query"&&op!=="get")?personMay(env,p,spaceId,"write"):false,
+  ]);
+  return choices.filter(op=>["query","get"].includes(op)?read:write);
+}
 type ProjectionFilter={modelKey:string;operation?:string};
 function projectionFilter(c:ContextApp):ProjectionFilter|undefined{
   const params=new URL(c.req.url).searchParams;
@@ -281,18 +292,8 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
     const normalized=op==="list"?"query":op;
     if(validCrud(normalized)&&await matches("person","person",normalized))choices.push(normalized);
   }
-  if(choices.length){
-    const [read,write]=await Promise.all([
-      choices.some(op=>op==="query"||op==="get")?personMay(c.env,principal,spaceId,"read"):false,
-      choices.some(op=>op!=="query"&&op!=="get")?personMay(c.env,principal,spaceId,"write"):false,
-    ]);
-    for(const normalized of choices){
-      if(!["query","get","create","update","delete"].includes(normalized))continue;
-      // Person Directory write is independently granted by Core. A read
-      // Grant plus OAuth write Scope never creates a write capability.
-      const available=["query","get"].includes(normalized)?read:write;
-      if(available)await push("person","person","Person",normalized as Operation,personData(normalized as Operation));
-    }
+  for(const normalized of await projectMcpPersonOperations(c.env,principal,spaceId,choices)){
+    await push("person","person","Person",normalized as Operation,personData(normalized as Operation));
   }
   return out;
 }

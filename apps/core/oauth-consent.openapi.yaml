@@ -135,10 +135,12 @@ paths:
   /api/v1/me/oauth/capabilities:
     get:
       description: >
-        Account-only, current-manager, selected active Agent direct model access
+        Account-only, current-manager, selected active Agent direct operation access
         upper-bound preview from published Native Model Definition, current
         Application Model Access, Agent Data Grants, and the exact enabled
-        Core MCP Server operation allowlist. The Account BFF applies the
+        Core MCP Server operation allowlist. Kernel Person operations use the
+        same independent Person Directory authority as live MCP discovery;
+        ordinary model grants do not grant Person access. The Account BFF applies the
         pending OAuth Client's immutable requested Scopes; record-specific
         Policy and execution-time state must still narrow results. Preview
         is not runtime authorization proof.
@@ -149,7 +151,7 @@ paths:
         - { in: query, name: agentId, required: true, schema: { type: string, pattern: '^agt_' } }
         - { in: query, name: resource, required: true, description: Exact current Core MCP Server HTTPS Resource URI from pending Identity OAuth request, schema: { type: string, format: uri } }
       responses:
-        '200': { description: Read-only, up to 50 currently eligible Native models, allowed model operations (query/create/update/delete), and resourceCapabilityApplied=true; Account must narrow to requested OAuth Scopes }
+        '200': { description: Read-only, up to 50 currently eligible Native and Kernel Person projections, allowed operations (get/query/create/update/delete), and resourceCapabilityApplied=true; Account must narrow to requested OAuth Scopes }
         '400': { description: Invalid or duplicate context selector }
         '403': { description: Account User or current Agent/Space eligibility missing }
         '503': { description: Identity Agent binding unavailable }
