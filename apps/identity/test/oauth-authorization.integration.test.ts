@@ -476,6 +476,85 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     }
   });
 
+  it("revalidates live CIMD on consent and retries only transient failures within the same rate limit", async () => {
+    const t = await setup();
+    await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1").run();
+    const clientId = "https://public-client.example.com/oauth/client.json";
+    const redirect = "https://client.example.test/callback";
+    const originalFetch = globalThis.fetch;
+    let documentCalls = 0;
+    let dnsCalls = 0;
+    let limiterCalls = 0;
+    let remaining = 100;
+    let failures: number[] = [];
+    let advertised = redirect;
+    let denyDns = false;
+    t.b.OAUTH_DCR_RATE_LIMITER = { limit: async ({key}) => {
+      expect(key).toBe("oauth-cimd-fetch");
+      limiterCalls++;
+      return {success: remaining-- > 0};
+    }};
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (typeof input === "string" && input.startsWith("https://cloudflare-dns.com/dns-query?")) {
+        dnsCalls++;
+        return Response.json({Status:0,Answer:input.endsWith("type=1")?
+          [{type:1,data:denyDns?"127.0.0.1":"8.8.8.8"}]:[]});
+      }
+      expect(input).toBe(clientId);
+      documentCalls++;
+      const status = failures.shift();
+      if (status) return new Response(null,{status});
+      return Response.json({client_id:clientId,client_name:"Public test agent",
+        redirect_uris:[advertised], response_types:["code"], token_endpoint_auth_method:"none",
+        grant_types:["authorization_code","refresh_token"]});
+    }) as typeof fetch;
+    try {
+      const pending = async () => {
+        const response = await t.authorize({client_id:clientId,redirect_uri:redirect});
+        expect(response.status).toBe(302);
+        return new URL(response.headers.get("location")!).searchParams.get("request_id")!;
+      };
+      const id = await pending();
+      // Fresh metadata is required at consent; temporary upstream 503 is
+      // retried only with another admission and a new A/AAAA check.
+      failures = [503];
+      const before = {documentCalls,dnsCalls,limiterCalls};
+      expect((await t.approve(id,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(200);
+      expect(documentCalls-before.documentCalls).toBe(2);
+      expect(dnsCalls-before.dnsCalls).toBe(4);
+      expect(limiterCalls-before.limiterCalls).toBe(2);
+      // A permanent denial must not use cached metadata or retry.
+      const deniedId = await pending();
+      failures = [403];
+      const deniedBefore = documentCalls;
+      expect((await t.approve(deniedId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+      expect(documentCalls-deniedBefore).toBe(1);
+      // A transient failure cannot bypass the existing limiter.
+      remaining = 1;
+      failures = [503];
+      const limitedBefore = documentCalls;
+      expect((await t.approve(deniedId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+      expect(documentCalls-limitedBefore).toBe(1);
+      remaining = 100;
+      // Rebinding to a private address is rejected without an HTTPS fetch.
+      denyDns = true;
+      const privateBefore = documentCalls;
+      const privateLimitBefore = limiterCalls;
+      expect((await t.approve(deniedId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+      expect(documentCalls).toBe(privateBefore);
+      expect(limiterCalls-privateLimitBefore).toBe(1);
+      denyDns = false;
+      // Even a valid current document may not change a registered callback.
+      advertised = "https://different.example.test/callback";
+      expect((await t.approve(deniedId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+      const row = await t.b.DB.prepare("SELECT status FROM oauth_authorization_requests WHERE id=?").bind(deniedId).first<{status:string}>();
+      expect(row?.status).toBe("pending");
+      expect(await t.b.DB.prepare("SELECT id FROM oauth_authorizations WHERE request_id=?").bind(deniedId).first()).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("rate-limits authorization and bounds live pending writes across regions", async () => {
     const t = await setup();
     const b = t.b as typeof t.b & {
