@@ -239,7 +239,9 @@ export async function fetchClientMetadataResult(
   const requestStartedMs = Date.now();
   try {
     response = await fetcher(clientId, {
-      method: "GET", redirect: "manual", credentials: "omit", signal: AbortSignal.timeout(5000),
+      // A fresh Worker subrequest has no browser cookie jar. Do not forward
+      // any inbound headers or use a Request derived from the user session.
+      method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000),
       headers: { accept: "application/json" },
     });
   } catch { return failure("metadata_transport", true); }
