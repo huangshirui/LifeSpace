@@ -7,6 +7,7 @@ import { listPublishedModels } from "./model-registry";
 import { visibleModelAccess } from "./runtime-discovery";
 import type { ModelAccess } from "./model-definition";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
+import { projectMcpPersonOperations } from "./mcp-generic-operations";
 import { expectedOrigin } from "./mcp-resource-ingress";
 
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
@@ -78,7 +79,7 @@ async function candidates(env: Bindings, spaceId: string): Promise<AgentCandidat
     "SELECT DISTINCT g.grantee_id agentId FROM data_grants g " +
     "JOIN spaces s ON s.id=g.source_space_id AND s.deleted_at IS NULL " +
     "WHERE g.source_space_id=? AND g.grantee_type='agent' " +
-    "AND g.resource_type IN ('space','model') AND g.permission IN ('read','write','manage') " +
+    "AND g.resource_type IN ('space','model','person_directory') AND g.permission IN ('read','write','manage') " +
     "AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now')) " +
     "ORDER BY g.grantee_id LIMIT 30"
   ).bind(spaceId).all<{ agentId: string }>();
@@ -101,7 +102,7 @@ export function registerOAuthConsentRoutes(app: App): void {
       "FROM space_memberships m JOIN spaces s ON s.id=m.space_id AND s.deleted_at IS NULL " +
       "JOIN data_grants g ON g.source_space_id=s.id " +
       "WHERE m.user_id=? AND m.deleted_at IS NULL AND m.role IN ('owner','admin') " +
-      "AND g.grantee_type='agent' AND g.resource_type IN ('space','model') " +
+      "AND g.grantee_type='agent' AND g.resource_type IN ('space','model','person_directory') " +
       "AND g.permission IN ('read','write','manage') AND g.revoked_at IS NULL " +
       "AND (g.expires_at IS NULL OR julianday(g.expires_at)>julianday('now')) " +
       "ORDER BY s.name,g.grantee_id LIMIT 100",
@@ -167,8 +168,25 @@ export function registerOAuthConsentRoutes(app: App): void {
     if (!Array.isArray(selections) || selections.length > 32) {
       throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
     }
-    // Only currently supported Native MCP model tools are previewed.
-    // Get/Action/Person/External do not become phantom tools here.
+    // Native CRUD preview plus independently authorized Kernel Person operations.
+    // Never derive Person authority from ordinary model grants.
+    const resources = (config as { resources?: unknown } | null)?.resources;
+    if (resources !== undefined && (!Array.isArray(resources) || resources.length > 1)) {
+      throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
+    }
+    let personOperations: string[] = [];
+    for (const entry of (resources ?? []) as unknown[]) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
+      }
+      const { resourceKey, operations } = entry as {resourceKey?:unknown;operations?:unknown};
+      if (resourceKey !== "person_directory" || !Array.isArray(operations) || !operations.length
+        || operations.some(op => typeof op !== "string" || !["list","get","create","update","delete"].includes(op))
+        || new Set(operations).size !== operations.length) {
+        throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
+      }
+      personOperations = operations;
+    }
     const exposed = new Map<string, string[]>();
     for (const entry of selections) {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
@@ -221,10 +239,15 @@ export function registerOAuthConsentRoutes(app: App): void {
         access: [...new Set(operations.map(op => ["get", "query"].includes(op) ? "read" : "write"))],
       }];
     });
+    const person = await projectMcpPersonOperations(c.env, direct, spaceId, personOperations);
+    if (person.length) selected.push({
+      key: "person", name: "Person", operations: person,
+      access: [...new Set(person.map(op => ["get", "query"].includes(op) ? "read" : "write"))],
+    });
     c.header("Cache-Control", "no-store");
     return c.json(success({
       kind: "pre_policy_upper_bound",
-      nativeModelsOnly: true,
+      nativeModelsOnly: person.length === 0,
       resourceCapabilityApplied: true,
       credentialScopesApplied: false,
       modelPolicyApplied: false,
