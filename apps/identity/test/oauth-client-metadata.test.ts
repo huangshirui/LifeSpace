@@ -182,7 +182,7 @@ describe("CIMD public client metadata is untrusted until verified", () => {
     }
     const cookieResponse = (async (url: string, init: RequestInit) => {
       if (url.startsWith("https://cloudflare-dns.com/dns-query?")) return dnsAnswer(url);
-      expect(init.credentials).toBe("omit");
+      expect(init.redirect).toBe("manual");
       const sent = new Headers(init.headers);
       expect(sent.has("cookie")).toBe(false);
       expect(sent.has("authorization")).toBe(false);
