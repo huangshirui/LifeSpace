@@ -144,6 +144,8 @@ export function cimdFreshUntil(headers: Headers, requestStartedMs: number, respo
   const control = headers.get("cache-control");
   if (!control || headers.get("vary") || headers.has("set-cookie")) return null;
   const directives = control.split(",").map(value => value.trim().toLowerCase());
+  // Decline unusual quoted extension values instead of misparsing commas.
+  if (directives.some(value => !/^[a-z][a-z0-9_-]*(?:\s*=\s*(?:[a-z0-9_-]+|"\d+"))?$/u.test(value))) return null;
   if (!directives.includes("public") || directives.some(value =>
     /^(?:no-store|no-cache|private)(?:\s*=|$)/u.test(value))) return null;
   const ages = (name: string): number[] | null => {
