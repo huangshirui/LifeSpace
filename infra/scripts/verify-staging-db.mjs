@@ -36,7 +36,7 @@ const REQUIRED_TYPED_COLUMNS = new Map([
   ["mdl_event", ["record_id", "space_id", "summary", "description", "__loc_location_name", "__loc_location_address", "__loc_location_latitude", "__loc_location_longitude", "__tr_when_kind", "__tr_when_start", "__tr_when_end", "status"]],
   ["mdl_person_group", ["record_id", "space_id", "name", "description"]],
   ["mdl_anniversary", ["record_id", "space_id", "name", "description", "month", "day", "year"]],
-  ["mdl_activity", ["record_id", "space_id", "name", "description", "startDate", "endDate"]],
+  ["mdl_activity", ["record_id", "space_id", "name", "description", "startDate", "endDate", "status"]],
   ["mdl_goal", ["record_id", "space_id", "name", "description", "startDate", "targetDate"]],
   ["mdl_person_profile", ["record_id", "space_id", "key", "value"]],
   ["mdl_habit", ["record_id", "space_id", "name", "description", "intervalDays", "lastCheckInDate", "streakStartDate"]],
