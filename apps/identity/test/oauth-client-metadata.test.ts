@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cimdClientId, approvedCimdClientId, fetchClientMetadata, fetchClientMetadataResult, parseClientMetadata, publicRedirectUri, ordinaryPublicIp, precheckCimdDns,
+  cimdClientId, approvedCimdClientId, fetchClientMetadata, fetchClientMetadataResult, cimdFreshUntil, parseClientMetadata, publicRedirectUri, ordinaryPublicIp, precheckCimdDns,
 } from "../src/oauth-client-metadata";
 
 const clientId = "https://client.example.com/oauth/client.json";
@@ -155,6 +155,31 @@ describe("CIMD public client metadata is untrusted until verified", () => {
       expect(await fetchClientMetadata(clientId, denied)).toBeNull();
       expect(metadataCalled).toBe(false);
     }
+  });
+
+  it("honors only bounded explicit public HTTP freshness", async () => {
+    const now = Date.parse("2026-11-14T10:00:00Z");
+    const headers = (cacheControl: string, extra: Record<string,string> = {}) =>
+      new Headers({"cache-control":cacheControl,date:new Date(now).toUTCString(),...extra});
+    expect(cimdFreshUntil(headers("public, max-age=300"),now,now)).toBe(now+300_000);
+    expect(cimdFreshUntil(headers("public, max-age=3600"),now,now)).toBe(now+300_000);
+    expect(cimdFreshUntil(headers("public, max-age=60"),now,now)).toBe(now+60_000);
+    expect(cimdFreshUntil(headers("public, max-age=300, s-maxage=20"),now,now)).toBe(now+20_000);
+    expect(cimdFreshUntil(headers("public, max-age=300",{age:"120"}),now-1000,now)).toBe(now+179_000);
+    expect(cimdFreshUntil(headers("public, max-age=300",{date:new Date(now-60_000).toUTCString()}),now,now)).toBe(now+240_000);
+    for (const directive of ["no-store", "public, no-store, max-age=300", "public, no-cache, max-age=300",
+      "private, public, max-age=300", "public, max-age=0", "public, max-age=300, max-age=999",
+      "max-age=300", "public", "public, max-age=-1", "public, max-age=abc"]) {
+      expect(cimdFreshUntil(headers(directive),now,now)).toBeNull();
+    }
+    for (const extra of [{age:"300"},{age:"bad"},{vary:"Accept"},{date:"bad"},{"set-cookie":"x=1"}]) {
+      expect(cimdFreshUntil(headers("public, max-age=300",extra),now,now)).toBeNull();
+    }
+    expect(await fetchClientMetadataResult(clientId,withDns(Response.json(metadata,{headers:{"cache-control":"no-store"}}))))
+      .toMatchObject({ok:true,freshUntilMs:null});
+    expect(await fetchClientMetadataResult(clientId,withDns(Response.json({...metadata,client_id:"wrong"},
+      {headers:{"cache-control":"public, max-age=300"}}))))
+      .toMatchObject({ok:false,reason:"metadata_invalid"});
   });
 
   it("classifies transient transport separately from security denials", async () => {
