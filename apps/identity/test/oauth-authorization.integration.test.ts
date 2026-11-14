@@ -476,23 +476,19 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     }
   });
 
-  it("revalidates live CIMD on consent and retries only transient failures within the same rate limit", async () => {
+  it("reuses fresh validated CIMD across consent but never uses expired or revoked metadata", async () => {
     const t = await setup();
     await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1").run();
-    const clientId = "https://public-client.example.com/oauth/client.json";
+    const clientId = "https://fresh-client.example.com/oauth/client.json";
     const redirect = "https://client.example.test/callback";
     const originalFetch = globalThis.fetch;
-    let documentCalls = 0;
-    let dnsCalls = 0;
-    let limiterCalls = 0;
-    let remaining = 100;
-    let failures: number[] = [];
-    let advertised = redirect;
-    let denyDns = false;
+    let documentCalls = 0, dnsCalls = 0, limiterCalls = 0;
+    let upstreamStatus = 200, rateAllowed = true, denyDns = false;
+    let advertised = redirect, cacheControl = "public, max-age=300";
     t.b.OAUTH_DCR_RATE_LIMITER = { limit: async ({key}) => {
       expect(key).toBe("oauth-cimd-fetch");
       limiterCalls++;
-      return {success: remaining-- > 0};
+      return {success: rateAllowed};
     }};
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       if (typeof input === "string" && input.startsWith("https://cloudflare-dns.com/dns-query?")) {
@@ -502,54 +498,86 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       }
       expect(input).toBe(clientId);
       documentCalls++;
-      const status = failures.shift();
-      if (status) return new Response(null,{status});
+      if (upstreamStatus !== 200) return new Response(null,{status:upstreamStatus});
       return Response.json({client_id:clientId,client_name:"Public test agent",
         redirect_uris:[advertised], response_types:["code"], token_endpoint_auth_method:"none",
-        grant_types:["authorization_code","refresh_token"]});
+        grant_types:["authorization_code","refresh_token"]},
+        {headers:{"cache-control":cacheControl,date:new Date().toUTCString()}});
     }) as typeof fetch;
     try {
+      const authorize = () => t.authorize({client_id:clientId,redirect_uri:redirect});
       const pending = async () => {
-        const response = await t.authorize({client_id:clientId,redirect_uri:redirect});
+        const response = await authorize();
         expect(response.status).toBe(302);
         return new URL(response.headers.get("location")!).searchParams.get("request_id")!;
       };
+      const approve = (id: string) => t.approve(id,t.b.OAUTH_CORE_APPROVER_SECRET);
+      const expire = () => t.b.DB.prepare("UPDATE oauth_cimd_metadata_cache SET fresh_until_ms=0 WHERE client_id=?").bind(clientId).run();
+      // A cold client remains fail-closed when its document cannot be fetched.
+      upstreamStatus = 403;
+      expect((await authorize()).status).toBe(400);
+      expect(await t.b.DB.prepare("SELECT client_id FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first()).toBeNull();
+      upstreamStatus = 200;
       const id = await pending();
-      // Fresh metadata is required at consent; temporary upstream 503 is
-      // retried only with another admission and a new A/AAAA check.
-      failures = [503];
+      const cached = await t.b.DB.prepare("SELECT fresh_until_ms FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first<{fresh_until_ms:number}>();
+      expect(cached?.fresh_until_ms).toBeGreaterThan(Date.now());
+      expect(cached?.fresh_until_ms).toBeLessThanOrEqual(Date.now()+300_000);
+      // Reproduce the production-shaped outage: after successful authorize,
+      // the upstream would return 403. Consent uses the still-fresh document.
+      upstreamStatus = 403;
       const before = {documentCalls,dnsCalls,limiterCalls};
-      expect((await t.approve(id,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(200);
-      expect(documentCalls-before.documentCalls).toBe(2);
-      expect(dnsCalls-before.dnsCalls).toBe(4);
-      expect(limiterCalls-before.limiterCalls).toBe(2);
-      // A permanent denial must not use cached metadata or retry.
+      const approved = await approve(id);
+      expect(approved.status).toBe(200);
+      const {redirect_url} = await approved.json() as {redirect_url:string};
+      expect(new URL(redirect_url).origin).toBe(new URL(redirect).origin);
+      expect(new URL(redirect_url).searchParams.get("code")).toBeTruthy();
+      expect(documentCalls).toBe(before.documentCalls);
+      expect(dnsCalls).toBe(before.dnsCalls);
+      expect(limiterCalls).toBe(before.limiterCalls);
       const deniedId = await pending();
-      failures = [403];
-      const deniedBefore = documentCalls;
-      expect((await t.approve(deniedId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
-      expect(documentCalls-deniedBefore).toBe(1);
-      // A transient failure cannot bypass the existing limiter.
-      remaining = 1;
-      failures = [503];
+      const unchanged = await t.b.DB.prepare("SELECT fresh_until_ms FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first<{fresh_until_ms:number}>();
+      expect(unchanged?.fresh_until_ms).toBe(cached?.fresh_until_ms);
+      expect((await t.authorize({client_id:clientId,redirect_uri:"https://wrong.example.com/callback"})).status).toBe(400);
+      // A valid fresh document is not authorization: current policy and
+      // Client status must still be enforced, even without remote I/O.
+      await t.b.DB.prepare("UPDATE oauth_clients SET status='disabled' WHERE id=?").bind(clientId).run();
+      expect((await approve(deniedId)).status).toBe(403);
+      await t.b.DB.prepare("UPDATE oauth_clients SET status='active' WHERE id=?").bind(clientId).run();
+      await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=0 WHERE id=1").run();
+      expect((await approve(deniedId)).status).toBe(403);
+      await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=1,revision=revision+1 WHERE id=1").run();
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(documentCalls).toBe(before.documentCalls+1);
+      // Expiry, upstream failure and limiter denial never reuse stale data.
+      await expire();
+      const failureBefore = documentCalls;
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(documentCalls-failureBefore).toBe(1);
+      rateAllowed = false;
       const limitedBefore = documentCalls;
-      expect((await t.approve(deniedId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
-      expect(documentCalls-limitedBefore).toBe(1);
-      remaining = 100;
-      // Rebinding to a private address is rejected without an HTTPS fetch.
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(documentCalls).toBe(limitedBefore);
+      rateAllowed = true;
+      upstreamStatus = 200;
       denyDns = true;
-      const privateBefore = documentCalls;
-      const privateLimitBefore = limiterCalls;
-      expect((await t.approve(deniedId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
-      expect(documentCalls).toBe(privateBefore);
-      expect(limiterCalls-privateLimitBefore).toBe(1);
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(documentCalls).toBe(limitedBefore);
       denyDns = false;
-      // Even a valid current document may not change a registered callback.
+      // A changed callback is rejected, not silently migrated or cached.
       advertised = "https://different.example.test/callback";
-      expect((await t.approve(deniedId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
-      const row = await t.b.DB.prepare("SELECT status FROM oauth_authorization_requests WHERE id=?").bind(deniedId).first<{status:string}>();
-      expect(row?.status).toBe("pending");
-      expect(await t.b.DB.prepare("SELECT id FROM oauth_authorizations WHERE request_id=?").bind(deniedId).first()).toBeNull();
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(await t.b.DB.prepare("SELECT client_id FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first()).toBeNull();
+      advertised = redirect;
+      cacheControl = "no-store";
+      const noCacheId = await pending();
+      expect(await t.b.DB.prepare("SELECT client_id FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first()).toBeNull();
+      upstreamStatus = 403;
+      expect((await approve(noCacheId)).status).toBe(403);
+      for (const rejected of [deniedId,noCacheId]) {
+        const row = await t.b.DB.prepare("SELECT status FROM oauth_authorization_requests WHERE id=?").bind(rejected).first<{status:string}>();
+        expect(row?.status).toBe("pending");
+        expect(await t.b.DB.prepare("SELECT id FROM oauth_authorizations WHERE request_id=?").bind(rejected).first()).toBeNull();
+      }
     } finally {
       globalThis.fetch = originalFetch;
     }
