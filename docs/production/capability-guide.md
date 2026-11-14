@@ -6,15 +6,15 @@
 
 ## Production baseline
 
-- Release date: **2026-11-13**
-- Deployed release SHA: `07d2eafe83fefb55b74bc1645fa9061eff783150`
-- Production workflow: **[Deploy LifeSpace platform production #43383749799](https://github.com/huangshirui/LifeSpace/actions/runs/43383749799)** ✅
-- Runtime security maintenance: Core / Identity Hono `4.13.16` ([#557](https://github.com/huangshirui/LifeSpace/pull/557)); no capability, API contract or schema change.
+- Release date: **2026-11-14 (UTC+8)**
+- Deployed release SHA: `533321d0884675ada6aba8558a850d686e700608`
+- Production workflow: **[Deploy LifeSpace platform production #43530179347](https://github.com/huangshirui/LifeSpace/actions/runs/43530179347)** ✅
+- Security maintenance: Hono `4.13.16` retained; audited toolchain upgrades #567 and CodeQL hardening #575/#576 released. No Core/Identity API, schema, model or authority change; Console UX improvements deployed separately.
 - Production Core: `https://core.aisr.online` — Kernel `0.54.0`, schema `78`
 - Production Identity: `https://auth.aisr.online` — contract `0.19.0`, schema `18`
 - Active Model Contract: `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246fed4b4b6b2f4`
 - Active ordinary models (19): Task v10, Wish v10, Day Record v7, Event v8, Person Group v2, Anniversary v2, Activity v2, Goal v3, Person Profile v2, Habit v3, Football Match v1, Football Performance v1, Health Assessment v1, Health Concern v1, Health Document v1, Health Event v1, Health Metric v1, Health Observation v1, Health Regimen v1.
-- Independent rollouts: [Console #43364398729](https://github.com/huangshirui/LifeSpace/actions/runs/43364398729) and [Account #43365032204](https://github.com/huangshirui/LifeSpace/actions/runs/43365032204), both `4161c2b`; [private MCP Adapter #43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505), `cc1573600a919cc435298be5be5d0f547dcb2fe7`.
+- Independent rollouts: [Console #43533673820](https://github.com/huangshirui/LifeSpace/actions/runs/43533673820) and [Account #43534485019](https://github.com/huangshirui/LifeSpace/actions/runs/43534485019), both `533321d`; [private MCP Adapter #43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505), `cc1573600a919cc435298be5be5d0f547dcb2fe7`.
 - Release confidence: **exact release-bound production deployment evidence**; authenticated Production OAuth/MCP and browser journeys still require separate acceptance.
 
 > 本页与成功的 production workflow 精确绑定。main、PR 或 staging 中的能力不能自动视为 Production；已部署也不等于已完成所有真实业务场景验收。
@@ -216,6 +216,11 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 - **普通模型**：7 个 Health v1 模型已由 Production active Model Contract 校验（见 Feature Matrix），不自动授予 ALOHA Model Access 或证明 Health UI/Agent 已验收。
 - **真实性能证据边界**：[Staging File #43357543732](https://github.com/huangshirui/LifeSpace/actions/runs/43357543732) 60/60 合成文件生命周期与 SHA-256 验证，100 KiB/1/5/10 MiB 的保存 P50/P90 分别 944/1354、1030/1477、1494/2135、2416/3827 ms。不是 Production 实测或同条件 Health UI 前后对比。#452 继续跟踪 R2 转存及真实 UI 复测，#543 继续跟踪 APAC 历史长尾。
 
+### 2.16 2026-11-14 安全维护与 Console UX / Security and UX
+
+- **安全维护：** #567 升级构建/测试工具链（Wrangler 4.161.0、Vite 8.3.8、Vitest 4.1.12），#575/#576 收敛运维日志、Secret masking、探针异常输出与 URL 精确校验。依赖审计为零；仓库 Owner 确认 Dependabot 和 Code scanning 均无开放告警，main CI 与 CodeQL [#43449474278](https://github.com/huangshirui/LifeSpace/actions/runs/43449474278) 通过。这不是所有潜在安全漏洞均已排除的声明。
+- **Console 体验：** #564/#570/#571/#573/#574 提供可搜索 Grant 授权对象、独立编辑对话框、Application/凭据/External Data 编辑分离、MCP/OAuth 只读详情与显式编辑；原有权限及 API 保持不变。Console 独立发布成功，实际浏览器操作仍需用户验收；本次未启用可选 Staging 控制面写操作验收。
+
 ## 3. API / Contract surfaces
 
 当前 Production 契约分为：
@@ -243,7 +248,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-11-13 [Production #43383749799](https://github.com/huangshirui/LifeSpace/actions/runs/43383749799) 对 exact candidate `07d2eafe83fefb55b74bc1645fa9061eff783150` 完成全部三个 Job（发布来源、正式 APAC gate、迁移与部署验证），发布 Hono 4.13.16 安全补丁，无能力层变化。Core Kernel 0.54.0 / schema 78；Identity contract 0.19.0 / schema 18；Active Model Contract 19 个模型。独立 Console、Account、MCP Adapter 亦已部署，见本页 Production baseline。历史 2026-10-28 发布保留于 Changelog。当前真实生产 Notion CRUD、OAuth/Delegation 与下游 UI 业务验收仍独立于发布工作流。
+2026-11-14 (UTC+8) [Production #43530179347](https://github.com/huangshirui/LifeSpace/actions/runs/43530179347) 对 exact candidate `533321d0884675ada6aba8558a850d686e700608` 完成全部三个 Job（发布来源、正式 APAC gate、迁移与部署验证），完成依赖安全升级与 CodeQL 修复；平台能力层不变，Console UX 独立更新。Core Kernel 0.54.0 / schema 78；Identity contract 0.19.0 / schema 18；Active Model Contract 19 个模型。独立 Console、Account、MCP Adapter 亦已部署，见本页 Production baseline。历史 2026-10-28 发布保留于 Changelog。当前真实生产 Notion CRUD、OAuth/Delegation 与下游 UI 业务验收仍独立于发布工作流。
 
 Production runtime signing material、Bootstrap Secret 与 Core↔Identity shared authentication secret 由本次 workflow 证实原值保留；`sync_production_bootstrap_secret=false`、`repair_core_identity_shared_secret=false`。真实 `lsp_svc_* -> Core -> Identity introspection` 使用专门配置的 Model Admin Service Token 通过，并验证 Active Model Contract；正常发布不创建 Bootstrap 临时生产身份。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 

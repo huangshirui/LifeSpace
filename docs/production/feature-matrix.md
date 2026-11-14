@@ -24,7 +24,7 @@
 | OAuth | Authorization code / PKCE, refresh / revoke, Resource-bound execution | ✅ | Identity 0.19.0 已部署；本轮真实 Production 授权及撤权待复测 |
 | OAuth | Console-managed CIMD / DCR admission | ✅ | 当前 Identity 准入策略、网络和 limiter 约束；部署不等于所有客户端均允许 |
 | MCP | Current Server configuration / enabled state | ✅ | Core schema 78，配置不产生底层 Authority |
-| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 07d2eaf + private Adapter cc15736；真实 Production E2E 待验收 |
+| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 533321d + private Adapter cc15736；真实 Production E2E 待验收 |
 | MCP | Real Production OAuth/Delegation E2E on latest release | ❓ | 独立验收，不能用 Staging 或部署成功替代 |
 | Space | Space membership | ✅ | 普通业务授权基础 |
 | Space | Data Grant | ✅ | 显式、可撤销的数据授权 |
@@ -71,8 +71,8 @@
 | Change / Audit | Operation Attribution | ✅ | Application / Principal / Actor / Delegation / ChangeSet/Bulk correlation / occurredAt |
 | Legacy | Creation Draft API/runtime/current storage | 🗑️ | 当前 API/contract/runtime 已移除，schema 53 删除 runtime table；历史 migrations 保留 |
 | Provenance | Generic Resource Provenance envelope | 🧭 | 当前 concept-only；无 production 平台能力 |
-| Console | Platform Console | ✅ | 独立 Production #43364398729，4161c2b |
-| Account | Account Center / approval UI | ✅ | 独立 Production #43365032204，4161c2b；部分完整自助管理及审计后续补齐 |
+| Console | Platform Console | ✅ | 独立 Production #43533673820，533321d；可搜索 Grant 对象与独立编辑流程；真实浏览器操作待独立验收 |
+| Account | Account Center / approval UI | ✅ | 独立 Production #43534485019，533321d；部分完整自助管理及审计后续补齐 |
 | Performance | OAuth execution context / live authorization optimization | ✅ | Identity 0.19.0、Adapter cc15736；保留独立 Core 实时授权；不宣称生产耗时提升 |
 | Control Plane | Identity Platform Admin API | ✅ | Identity `0.17.0` 普通 API 不再声明 Bootstrap 管理契约；必要 Seed/Break-glass 路由仍由独立 companion 管理 |
 | Control Plane | Bootstrap-free routine platform production release | ✅ | 默认保留 Identity Bootstrap Secret；Model Admin 通过预配置 `models:manage` Service Token 验证，不以 Bootstrap 日常创建身份 |
@@ -113,10 +113,10 @@ Active Model Contract: `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246
 
 ## Release binding
 
-- Release date: **2026-11-13**
-- Exact production SHA: `07d2eafe83fefb55b74bc1645fa9061eff783150`
-- Production workflow: **[#43383749799](https://github.com/huangshirui/LifeSpace/actions/runs/43383749799)** — ✅ success
-- Security maintenance: Core / Identity Hono 4.13.16; no feature-status changes.
+- Release date: **2026-11-14 (UTC+8)**
+- Exact production SHA: `533321d0884675ada6aba8558a850d686e700608`
+- Production workflow: **[#43530179347](https://github.com/huangshirui/LifeSpace/actions/runs/43530179347)** — ✅ success
+- Security maintenance: #567/#575/#576 deployed; Owner-confirmed zero open Dependabot / CodeQL alerts; no platform capability or feature-status changes.
 - Core: Kernel `0.54.0` / schema `78`
 - Identity: contract `0.19.0` / schema `18`
 - APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
@@ -127,7 +127,7 @@ Active Model Contract: `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246
 - Production Model Admin 使用已配置的专用 `models:manage` `lsp_svc_*`，不再每次通过 Bootstrap 临时创建 Application/User/Principal/Token 或直接删除生产 Identity D1
 - 正式 APAC User JWT + Service Token 性能门禁：✅；临时 Probe/Smoke Authority Cleanup：✅
 
-- 独立 Console [#43364398729](https://github.com/huangshirui/LifeSpace/actions/runs/43364398729)、Account [#43365032204](https://github.com/huangshirui/LifeSpace/actions/runs/43365032204)、private MCP Adapter [#43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505) 部署通过；真实 Production OAuth/MCP/Delegation 待验收。
+- 独立 Console [#43533673820](https://github.com/huangshirui/LifeSpace/actions/runs/43533673820)、Account [#43534485019](https://github.com/huangshirui/LifeSpace/actions/runs/43534485019)、private MCP Adapter [#43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505) 部署通过；真实 Production OAuth/MCP/Delegation 待验收。
 
 Feature Matrix 状态必须由成功的 production workflow 明确推进，不以 main / staging / downstream consumer 状态代替 production 事实。
 
