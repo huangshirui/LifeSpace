@@ -2,6 +2,16 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-11-14 (UTC+8) — Activity v3、CIMD freshness、Person Consent / OAuth 生产恢复
+
+- **Verified releases:** Platform [#43595262721](https://github.com/huangshirui/LifeSpace/actions/runs/43595262721) at `542c0b052b7fbc620eab05e0e84c4254fca02149`, then Platform [#43605536269](https://github.com/huangshirui/LifeSpace/actions/runs/43605536269) and Account [#43606678174](https://github.com/huangshirui/LifeSpace/actions/runs/43606678174) at `95c3fb5d4d40a88cf68f9e32a65aedb9c4dfa159`; exact-candidate Staging [#43603770149](https://github.com/huangshirui/LifeSpace/actions/runs/43603770149) / [#43605033109](https://github.com/huangshirui/LifeSpace/actions/runs/43605033109), APAC and Production gates successful.
+- **Model:** #579 Activity v3, explicit lifecycle and five guarded Actions; schema79, 19 active models, contract `mct_143d1f71246161628208ae657ef4a73b1c20fe4714384bc2e2e22d886fda1b56`. Legacy active backfill provisional, dates/relations unchanged.
+- **OAuth:** #582/#584 Identity schema19, bounded validated public metadata HTTP freshness (max five minutes), no stale fallback or retained cookies; live policy and authority, exact callback and active registration rechecked. #587 Core/Account Person consent projection uses the configured operations and current independent Person/whole-Space Grant and requested scopes. No new grants.
+- **Recovery:** owner-only [#43602173685](https://github.com/huangshirui/LifeSpace/actions/runs/43602173685) updated only private Adapter Resource Secret; canonical Identity authentication and actual synthetic invalid-token challenge passed. Core/Identity routine secrets preserved. Adapter redeploy guard merged separately but not deployed.
+- **Limits:** Core 0.54.0/schema79, Identity 0.19.0/schema19. Real ChatGPT production cold-cache CIMD repeatedly returned upstream 403 after successful release; #580 open. Person preview (#581) and real user tools/list, tool call and revocation (#585) remain unverified. DCR remains enabled and supported; no claim of positive production MCP E2E. No further production change in documentation closeout.
+
+---
+
 ## 2026-11-14 (UTC+8) — 依赖安全、CodeQL 与 Console UX / Security and UX（Production #43530179347）
 
 - **Verified release:** SHA `533321d0884675ada6aba8558a850d686e700608`；Staging platform [#43450310604](https://github.com/huangshirui/LifeSpace/actions/runs/43450310604)（attempt 4）、Console [#43527880000](https://github.com/huangshirui/LifeSpace/actions/runs/43527880000)、Account [#43528290890](https://github.com/huangshirui/LifeSpace/actions/runs/43528290890) 均成功；Production platform [#43530179347](https://github.com/huangshirui/LifeSpace/actions/runs/43530179347)、Console [#43533673820](https://github.com/huangshirui/LifeSpace/actions/runs/43533673820)、Account [#43534485019](https://github.com/huangshirui/LifeSpace/actions/runs/43534485019) 均为同一 SHA。平台三个 Job（发布来源、APAC gate、生产部署及验证）全通过。
