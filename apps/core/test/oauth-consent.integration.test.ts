@@ -238,6 +238,52 @@ describe("Core Account OAuth Consent boundary", () => {
     expect((await query()).status).toBe(403);
   });
 
+  it("previews only independently granted Person operations, including a Person-only Agent", async () => {
+    const f = await fixture();
+    const serverId = "mcp_" + crypto.randomUUID().replaceAll("-", "");
+    const now = new Date().toISOString();
+    const config = {models:[],resources:[{resourceKey:"person_directory",operations:["list","get","create","update"]}]};
+    await f.db.prepare(
+      "INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) "
+      + "VALUES(?, 'Person Consent Server', '', 1, ?, 1, ?, ?, ?, ?)",
+    ).bind(serverId,JSON.stringify(config),f.userId,f.userId,now,now).run();
+    (f.bindings as typeof f.bindings & { MCP_PUBLIC_ORIGIN: string }).MCP_PUBLIC_ORIGIN = "https://core.example.test";
+    const path="/api/v1/me/oauth/capabilities?"+new URLSearchParams({
+      applicationId:f.selected.applicationId,spaceId:f.spaceId,agentId:f.agentId,
+      resource:"https://core.example.test/mcp/"+serverId,
+    });
+    const query=()=>createApp().request("https://core.example.test"+path,
+      {headers:{authorization:"Bearer "+f.bearer}},f.bindings);
+    // A whole-Space read Grant gives only Person read; ordinary model
+    // grants never substitute for this independent Kernel authority.
+    expect((await (await query()).json() as any).data.models).toEqual([
+      {key:"person",name:"Person",operations:["query","get"],access:["read"]},
+    ]);
+    await f.db.prepare("UPDATE data_grants SET resource_type='model',resource_id='event' WHERE source_space_id=? AND grantee_id=?")
+      .bind(f.spaceId,f.agentId).run();
+    expect((await (await query()).json() as any).data.models).toEqual([]);
+    const personGrant="grt_"+crypto.randomUUID().replaceAll("-","");
+    await f.db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(?,?,'agent',?,'person_directory',NULL,'read',?,?)")
+      .bind(personGrant,f.spaceId,f.agentId,f.userId,now).run();
+    await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE source_space_id=? AND grantee_id=? AND resource_type='model'")
+      .bind(now,f.spaceId,f.agentId).run();
+    const read=await query();
+    expect(read.status).toBe(200);
+    expect((await read.json() as any).data).toMatchObject({nativeModelsOnly:false,models:[
+      {key:"person",name:"Person",operations:["query","get"],access:["read"]},
+    ]});
+    const choices=await createApp().request("https://core.example.test/api/v1/me/oauth/choices",
+      {headers:{authorization:"Bearer "+f.bearer}},f.bindings);
+    expect((await choices.json() as any).data.candidates).toContainEqual(expect.objectContaining({agentId:f.agentId,spaceId:f.spaceId}));
+    expect((await f.call()).status).toBe(200);
+    await f.db.prepare("UPDATE data_grants SET permission='write' WHERE id=?").bind(personGrant).run();
+    expect((await (await query()).json() as any).data.models).toEqual([
+      {key:"person",name:"Person",operations:["query","get","create","update"],access:["read","write"]},
+    ]);
+    await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE id=?").bind(now,personGrant).run();
+    expect((await query()).status).toBe(403);
+  });
+
   it("denies non-manager consent, unavailable Service Binding, Identity rejection and malformed code redirect", async () => {
     const viewer = await fixture("viewer");
     expect((await viewer.call()).status).toBe(403);
