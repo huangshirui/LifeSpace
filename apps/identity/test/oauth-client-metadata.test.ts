@@ -172,7 +172,8 @@ describe("CIMD public client metadata is untrusted until verified", () => {
       "max-age=300", "public", "public, max-age=-1", "public, max-age=abc"]) {
       expect(cimdFreshUntil(headers(directive),now,now)).toBeNull();
     }
-    for (const extra of [{age:"300"},{age:"bad"},{vary:"Accept"},{date:"bad"},{"set-cookie":"x=1"}]) {
+    const rejectedHeaders: Record<string,string>[] = [{age:"300"},{age:"bad"},{vary:"Accept"},{date:"bad"},{"set-cookie":"x=1"}];
+    for (const extra of rejectedHeaders) {
       expect(cimdFreshUntil(headers("public, max-age=300",extra),now,now)).toBeNull();
     }
     expect(await fetchClientMetadataResult(clientId,withDns(Response.json(metadata,{headers:{"cache-control":"no-store"}}))))
