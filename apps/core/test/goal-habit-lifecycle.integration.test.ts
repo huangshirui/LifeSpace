@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { Bindings, Principal } from "../src/env";
+import { queryCanonicalResources } from "../src/canonical-query";
 import { createCapabilityAwareResource } from "../src/capability-runtime";
 import { recordCheckIn, listCheckIns } from "../src/check-in-capability";
 import { createGenericResource, updateGenericResource } from "../src/generic-resource";
@@ -100,6 +101,14 @@ describe("Goal/Habit baseline schema 72 lifecycle and owner policy", () => {
     initialData.endDate = "2035-01-01";
     record = updated;
     await transition("reopen", "active");
+    const active = await queryCanonicalResources(bindings(), f.owner, f.spaceId, f.activity, {
+      filter: { field: "status", op: "eq", value: "active" },
+    });
+    expect(active.items.map(item => item.id)).toEqual([record.id]);
+    const completed = await queryCanonicalResources(bindings(), f.owner, f.spaceId, f.activity, {
+      filter: { field: "status", op: "eq", value: "completed" },
+    });
+    expect(completed.items).toHaveLength(0);
   });
 
   it("allows someone to create a Habit for another Person, but only that Person may mutate or check in", async () => {
