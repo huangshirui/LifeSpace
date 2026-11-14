@@ -2,7 +2,7 @@ import type { Context, Hono } from "hono";
 import { verify } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
 import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
-import { cimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
+import { cimdClientId, CIMD_MAX_FRESHNESS_MS, fetchClientMetadataResult } from "./oauth-client-metadata";
 import {
   loadOAuthClientAdmissionPolicy, mayUseCimd, mayRegisterDcr, callbackAllowed,
   type OAuthClientAdmissionPolicy,
@@ -149,55 +149,106 @@ async function client(db: D1Database, clientId: string): Promise<OAuthClient | n
   if (!clientId || clientId.length > 256) return null;
   return db.prepare("SELECT id,redirect_uris,status FROM oauth_clients WHERE id=?").bind(clientId).first<OAuthClient>();
 }
-// A URL-form client_id is treated as unverified metadata; only an explicit
-// operator opt-in enables outbound discovery. The current document is fetched
-// anew for each consent attempt; absent/invalid metadata never falls back to a
-// previously cached redirect list or creates a permissive Client registration.
-async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Promise<OAuthClient | null> {
-  if (!cimdClientId(clientId)) return client(c.env.DB, clientId);
+// A URL-form Client ID is unverified public metadata, not User/Agent authority.
+// Only a previously validated document with unexpired publisher-declared
+// HTTP freshness can be reused. The D1 cache crosses Worker isolates; no
+// cached entry bypasses the current admission policy or registered callback.
+function oauthDiagnostic(c: Context<AppEnv>, phase: "authorize" | "consent", reason: string, details?: {
+  upstreamStatus?: number;
+}): void {
+  console.warn({ message: "LifeSpace OAuth diagnostic", requestId: c.get("requestId"), phase, reason, ...details });
+}
+type CachedOAuthClient = OAuthClient & {
+  cachedRedirects: string | null;
+  cachedPolicyRevision: number | null;
+  freshUntilMs: number | null;
+};
+async function cachedCimdClient(db: D1Database, clientId: string): Promise<CachedOAuthClient | null> {
+  return db.prepare(
+    "SELECT c.id,c.redirect_uris,c.status,m.redirect_uris cachedRedirects," +
+    "m.policy_revision cachedPolicyRevision,m.fresh_until_ms freshUntilMs " +
+    "FROM oauth_clients c LEFT JOIN oauth_cimd_metadata_cache m ON m.client_id=c.id WHERE c.id=?"
+  ).bind(clientId).first<CachedOAuthClient>();
+}
+async function clientForAuthorization(c: Context<AppEnv>, clientId: string, phase: "authorize" | "consent"): Promise<OAuthClient | null> {
+  const reject = (reason: string) => {
+    oauthDiagnostic(c, phase, reason);
+    return null;
+  };
+  if (!cimdClientId(clientId)) {
+    const registered = await client(c.env.DB, clientId);
+    return registered || reject("client_not_registered");
+  }
   const policy = await loadOAuthClientAdmissionPolicy(c.env.DB);
-  if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)) return null;
-  const existing = await client(c.env.DB, clientId);
-  if (existing?.status === "disabled") return null;
-  // Open HTTPS document discovery is a network and database abuse boundary.
-  // Requests are rate-limited before outbound fetch, including revalidation
-  // at Consent time. The deployment MUST enable Cloudflare's
-  // global_fetch_strictly_public compatibility flag before CIMD activation.
-  // This forces global fetch through the public Internet boundary, including
-  // requests to the Worker's own Cloudflare zone, rather than private origins.
-  // Never use VPC Network or private Service Bindings for untrusted metadata.
-  if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
+  if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)) return reject("cimd_admission_denied");
+  const existing = await cachedCimdClient(c.env.DB, clientId);
+  if (existing && existing.status !== "active") return reject("client_disabled");
+  const now = Date.now();
+  if (existing && existing.cachedRedirects === existing.redirect_uris
+    && existing.cachedPolicyRevision === policy.revision
+    && typeof existing.freshUntilMs === "number" && Number.isSafeInteger(existing.freshUntilMs)
+    && existing.freshUntilMs > now && existing.freshUntilMs <= now + CIMD_MAX_FRESHNESS_MS) {
+    return existing;
+  }
+  // A cache miss/expiry must perform the full bounded DNS + strict-public
+  // HTTPS validation. The existing limiter guards each actual outbound fetch;
+  // a failed fetch never falls back to stale data or retries speculatively.
+  const limiter = c.env.OAUTH_DCR_RATE_LIMITER;
+  if (!limiter) return reject("cimd_limiter_unavailable");
   try {
-    const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
-    if (!limit.success) return null;
-  } catch { return null; }
-  // Global fetch is permitted here ONLY with deployment-enforced
-  // global_fetch_strictly_public; the Staging release gate verifies the live
-  // Worker compatibility flag and no private network binding. DNS precheck
-  // is defense in depth, not connection pinning or full draft conformance.
-  const metadata = await fetchClientMetadata(clientId);
-  if (!metadata) return null;
-  const redirects = JSON.stringify(metadata.redirectUris);
-  if (!existing) {
-    // One atomic statement prevents cross-region anonymous registration
-    // growth. A competing request for the same ID can safely reuse a matching
-    // registration, but may never expand its callback list.
-    const inserted = await c.env.DB.prepare(
-      "INSERT OR IGNORE INTO oauth_clients(id,display_name,redirect_uris,status,created_at) "
-      + "SELECT ?,?,?,'active',? WHERE "
-      + "(SELECT count(*) FROM oauth_clients WHERE id LIKE 'https://%') < 1000"
-    ).bind(clientId, metadata.displayName, redirects, instant()).run();
-    if (inserted.meta.changes !== 1) {
-      const raced = await client(c.env.DB, clientId);
-      if (!raced || raced.status !== "active" || raced.redirect_uris !== redirects) return null;
-    }
-  } else if (existing.redirect_uris !== redirects) {
-    // A remote client must never silently expand or replace approved
-    // callbacks after an earlier Consent was granted. An operator can
-    // disable/review/re-register a changed Client, but not auto-migrate it.
+    const limit = await limiter.limit({ key: "oauth-cimd-fetch" });
+    if (limit.success !== true) return reject("cimd_rate_limited");
+  } catch { return reject("cimd_limiter_unavailable"); }
+  // The deployment MUST enable global_fetch_strictly_public; the DNS
+  // precheck is defense in depth, not connection pinning. Never use a private
+  // network binding for untrusted metadata.
+  const result = await fetchClientMetadataResult(clientId);
+  if (!result.ok) {
+    oauthDiagnostic(c, phase, result.reason, { upstreamStatus: result.status });
     return null;
   }
-  return client(c.env.DB, clientId);
+  const redirects = JSON.stringify(result.metadata.redirectUris);
+  // Recheck live policy after the network request; a changed revision may
+  // not publish or use an entry validated under the previous policy.
+  const currentPolicy = await loadOAuthClientAdmissionPolicy(c.env.DB);
+  if (!cimdReady(c.env, currentPolicy) || !mayUseCimd(currentPolicy, clientId)
+    || currentPolicy.revision !== policy.revision) return reject("cimd_policy_changed");
+  if (!existing) {
+    // Preserve the atomic global quota and immutable registered callbacks.
+    const inserted = await c.env.DB.prepare(
+      "INSERT OR IGNORE INTO oauth_clients(id,display_name,redirect_uris,status,created_at) " +
+      "SELECT ?,?,?,'active',? WHERE (SELECT count(*) FROM oauth_clients WHERE id LIKE 'https://%') < 1000"
+    ).bind(clientId, result.metadata.displayName, redirects, instant()).run();
+    if (inserted.meta.changes !== 1) {
+      const raced = await client(c.env.DB, clientId);
+      if (!raced || raced.status !== "active" || raced.redirect_uris !== redirects) return reject("cimd_registration_conflict_or_quota");
+    }
+  } else if (existing.redirect_uris !== redirects) {
+    await c.env.DB.prepare("DELETE FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).run();
+    return reject("cimd_redirect_drift");
+  }
+  const registered = await client(c.env.DB, clientId);
+  if (!registered || registered.status !== "active" || registered.redirect_uris !== redirects) {
+    return reject("cimd_registration_changed");
+  }
+  if (result.freshUntilMs !== null && result.freshUntilMs > Date.now()) {
+    // Cache only a valid 200, bound to the exact current registration and
+    // current admission revision. A subsequent disable, callback edit,
+    // revision change or expiration invalidates reuse immediately.
+    const cached = await c.env.DB.prepare(
+      "INSERT INTO oauth_cimd_metadata_cache(client_id,redirect_uris,policy_revision,fresh_until_ms) " +
+      "SELECT c.id,c.redirect_uris,p.revision,? FROM oauth_clients c JOIN oauth_client_admission_policy p ON p.id=1 " +
+      "WHERE c.id=? AND c.status='active' AND c.redirect_uris=? AND p.cimd_enabled=1 AND p.revision=? " +
+      "ON CONFLICT(client_id) DO UPDATE SET redirect_uris=excluded.redirect_uris," +
+      "policy_revision=excluded.policy_revision,fresh_until_ms=excluded.fresh_until_ms"
+    ).bind(result.freshUntilMs,clientId,redirects,policy.revision).run();
+    if (cached.meta.changes !== 1) return reject("cimd_registration_or_policy_changed");
+  } else {
+    // A newly validated but noncacheable representation does not renew or
+    // retain earlier freshness. Never promote an old cache entry on failure.
+    await c.env.DB.prepare("DELETE FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).run();
+  }
+  return registered;
 }
 
 // One Authorization state transition for Account owner revocation, RFC 7009
@@ -453,7 +504,7 @@ export function registerOAuthAuthorizationServer(app: App) {
       return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
     }
     // Only valid OAuth requests may trigger a bounded remote CIMD fetch.
-    const registered = await clientForAuthorization(c, clientId);
+    const registered = await clientForAuthorization(c, clientId, "authorize");
     if (!registered || registered.status !== "active") {
       return oauthError(c, 400, "invalid_client", "Client is not registered or metadata is unavailable");
     }
@@ -637,36 +688,38 @@ export function registerOAuthAuthorizationServer(app: App) {
     if (claims.iss !== "lifespace-identity" || !audiences.includes("lifespace-identity")
       || claims.principal_type !== "user" || claims.azp !== c.env.OAUTH_ACCOUNT_APPLICATION_ID
       || typeof claims.sub !== "string") {
+      oauthDiagnostic(c, "consent", "account_user_proof_denied");
       return oauthError(c, 403, "access_denied", "Account user proof is not eligible");
     }
     const request = await c.env.DB.prepare("SELECT * FROM oauth_authorization_requests WHERE id=?")
       .bind(c.req.param("requestId")).first<OAuthRequest>();
     if (!request || request.status !== "pending" || Date.parse(request.expires_at) <= Date.now()) {
+      oauthDiagnostic(c, "consent", "request_not_pending");
       return oauthError(c, 400, "invalid_request", "Authorization request is missing, expired or completed");
     }
     // Recheck after a pending request is opened; a Server may be disabled
     // before the user confirms Consent.
     if (!await liveOAuthResource(c.env, request.resource, json(request.scopes))) {
+      oauthDiagnostic(c, "consent", "mcp_resource_denied");
       return oauthError(c, 403, "access_denied", "MCP resource is no longer available");
     }
-    // Remote metadata may disappear or change between authorization and
-    // browser approval. Revalidate the pinned URL document before issuing
-    // a code; never follow a newly advertised redirect.
+    // Revalidate current Client registration and callback at consent. CIMD\n    // may reuse only still-fresh validated public metadata; expired or absent\n    // metadata must be fetched again. No stale fallback.
     const admission = await loadOAuthClientAdmissionPolicy(c.env.DB);
     if (!callbackAllowed(admission, request.redirect_uri)) {
+      oauthDiagnostic(c, "consent", "callback_policy_denied");
       return oauthError(c, 403, "access_denied", "Callback is not allowed by current platform policy");
     }
-    if (cimdClientId(request.client_id)) {
-      const currentClient = await clientForAuthorization(c, request.client_id);
-      if (!currentClient || !json(currentClient.redirect_uris).includes(request.redirect_uri)) {
-        return oauthError(c, 403, "access_denied", "Client metadata is no longer eligible");
-      }
+    const currentClient = await clientForAuthorization(c, request.client_id, "consent");
+    if (!currentClient || currentClient.status !== "active" || !json(currentClient.redirect_uris).includes(request.redirect_uri)) {
+      oauthDiagnostic(c, "consent", "client_not_eligible");
+      return oauthError(c, 403, "access_denied", "Client metadata is no longer eligible");
     }
     const user = await c.env.DB.prepare("SELECT status FROM users WHERE id=?").bind(claims.sub).first<{ status: string }>();
     const agent = await c.env.DB.prepare("SELECT a.status agentStatus,aa.status bindingStatus,aa.revoked_at revokedAt,app.status appStatus,app.allowed_scopes allowedScopes FROM agents a JOIN agent_applications aa ON aa.agent_id=a.id JOIN applications app ON app.id=aa.application_id WHERE a.id=? AND app.id=?")
       .bind(body.agentId, body.applicationId).first<{ agentStatus: string; bindingStatus: string; revokedAt: string | null; appStatus: string; allowedScopes: string }>();
     if (user?.status !== "active" || !agent || agent.agentStatus !== "active" || agent.bindingStatus !== "active"
       || agent.revokedAt || agent.appStatus !== "active" || !json(request.scopes).every((s) => json(agent.allowedScopes).includes(s))) {
+      oauthDiagnostic(c, "consent", user?.status !== "active" ? "user_inactive" : "agent_application_scope_denied");
       return oauthError(c, 403, "access_denied", "Selected Agent, Application or scope is not eligible");
     }
     const currentIssuer = issuer(c);

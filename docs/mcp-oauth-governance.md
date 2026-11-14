@@ -46,6 +46,7 @@ OAuth client registration never implies a user Grant or Delegation.
   boundary, even when a URL refers to the Worker's own zone; it does not
   bypass Cloudflare security to reach a private origin. Do not attach a VPC
   Network/private egress binding to CIMD. Each environment has its own Identity D1 policy, default disabled on fresh install; the owner changes it directly in Console without redeployment. The native DNS precheck rejects nonordinary A/AAAA addresses; it does not pin the eventual connection. Cloudflare strict-public fetch and no private bindings are the network boundary.
+- **CIMD HTTP freshness (schema 19 candidate, #580):** reuse only successfully validated public metadata within explicit publisher freshness, capped at five minutes. Each lookup checks current Client status, exact callbacks and Console revision; expired/noncacheable metadata requires fresh guarded DNS/HTTPS. No stale/error fallback, no cached User/Agent/Space authority. Local disable and policy changes remain immediate; publisher changes may be observed at freshness expiry. See [Identity OAuth](./identity-oauth.md).
 - **DCR** switch enables protected dynamic client registration with validated
   callbacks, rate limit and an atomic D1 client quota. Unreferenced anonymous
   clients older than seven days are reclaimed in bounded on-demand batches;

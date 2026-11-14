@@ -476,6 +476,139 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     }
   });
 
+  it("checks current non-CIMD Client status and exact callback again before approval", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    await t.b.DB.prepare("UPDATE oauth_clients SET status='disabled' WHERE id=?").bind(t.clientId).run();
+    expect((await t.approve(requestId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+    await t.b.DB.prepare("UPDATE oauth_clients SET status='active',redirect_uris=? WHERE id=?")
+      .bind(JSON.stringify(["https://changed.example.com/callback"]),t.clientId).run();
+    expect((await t.approve(requestId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+    expect(await t.b.DB.prepare("SELECT id FROM oauth_authorizations WHERE request_id=?").bind(requestId).first()).toBeNull();
+    // Disabling new DCR registrations does not revoke existing active Clients.
+    await t.b.DB.prepare("UPDATE oauth_clients SET redirect_uris=? WHERE id=?").bind(JSON.stringify([t.redirect]),t.clientId).run();
+    await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET dcr_enabled=0 WHERE id=1").run();
+    expect((await t.approve(requestId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(200);
+  });
+
+  it("reuses fresh validated CIMD across consent but never uses expired or revoked metadata", async () => {
+    const t = await setup();
+    await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1").run();
+    const clientId = "https://fresh-client.example.com/oauth/client.json";
+    const redirect = "https://client.example.test/callback";
+    const originalFetch = globalThis.fetch;
+    let documentCalls = 0, dnsCalls = 0, limiterCalls = 0;
+    let upstreamStatus = 200, rateAllowed = true, denyDns = false;
+    let advertised = redirect, cacheControl = "public, max-age=300";
+    t.b.OAUTH_DCR_RATE_LIMITER = { limit: async ({key}) => {
+      expect(key).toBe("oauth-cimd-fetch");
+      limiterCalls++;
+      return {success: rateAllowed};
+    }};
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (typeof input === "string" && input.startsWith("https://cloudflare-dns.com/dns-query?")) {
+        dnsCalls++;
+        return Response.json({Status:0,Answer:input.endsWith("type=1")?
+          [{type:1,data:denyDns?"127.0.0.1":"8.8.8.8"}]:[]});
+      }
+      expect(input).toBe(clientId);
+      documentCalls++;
+      if (upstreamStatus !== 200) return new Response(null,{status:upstreamStatus});
+      return Response.json({client_id:clientId,client_name:"Public test agent",
+        redirect_uris:[advertised], response_types:["code"], token_endpoint_auth_method:"none",
+        grant_types:["authorization_code","refresh_token"]},
+        {headers:{"cache-control":cacheControl,date:new Date().toUTCString()}});
+    }) as typeof fetch;
+    try {
+      const authorize = () => t.authorize({client_id:clientId,redirect_uri:redirect});
+      const pending = async () => {
+        const response = await authorize();
+        expect(response.status).toBe(302);
+        return new URL(response.headers.get("location")!).searchParams.get("request_id")!;
+      };
+      const approve = (id: string) => t.approve(id,t.b.OAUTH_CORE_APPROVER_SECRET);
+      const expire = () => t.b.DB.prepare("UPDATE oauth_cimd_metadata_cache SET fresh_until_ms=0 WHERE client_id=?").bind(clientId).run();
+      // A cold client remains fail-closed when its document cannot be fetched.
+      upstreamStatus = 403;
+      expect((await authorize()).status).toBe(400);
+      expect(await t.b.DB.prepare("SELECT client_id FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first()).toBeNull();
+      upstreamStatus = 200;
+      const id = await pending();
+      const cached = await t.b.DB.prepare("SELECT fresh_until_ms FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first<{fresh_until_ms:number}>();
+      expect(cached?.fresh_until_ms).toBeGreaterThan(Date.now());
+      expect(cached?.fresh_until_ms).toBeLessThanOrEqual(Date.now()+300_000);
+      // Reproduce the production-shaped outage: after successful authorize,
+      // the upstream would return 403. Consent uses the still-fresh document.
+      upstreamStatus = 403;
+      const before = {documentCalls,dnsCalls,limiterCalls};
+      const approved = await approve(id);
+      expect(approved.status).toBe(200);
+      const {redirect_url} = await approved.json() as {redirect_url:string};
+      expect(new URL(redirect_url).origin).toBe(new URL(redirect).origin);
+      const code = new URL(redirect_url).searchParams.get("code");
+      expect(code).toBeTruthy();
+      const exchanged = await t.token({grant_type:"authorization_code",client_id:clientId,code:code!,
+        redirect_uri:redirect,code_verifier:t.verifier,resource:t.resource});
+      expect(exchanged.status).toBe(200);
+      const issued = await exchanged.json() as {access_token:string;refresh_token:string};
+      expect(issued.access_token).toMatch(/^lsp_oat_/);
+      expect(issued.refresh_token).toMatch(/^lsp_ort_/);
+      const active = await t.introspect(issued.access_token,t.resource);
+      expect(await active.json()).toMatchObject({active:true,client_id:clientId});
+      expect(documentCalls).toBe(before.documentCalls);
+      expect(dnsCalls).toBe(before.dnsCalls);
+      expect(limiterCalls).toBe(before.limiterCalls);
+      const deniedId = await pending();
+      const unchanged = await t.b.DB.prepare("SELECT fresh_until_ms FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first<{fresh_until_ms:number}>();
+      expect(unchanged?.fresh_until_ms).toBe(cached?.fresh_until_ms);
+      expect((await t.authorize({client_id:clientId,redirect_uri:"https://wrong.example.com/callback"})).status).toBe(400);
+      // A valid fresh document is not authorization: current policy and
+      // Client status must still be enforced, even without remote I/O.
+      await t.b.DB.prepare("UPDATE oauth_clients SET status='disabled' WHERE id=?").bind(clientId).run();
+      expect((await approve(deniedId)).status).toBe(403);
+      await t.b.DB.prepare("UPDATE oauth_clients SET status='active' WHERE id=?").bind(clientId).run();
+      await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=0 WHERE id=1").run();
+      expect((await approve(deniedId)).status).toBe(403);
+      await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=1,revision=revision+1 WHERE id=1").run();
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(documentCalls).toBe(before.documentCalls+1);
+      // Expiry, upstream failure and limiter denial never reuse stale data.
+      await expire();
+      const failureBefore = documentCalls;
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(documentCalls-failureBefore).toBe(1);
+      rateAllowed = false;
+      const limitedBefore = documentCalls;
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(documentCalls).toBe(limitedBefore);
+      rateAllowed = true;
+      upstreamStatus = 200;
+      denyDns = true;
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(documentCalls).toBe(limitedBefore);
+      denyDns = false;
+      // A changed callback is rejected, not silently migrated or cached.
+      advertised = "https://different.example.test/callback";
+      expect((await approve(deniedId)).status).toBe(403);
+      expect(await t.b.DB.prepare("SELECT client_id FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first()).toBeNull();
+      advertised = redirect;
+      cacheControl = "no-store";
+      const noCacheId = await pending();
+      expect(await t.b.DB.prepare("SELECT client_id FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(clientId).first()).toBeNull();
+      upstreamStatus = 403;
+      expect((await approve(noCacheId)).status).toBe(403);
+      for (const rejected of [deniedId,noCacheId]) {
+        const row = await t.b.DB.prepare("SELECT status FROM oauth_authorization_requests WHERE id=?").bind(rejected).first<{status:string}>();
+        expect(row?.status).toBe("pending");
+        expect(await t.b.DB.prepare("SELECT id FROM oauth_authorizations WHERE request_id=?").bind(rejected).first()).toBeNull();
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("rate-limits authorization and bounds live pending writes across regions", async () => {
     const t = await setup();
     const b = t.b as typeof t.b & {
