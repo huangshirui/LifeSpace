@@ -521,7 +521,7 @@ export async function accountFetch(req, env) {
       kind: "pre_policy_upper_bound",
       resourceCapabilityApplied: true,
       modelPolicyApplied: false,
-      nativeModelsOnly: true,
+      nativeModelsOnly: projection.nativeModelsOnly !== false,
       models: projection.models.map((model) => ({
         key: model.key, name: model.name,
         access: model.access.filter((operation) => scopes.has("resources:" + operation)),
