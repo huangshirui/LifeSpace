@@ -134,7 +134,42 @@ export type CimdFailureReason =
   | "dns_target_denied" | "dns_empty" | "metadata_transport" | "metadata_http"
   | "metadata_media_type" | "metadata_size" | "metadata_body" | "metadata_invalid";
 export type CimdFailure = { ok: false; reason: CimdFailureReason; retryable: boolean; status?: number };
-export type CimdMetadataResult = { ok: true; metadata: PublicOAuthClientMetadata } | CimdFailure;
+export type CimdMetadataResult = { ok: true; metadata: PublicOAuthClientMetadata; freshUntilMs: number | null } | CimdFailure;
+
+// RFC 9111 freshness, deliberately conservative: only explicitly public,
+// unvarying responses with a valid max-age may be reused across isolates.
+// Never override the publisher's shorter lifetime or extend on cache reads.
+export const CIMD_MAX_FRESHNESS_MS = 300_000;
+export function cimdFreshUntil(headers: Headers, requestStartedMs: number, responseReceivedMs: number): number | null {
+  const control = headers.get("cache-control");
+  if (!control || headers.get("vary") || headers.has("set-cookie")) return null;
+  const directives = control.split(",").map(value => value.trim().toLowerCase());
+  if (!directives.includes("public") || directives.some(value =>
+    /^(?:no-store|no-cache|private)(?:\s*=|$)/u.test(value))) return null;
+  const ages = (name: string): number[] | null => {
+    const found = directives.filter(value => value.split("=")[0]?.trim() === name);
+    if (found.length > 1) return null;
+    if (!found.length) return [];
+    const match = /^(?:max-age|s-maxage)\s*=\s*(?:"(\d+)"|(\d+))$/u.exec(found[0]);
+    if (!match) return null;
+    const seconds = Number(match[1] ?? match[2]);
+    return Number.isSafeInteger(seconds) && seconds >= 0 ? [seconds] : null;
+  };
+  const maxAge = ages("max-age"), sharedAge = ages("s-maxage");
+  if (!maxAge || maxAge.length !== 1 || !sharedAge) return null;
+  const ageHeader = headers.get("age");
+  if (ageHeader !== null && !/^\d+$/u.test(ageHeader)) return null;
+  const age = Number(ageHeader ?? "0");
+  if (!Number.isSafeInteger(age) || age < 0) return null;
+  const dateHeader = headers.get("date");
+  const dateMs = dateHeader ? Date.parse(dateHeader) : responseReceivedMs;
+  if (!Number.isFinite(dateMs)) return null;
+  const apparentAge = Math.max(0, responseReceivedMs - dateMs);
+  const correctedAge = age * 1000 + Math.max(0, responseReceivedMs - requestStartedMs);
+  const lifetime = Math.min(CIMD_MAX_FRESHNESS_MS, maxAge[0] * 1000, ...sharedAge.map(v => v * 1000));
+  const remaining = lifetime - Math.max(apparentAge, correctedAge);
+  return remaining > 0 ? responseReceivedMs + remaining : null;
+}
 const failure = (reason: CimdFailureReason, retryable = false, status?: number): CimdFailure =>
   ({ ok: false, reason, retryable, ...(status === undefined ? {} : { status }) });
 const transientHttp = (status: number) =>
@@ -186,9 +221,8 @@ export async function precheckCimdDns(host: string, fetcher: typeof fetch): Prom
   return (await precheckCimdDnsResult(host, fetcher)).ok;
 }
 
-// A single fresh, bounded DNS + HTTPS attempt. The authorization caller may
-// retry a transient failure once, but only after a second limiter admission.
-// There is no stale metadata fallback and no retry for a security denial.
+// A single bounded DNS + HTTPS attempt. Only a successfully parsed document
+// with explicit HTTP freshness may be reused; never cache or retry errors.
 export async function fetchClientMetadataResult(
   clientId: string,
   fetcher: typeof fetch = fetch,
@@ -197,13 +231,15 @@ export async function fetchClientMetadataResult(
   const dns = await precheckCimdDnsResult(new URL(clientId).hostname, fetcher);
   if (!dns.ok) return dns;
   let response: Response;
+  const requestStartedMs = Date.now();
   try {
     response = await fetcher(clientId, {
       method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000),
       headers: { accept: "application/json" },
     });
   } catch { return failure("metadata_transport", true); }
-  // Never follow redirects or accept an invalid response, even on retry.
+  const responseReceivedMs = Date.now();
+  // Never follow redirects or accept an invalid response.
   if (response.status !== 200) {
     await response.body?.cancel().catch(() => undefined);
     return failure("metadata_http", transientHttp(response.status), response.status);
@@ -241,7 +277,7 @@ export async function fetchClientMetadataResult(
     for (const part of chunks) { all.set(part, offset); offset += part.length; }
     const data = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(all)) as unknown;
     const metadata = parseClientMetadata(clientId, data);
-    return metadata ? {ok:true,metadata} : failure("metadata_invalid");
+    return metadata ? {ok:true,metadata,freshUntilMs:cimdFreshUntil(response.headers,requestStartedMs,responseReceivedMs)} : failure("metadata_invalid");
   } catch { return failure("metadata_invalid"); }
 }
 
