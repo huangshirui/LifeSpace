@@ -2,7 +2,7 @@ import type { Context, Hono } from "hono";
 import { verify } from "hono/jwt";
 import type { Bindings, Variables } from "./env";
 import { configuredOAuthResource, liveOAuthResource } from "./oauth-mcp-resource";
-import { cimdClientId, fetchClientMetadata } from "./oauth-client-metadata";
+import { cimdClientId, fetchClientMetadataResult } from "./oauth-client-metadata";
 import {
   loadOAuthClientAdmissionPolicy, mayUseCimd, mayRegisterDcr, callbackAllowed,
   type OAuthClientAdmissionPolicy,
@@ -153,12 +153,26 @@ async function client(db: D1Database, clientId: string): Promise<OAuthClient | n
 // operator opt-in enables outbound discovery. The current document is fetched
 // anew for each consent attempt; absent/invalid metadata never falls back to a
 // previously cached redirect list or creates a permissive Client registration.
-async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Promise<OAuthClient | null> {
-  if (!cimdClientId(clientId)) return client(c.env.DB, clientId);
+// Fixed, server-generated diagnostic categories only; do not log OAuth
+// query/body data, client IDs, credentials, redirects or upstream text.
+function oauthDiagnostic(c: Context<AppEnv>, phase: "authorize" | "consent", reason: string, details?: {
+  attempt?: number; upstreamStatus?: number; retryable?: boolean;
+}): void {
+  console.warn({ message: "LifeSpace OAuth diagnostic", requestId: c.get("requestId"), phase, reason, ...details });
+}
+async function clientForAuthorization(c: Context<AppEnv>, clientId: string, phase: "authorize" | "consent"): Promise<OAuthClient | null> {
+  const reject = (reason: string) => {
+    oauthDiagnostic(c, phase, reason);
+    return null;
+  };
+  if (!cimdClientId(clientId)) {
+    const registered = await client(c.env.DB, clientId);
+    return registered || reject("client_not_registered");
+  }
   const policy = await loadOAuthClientAdmissionPolicy(c.env.DB);
-  if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)) return null;
+  if (!cimdReady(c.env, policy) || !mayUseCimd(policy, clientId)) return reject("cimd_admission_denied");
   const existing = await client(c.env.DB, clientId);
-  if (existing?.status === "disabled") return null;
+  if (existing?.status === "disabled") return reject("client_disabled");
   // Open HTTPS document discovery is a network and database abuse boundary.
   // Requests are rate-limited before outbound fetch, including revalidation
   // at Consent time. The deployment MUST enable Cloudflare's
@@ -166,17 +180,34 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
   // This forces global fetch through the public Internet boundary, including
   // requests to the Worker's own Cloudflare zone, rather than private origins.
   // Never use VPC Network or private Service Bindings for untrusted metadata.
-  if (!c.env.OAUTH_DCR_RATE_LIMITER) return null;
-  try {
-    const limit = await c.env.OAUTH_DCR_RATE_LIMITER.limit({ key: "oauth-cimd-fetch" });
-    if (!limit.success) return null;
-  } catch { return null; }
+  const limiter = c.env.OAUTH_DCR_RATE_LIMITER;
+  if (!limiter) return reject("cimd_limiter_unavailable");
+  const admitAttempt = async (): Promise<boolean> => {
+    try {
+      const limit = await limiter.limit({ key: "oauth-cimd-fetch" });
+      if (limit.success === true) return true;
+      reject("cimd_rate_limited");
+    } catch { reject("cimd_limiter_unavailable"); }
+    return false;
+  };
+  if (!await admitAttempt()) return null;
   // Global fetch is permitted here ONLY with deployment-enforced
   // global_fetch_strictly_public; the Staging release gate verifies the live
   // Worker compatibility flag and no private network binding. DNS precheck
   // is defense in depth, not connection pinning or full draft conformance.
-  const metadata = await fetchClientMetadata(clientId);
-  if (!metadata) return null;
+  let result = await fetchClientMetadataResult(clientId);
+  if (!result.ok) {
+    oauthDiagnostic(c, phase, result.reason, { attempt: 1, upstreamStatus: result.status, retryable: result.retryable });
+    // Retry only transient network/upstream failures, once, and consume a
+    // second slot of the SAME limiter. No cached-positive or policy fallback.
+    if (!result.retryable || !await admitAttempt()) return null;
+    result = await fetchClientMetadataResult(clientId);
+    if (!result.ok) {
+      oauthDiagnostic(c, phase, result.reason, { attempt: 2, upstreamStatus: result.status, retryable: result.retryable });
+      return null;
+    }
+  }
+  const metadata = result.metadata;
   const redirects = JSON.stringify(metadata.redirectUris);
   if (!existing) {
     // One atomic statement prevents cross-region anonymous registration
@@ -189,13 +220,13 @@ async function clientForAuthorization(c: Context<AppEnv>, clientId: string): Pro
     ).bind(clientId, metadata.displayName, redirects, instant()).run();
     if (inserted.meta.changes !== 1) {
       const raced = await client(c.env.DB, clientId);
-      if (!raced || raced.status !== "active" || raced.redirect_uris !== redirects) return null;
+      if (!raced || raced.status !== "active" || raced.redirect_uris !== redirects) return reject("cimd_registration_conflict_or_quota");
     }
   } else if (existing.redirect_uris !== redirects) {
     // A remote client must never silently expand or replace approved
     // callbacks after an earlier Consent was granted. An operator can
     // disable/review/re-register a changed Client, but not auto-migrate it.
-    return null;
+    return reject("cimd_redirect_drift");
   }
   return client(c.env.DB, clientId);
 }
@@ -453,7 +484,7 @@ export function registerOAuthAuthorizationServer(app: App) {
       return oauthError(c, 400, "invalid_request", "MCP resource is not currently enabled");
     }
     // Only valid OAuth requests may trigger a bounded remote CIMD fetch.
-    const registered = await clientForAuthorization(c, clientId);
+    const registered = await clientForAuthorization(c, clientId, "authorize");
     if (!registered || registered.status !== "active") {
       return oauthError(c, 400, "invalid_client", "Client is not registered or metadata is unavailable");
     }
@@ -637,16 +668,19 @@ export function registerOAuthAuthorizationServer(app: App) {
     if (claims.iss !== "lifespace-identity" || !audiences.includes("lifespace-identity")
       || claims.principal_type !== "user" || claims.azp !== c.env.OAUTH_ACCOUNT_APPLICATION_ID
       || typeof claims.sub !== "string") {
+      oauthDiagnostic(c, "consent", "account_user_proof_denied");
       return oauthError(c, 403, "access_denied", "Account user proof is not eligible");
     }
     const request = await c.env.DB.prepare("SELECT * FROM oauth_authorization_requests WHERE id=?")
       .bind(c.req.param("requestId")).first<OAuthRequest>();
     if (!request || request.status !== "pending" || Date.parse(request.expires_at) <= Date.now()) {
+      oauthDiagnostic(c, "consent", "request_not_pending");
       return oauthError(c, 400, "invalid_request", "Authorization request is missing, expired or completed");
     }
     // Recheck after a pending request is opened; a Server may be disabled
     // before the user confirms Consent.
     if (!await liveOAuthResource(c.env, request.resource, json(request.scopes))) {
+      oauthDiagnostic(c, "consent", "mcp_resource_denied");
       return oauthError(c, 403, "access_denied", "MCP resource is no longer available");
     }
     // Remote metadata may disappear or change between authorization and
@@ -654,11 +688,13 @@ export function registerOAuthAuthorizationServer(app: App) {
     // a code; never follow a newly advertised redirect.
     const admission = await loadOAuthClientAdmissionPolicy(c.env.DB);
     if (!callbackAllowed(admission, request.redirect_uri)) {
+      oauthDiagnostic(c, "consent", "callback_policy_denied");
       return oauthError(c, 403, "access_denied", "Callback is not allowed by current platform policy");
     }
     if (cimdClientId(request.client_id)) {
-      const currentClient = await clientForAuthorization(c, request.client_id);
-      if (!currentClient || !json(currentClient.redirect_uris).includes(request.redirect_uri)) {
+      const currentClient = await clientForAuthorization(c, request.client_id, "consent");
+      if (!currentClient || currentClient.status !== "active" || !json(currentClient.redirect_uris).includes(request.redirect_uri)) {
+        oauthDiagnostic(c, "consent", "cimd_client_not_eligible");
         return oauthError(c, 403, "access_denied", "Client metadata is no longer eligible");
       }
     }
@@ -667,6 +703,7 @@ export function registerOAuthAuthorizationServer(app: App) {
       .bind(body.agentId, body.applicationId).first<{ agentStatus: string; bindingStatus: string; revokedAt: string | null; appStatus: string; allowedScopes: string }>();
     if (user?.status !== "active" || !agent || agent.agentStatus !== "active" || agent.bindingStatus !== "active"
       || agent.revokedAt || agent.appStatus !== "active" || !json(request.scopes).every((s) => json(agent.allowedScopes).includes(s))) {
+      oauthDiagnostic(c, "consent", user?.status !== "active" ? "user_inactive" : "agent_application_scope_denied");
       return oauthError(c, 403, "access_denied", "Selected Agent, Application or scope is not eligible");
     }
     const currentIssuer = issuer(c);
