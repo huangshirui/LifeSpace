@@ -476,6 +476,23 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     }
   });
 
+  it("checks current non-CIMD Client status and exact callback again before approval", async () => {
+    const t = await setup();
+    const pending = await t.authorize();
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    await t.b.DB.prepare("UPDATE oauth_clients SET status='disabled' WHERE id=?").bind(t.clientId).run();
+    expect((await t.approve(requestId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+    await t.b.DB.prepare("UPDATE oauth_clients SET status='active',redirect_uris=? WHERE id=?")
+      .bind(JSON.stringify(["https://changed.example.com/callback"]),t.clientId).run();
+    expect((await t.approve(requestId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(403);
+    expect(await t.b.DB.prepare("SELECT id FROM oauth_authorizations WHERE request_id=?").bind(requestId).first()).toBeNull();
+    // Disabling new DCR registrations does not revoke existing active Clients.
+    await t.b.DB.prepare("UPDATE oauth_clients SET redirect_uris=? WHERE id=?").bind(JSON.stringify([t.redirect]),t.clientId).run();
+    await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET dcr_enabled=0 WHERE id=1").run();
+    expect((await t.approve(requestId,t.b.OAUTH_CORE_APPROVER_SECRET)).status).toBe(200);
+  });
+
   it("reuses fresh validated CIMD across consent but never uses expired or revoked metadata", async () => {
     const t = await setup();
     await t.b.DB.prepare("UPDATE oauth_client_admission_policy SET cimd_enabled=1 WHERE id=1").run();
