@@ -547,7 +547,16 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       expect(approved.status).toBe(200);
       const {redirect_url} = await approved.json() as {redirect_url:string};
       expect(new URL(redirect_url).origin).toBe(new URL(redirect).origin);
-      expect(new URL(redirect_url).searchParams.get("code")).toBeTruthy();
+      const code = new URL(redirect_url).searchParams.get("code");
+      expect(code).toBeTruthy();
+      const exchanged = await t.token({grant_type:"authorization_code",client_id:clientId,code:code!,
+        redirect_uri:redirect,code_verifier:t.verifier,resource:t.resource});
+      expect(exchanged.status).toBe(200);
+      const issued = await exchanged.json() as {access_token:string;refresh_token:string};
+      expect(issued.access_token).toMatch(/^lsp_oat_/);
+      expect(issued.refresh_token).toMatch(/^lsp_ort_/);
+      const active = await t.introspect(issued.access_token,t.resource);
+      expect(await active.json()).toMatchObject({active:true,client_id:clientId});
       expect(documentCalls).toBe(before.documentCalls);
       expect(dnsCalls).toBe(before.dnsCalls);
       expect(limiterCalls).toBe(before.limiterCalls);
