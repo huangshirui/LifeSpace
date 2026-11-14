@@ -514,8 +514,10 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
           [{type:1,data:denyDns?"127.0.0.1":"8.8.8.8"}]:[]});
       }
       expect(input).toBe(clientId);
-      expect(init?.credentials).toBe("omit");
-      expect(new Headers(init?.headers).has("cookie")).toBe(false);
+      expect(init?.redirect).toBe("manual");
+      const sent = new Headers(init?.headers);
+      expect(sent.has("cookie")).toBe(false);
+      expect(sent.has("authorization")).toBe(false);
       documentCalls++;
       if (upstreamStatus !== 200) return new Response(null,{status:upstreamStatus});
       return Response.json({client_id:clientId,client_name:"Public test agent",
