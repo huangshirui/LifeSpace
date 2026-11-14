@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cimdClientId, approvedCimdClientId, fetchClientMetadata, parseClientMetadata, publicRedirectUri, ordinaryPublicIp, precheckCimdDns,
+  cimdClientId, approvedCimdClientId, fetchClientMetadata, fetchClientMetadataResult, parseClientMetadata, publicRedirectUri, ordinaryPublicIp, precheckCimdDns,
 } from "../src/oauth-client-metadata";
 
 const clientId = "https://client.example.com/oauth/client.json";
@@ -155,6 +155,27 @@ describe("CIMD public client metadata is untrusted until verified", () => {
       expect(await fetchClientMetadata(clientId, denied)).toBeNull();
       expect(metadataCalled).toBe(false);
     }
+  });
+
+  it("classifies transient transport separately from security denials", async () => {
+    expect(await fetchClientMetadataResult(clientId, withDns(new Response(null,{status:503}))))
+      .toEqual({ok:false,reason:"metadata_http",retryable:true,status:503});
+    expect(await fetchClientMetadataResult(clientId, withDns(new Response(null,{status:403}))))
+      .toEqual({ok:false,reason:"metadata_http",retryable:false,status:403});
+    expect(await fetchClientMetadataResult(clientId, withDns(new Response(null,{status:302}))))
+      .toEqual({ok:false,reason:"metadata_http",retryable:false,status:302});
+    expect(await fetchClientMetadataResult(clientId, withDns(Response.json({...metadata,client_id:"https://wrong.example.com/client.json"}))))
+      .toEqual({ok:false,reason:"metadata_invalid",retryable:false});
+    const mixed = (async (url: string) => {
+      if (url.endsWith("type=1")) return dnsAnswer(url,"127.0.0.1");
+      if (url.endsWith("type=28")) return new Response(null,{status:503});
+      throw new Error("unsafe DNS result must prevent document fetch");
+    }) as typeof fetch;
+    expect(await fetchClientMetadataResult(clientId,mixed))
+      .toEqual({ok:false,reason:"dns_target_denied",retryable:false});
+    const temporary = (async () => Response.json({Status:2})) as typeof fetch;
+    expect(await fetchClientMetadataResult(clientId,temporary))
+      .toEqual({ok:false,reason:"dns_response",retryable:true});
   });
 
   it("never follows redirects, limits bytes and requires JSON media type", async () => {
