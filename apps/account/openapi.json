@@ -151,7 +151,7 @@
     },
     "/api/oauth/capabilities": {
       "get": {
-        "summary": "Account BFF previews current Agent Direct Native model and Kernel Person operations, narrowed by Identity pending OAuth Scope",
+        "summary": "Account BFF previews current Agent Direct Native model and Kernel Person operations as a pre-policy upper bound, narrowed by Identity pending OAuth Scope",
         "parameters": [
           {
             "name": "request_id",
