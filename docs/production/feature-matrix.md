@@ -109,7 +109,7 @@
 | Health Observation | 1 | ✅ | `health_observation` |
 | Health Regimen | 1 | ✅ | `health_regimen` |
 
-Active Model Contract: `mct_3bb7219eafc9834084e7643251ed8f6103f26196f579b6807246fed4b4b6b2f4`
+Active Model Contract: `mct_143d1f71246161628208ae657ef4a73b1c20fe4714384bc2e2e22d886fda1b56`
 
 > Space Person Directory 是 Kernel first-class resource，因此不会作为 ordinary model 出现在本表。
 
