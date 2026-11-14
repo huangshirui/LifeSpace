@@ -55,7 +55,7 @@ export const PROVING_MODELS = Object.freeze([
   Object.freeze({ key: "event", minimumVersion: 8, hash: "dbf441f1f8203ebec0e16b2d6569b7606764b924540efd7bad30fb1258a7b270" }),
   Object.freeze({ key: "person_group", minimumVersion: 2, hash: "9dd9e0c1c562468485c6599613bb4bf6fdd6c83655e2040f49381e91aa94f08c" }),
   Object.freeze({ key: "anniversary", minimumVersion: 2, hash: "239be818a59bc78588634e6599a54e53d90158463ea95bfb257059b0d80ed0e4" }),
-  Object.freeze({ key: "activity", minimumVersion: 2, hash: "4fc8e1508b90e26f69ce5612d5291250bf87b5032431df4f54dfb15ef896c67c" }),
+  Object.freeze({ key: "activity", minimumVersion: 3, hash: "bfe9da30ec2338c70bcb93d777765047bcf02e91977ee83a0f20d1d98b26dbea" }),
   Object.freeze({ key: "goal", minimumVersion: 3, hash: "346dc5c37c9074f8c25c9dad35ce302a7de3ec3738de6814cadde94db8817b39" }),
   Object.freeze({ key: "person_profile", minimumVersion: 2, hash: "b4a45467ad8b737b3fe4b79090749b6aa8565e26f20e975372f1f2cedea4b5ef" }),
   Object.freeze({ key: "habit", minimumVersion: 3, hash: "a040f9afeac045f2061add27cab4e1b1fb86a917cf913769c97371b219c289eb" }),
