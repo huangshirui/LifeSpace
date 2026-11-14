@@ -52,7 +52,7 @@ const RELEASE_HISTORY = Object.freeze({
   event: Object.freeze({ previousVersion: 4, previousHash: "66832c4dae9fd9f99b1f4f49cfdb53e7c91a55512c0b3cf8b8cddaee2111f6c4", previousRoute: "events", currentVersion: 8, currentCompatibility: "breaking" }),
   person_group: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
   anniversary: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
-  activity: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
+  activity: Object.freeze({ currentVersion: 3, currentCompatibility: "compatible" }),
   goal: Object.freeze({ currentVersion: 3, currentCompatibility: "compatible" }),
   person_profile: Object.freeze({ currentVersion: 2, currentCompatibility: "compatible" }),
   habit: Object.freeze({ currentVersion: 3, currentCompatibility: "compatible" }),
@@ -127,7 +127,7 @@ describe("canonical baseline Model Catalog", () => {
       return value;
     };
     for (const definition of BASELINE_MODELS.filter(model =>
-      ["person_group", "anniversary", "activity", "goal", "person_profile", "habit"].includes(model.key))) {
+      ["person_group", "anniversary", "goal", "person_profile", "habit"].includes(model.key))) {
       const release = RELEASE_HISTORY[definition.key as keyof typeof RELEASE_HISTORY];
       const previous = await db.prepare("SELECT state,definition_json FROM model_definitions WHERE model_key=? AND version=?")
         .bind(definition.key, release.currentVersion - 1)
@@ -138,6 +138,20 @@ describe("canonical baseline Model Catalog", () => {
       for (const field of Object.values(definition.fields))
         if (field.description) expect(field.description.length).toBeLessThanOrEqual(160);
     }
+  });
+
+  it("preserves Activity v2 and publishes the additive lifecycle", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const previous = await db.prepare("SELECT state,definition_json,schema_hash FROM model_definitions WHERE model_key='activity' AND version=2")
+      .first<{ state: string; definition_json: string; schema_hash: string }>();
+    expect(previous?.state).toBe("superseded");
+    expect(previous?.schema_hash).toBe("4fc8e1508b90e26f69ce5612d5291250bf87b5032431df4f54dfb15ef896c67c");
+    const prior = structuredClone(ACTIVITY_MODEL_DEFINITION);
+    delete prior.fields.status;
+    prior.query!.filterable = prior.query!.filterable!.filter(field => field !== "status");
+    delete prior.defaults;
+    delete prior.actions;
+    expect(JSON.parse(previous!.definition_json)).toEqual(prior);
   });
 
   it("keeps the pre-0.32 route-bearing versions immutable as superseded evidence", async () => {
