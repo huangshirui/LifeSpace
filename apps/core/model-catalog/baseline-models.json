@@ -815,6 +815,19 @@
         "title": "End Date",
         "nullable": true,
         "description": "Last date, if known."
+      },
+      "status": {
+        "type": "enum",
+        "title": "Status",
+        "description": "The current lifecycle state of the activity, independent of dates and controlled by explicit actions.",
+        "required": true,
+        "readOnly": true,
+        "values": [
+          "planned",
+          "active",
+          "completed",
+          "cancelled"
+        ]
       }
     },
     "referenceLabel": {
@@ -828,7 +841,8 @@
       "filterable": [
         "attendeePersonIds",
         "startDate",
-        "endDate"
+        "endDate",
+        "status"
       ],
       "sortable": [
         "startDate",
@@ -848,6 +862,93 @@
       "outgoing": [
         "relates_to"
       ]
+    },
+    "defaults": {
+      "status": "active"
+    },
+    "actions": {
+      "start": {
+        "access": "write",
+        "guards": [
+          {
+            "field": "status",
+            "op": "eq",
+            "value": "planned",
+            "errorCode": "ACTIVITY_INVALID_TRANSITION"
+          }
+        ],
+        "set": {
+          "status": "active"
+        }
+      },
+      "complete": {
+        "access": "write",
+        "guards": [
+          {
+            "field": "status",
+            "op": "eq",
+            "value": "active",
+            "errorCode": "ACTIVITY_INVALID_TRANSITION"
+          }
+        ],
+        "set": {
+          "status": "completed"
+        }
+      },
+      "cancel": {
+        "access": "write",
+        "guards": [
+          {
+            "field": "status",
+            "op": "neq",
+            "value": "completed",
+            "errorCode": "ACTIVITY_INVALID_TRANSITION"
+          },
+          {
+            "field": "status",
+            "op": "neq",
+            "value": "cancelled",
+            "errorCode": "ACTIVITY_INVALID_TRANSITION"
+          }
+        ],
+        "set": {
+          "status": "cancelled"
+        }
+      },
+      "reopen": {
+        "access": "write",
+        "guards": [
+          {
+            "field": "status",
+            "op": "neq",
+            "value": "planned",
+            "errorCode": "ACTIVITY_INVALID_TRANSITION"
+          },
+          {
+            "field": "status",
+            "op": "neq",
+            "value": "active",
+            "errorCode": "ACTIVITY_INVALID_TRANSITION"
+          }
+        ],
+        "set": {
+          "status": "active"
+        }
+      },
+      "reset": {
+        "access": "write",
+        "guards": [
+          {
+            "field": "status",
+            "op": "eq",
+            "value": "active",
+            "errorCode": "ACTIVITY_INVALID_TRANSITION"
+          }
+        ],
+        "set": {
+          "status": "planned"
+        }
+      }
     }
   },
   "goal": {

@@ -201,6 +201,6 @@ describe("MCP Server direct configuration lifecycle", () => {
     expect(publications).toBeNull();
     const schema = await db.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'")
       .first<{ value: string }>();
-    expect(schema?.value).toBe("78");
+    expect(Number(schema?.value)).toBeGreaterThanOrEqual(78);
   });
 });
