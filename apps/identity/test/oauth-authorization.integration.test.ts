@@ -507,19 +507,23 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
       limiterCalls++;
       return {success: rateAllowed};
     }};
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       if (typeof input === "string" && input.startsWith("https://cloudflare-dns.com/dns-query?")) {
         dnsCalls++;
         return Response.json({Status:0,Answer:input.endsWith("type=1")?
           [{type:1,data:denyDns?"127.0.0.1":"8.8.8.8"}]:[]});
       }
       expect(input).toBe(clientId);
+      expect(init?.redirect).toBe("manual");
+      const sent = new Headers(init?.headers);
+      expect(sent.has("cookie")).toBe(false);
+      expect(sent.has("authorization")).toBe(false);
       documentCalls++;
       if (upstreamStatus !== 200) return new Response(null,{status:upstreamStatus});
       return Response.json({client_id:clientId,client_name:"Public test agent",
         redirect_uris:[advertised], response_types:["code"], token_endpoint_auth_method:"none",
         grant_types:["authorization_code","refresh_token"]},
-        {headers:{"cache-control":cacheControl,date:new Date().toUTCString()}});
+        {headers:{"cache-control":cacheControl,date:new Date().toUTCString(),"set-cookie":"test=discard"}});
     }) as typeof fetch;
     try {
       const authorize = () => t.authorize({client_id:clientId,redirect_uri:redirect});

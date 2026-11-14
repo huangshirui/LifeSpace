@@ -172,9 +172,27 @@ describe("CIMD public client metadata is untrusted until verified", () => {
       "max-age=300", "public", "public, max-age=-1", "public, max-age=abc"]) {
       expect(cimdFreshUntil(headers(directive),now,now)).toBeNull();
     }
-    const rejectedHeaders: Record<string,string>[] = [{age:"300"},{age:"bad"},{vary:"Accept"},{date:"bad"},{"set-cookie":"x=1"}];
+    expect(cimdFreshUntil(headers("public, max-age=300",{"set-cookie":"x=1"}),now,now)).toBe(now+300_000);
+    expect(cimdFreshUntil(headers("private, max-age=300",{"set-cookie":"x=1"}),now,now)).toBeNull();
+    expect(cimdFreshUntil(headers("public, no-store, max-age=300",{"set-cookie":"x=1"}),now,now)).toBeNull();
+    expect(cimdFreshUntil(headers("public, max-age=300",{"set-cookie":"x=1",vary:"Cookie"}),now,now)).toBeNull();
+    const rejectedHeaders: Record<string,string>[] = [{age:"300"},{age:"bad"},{vary:"Accept"},{date:"bad"}];
     for (const extra of rejectedHeaders) {
       expect(cimdFreshUntil(headers("public, max-age=300",extra),now,now)).toBeNull();
+    }
+    const cookieResponse = (async (url: string, init: RequestInit) => {
+      if (url.startsWith("https://cloudflare-dns.com/dns-query?")) return dnsAnswer(url);
+      expect(init.redirect).toBe("manual");
+      const sent = new Headers(init.headers);
+      expect(sent.has("cookie")).toBe(false);
+      expect(sent.has("authorization")).toBe(false);
+      return Response.json(metadata,{headers:{"cache-control":"public, max-age=300","set-cookie":"test=discard"}});
+    }) as typeof fetch;
+    const fetched = await fetchClientMetadataResult(clientId,cookieResponse);
+    expect(fetched).toMatchObject({ok:true,metadata:{clientId}});
+    if (fetched.ok) {
+      expect(fetched.freshUntilMs).toBeGreaterThan(Date.now());
+      expect(JSON.stringify(fetched)).not.toContain("test=discard");
     }
     expect(await fetchClientMetadataResult(clientId,withDns(Response.json(metadata,{headers:{"cache-control":"no-store"}}))))
       .toMatchObject({ok:true,freshUntilMs:null});

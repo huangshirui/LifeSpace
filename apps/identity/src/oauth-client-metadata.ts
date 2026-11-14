@@ -142,7 +142,10 @@ export type CimdMetadataResult = { ok: true; metadata: PublicOAuthClientMetadata
 export const CIMD_MAX_FRESHNESS_MS = 300_000;
 export function cimdFreshUntil(headers: Headers, requestStartedMs: number, responseReceivedMs: number): number | null {
   const control = headers.get("cache-control");
-  if (!control || headers.get("vary") || headers.has("set-cookie")) return null;
+  // RFC 9111 §7.3: Set-Cookie alone does not prohibit HTTP caching.
+  // This cache stores only validated public metadata freshness and pinned
+  // callbacks, never response headers, cookies, or a browser session.
+  if (!control || headers.get("vary")) return null;
   const directives = control.split(",").map(value => value.trim().toLowerCase());
   // Decline unusual quoted extension values instead of misparsing commas.
   if (directives.some(value => !/^[a-z][a-z0-9_-]*(?:\s*=\s*(?:[a-z0-9_-]+|"\d+"))?$/u.test(value))) return null;
@@ -236,6 +239,8 @@ export async function fetchClientMetadataResult(
   const requestStartedMs = Date.now();
   try {
     response = await fetcher(clientId, {
+      // A fresh Worker subrequest has no browser cookie jar. Do not forward
+      // any inbound headers or use a Request derived from the user session.
       method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000),
       headers: { accept: "application/json" },
     });
