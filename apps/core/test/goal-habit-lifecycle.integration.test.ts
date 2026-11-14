@@ -31,8 +31,9 @@ async function fixture() {
   ]);
   const goal = await getPublishedModel(bindings(), "goal");
   const habit = await getPublishedModel(bindings(), "habit");
-  if (!goal || !habit) throw new Error("Schema 72 baseline models are not published");
-  return { spaceId, owner, helper, ownerPersonId, helperPersonId, goal, habit };
+  const activity = await getPublishedModel(bindings(), "activity");
+  if (!goal || !habit || !activity) throw new Error("Baseline lifecycle models are not published");
+  return { spaceId, owner, helper, ownerPersonId, helperPersonId, goal, habit, activity };
 }
 
 describe("Goal/Habit baseline schema 72 lifecycle and owner policy", () => {
@@ -57,6 +58,48 @@ describe("Goal/Habit baseline schema 72 lifecycle and owner policy", () => {
     expect(reopened.data.status).toBe("active");
     const abandoned = await executeWorkflowAction(bindings(), f.owner, f.spaceId, f.goal, goal.id, "abandon", 5);
     expect(abandoned.data.status).toBe("abandoned");
+  });
+
+
+  it("governs Activity status independently of dates and checks all transitions", async () => {
+    const f = await fixture();
+    const initialData = { name: "Competition", startDate: "2020-01-01", endDate: "2020-01-02", attendeePersonIds: [f.ownerPersonId] };
+    await expect(createGenericResource(bindings(), f.owner, f.spaceId, f.activity, { ...initialData, status: "completed" }))
+      .rejects.toMatchObject({ code: "INVALID_RESOURCE" });
+    let record = await createGenericResource(bindings(), f.owner, f.spaceId, f.activity, initialData);
+    expect(record.data).toMatchObject({ ...initialData, status: "active" });
+    await expect(updateGenericResource(bindings(), f.owner, f.spaceId, f.activity, record.id, record.version, { status: "completed" }))
+      .rejects.toMatchObject({ code: "INVALID_RESOURCE" });
+    const transition = async (action: string, status: string) => {
+      const previousVersion = record.version;
+      record = await executeWorkflowAction(bindings(), f.owner, f.spaceId, f.activity, record.id, action, previousVersion);
+      expect(record.version).toBe(previousVersion + 1);
+      expect(record.data).toMatchObject({ ...initialData, status });
+    };
+    const denied = async (...actions: string[]) => {
+      for (const action of actions)
+        await expect(executeWorkflowAction(bindings(), f.owner, f.spaceId, f.activity, record.id, action, record.version))
+          .rejects.toMatchObject({ code: "ACTIVITY_INVALID_TRANSITION" });
+    };
+    await denied("start", "reopen");
+    await transition("reset", "planned");
+    await denied("complete", "reset", "reopen");
+    await transition("cancel", "cancelled");
+    await denied("start", "complete", "cancel", "reset");
+    await transition("reopen", "active");
+    await transition("cancel", "cancelled");
+    await transition("reopen", "active");
+    await transition("reset", "planned");
+    await transition("start", "active");
+    await transition("complete", "completed");
+    await denied("start", "complete", "cancel", "reset");
+    await expect(executeWorkflowAction(bindings(), f.owner, f.spaceId, f.activity, record.id, "reopen", record.version - 1))
+      .rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    const updated = await updateGenericResource(bindings(), f.owner, f.spaceId, f.activity, record.id, record.version, { endDate: "2035-01-01" });
+    expect(updated.data).toMatchObject({ status: "completed", endDate: "2035-01-01" });
+    initialData.endDate = "2035-01-01";
+    record = updated;
+    await transition("reopen", "active");
   });
 
   it("allows someone to create a Habit for another Person, but only that Person may mutate or check in", async () => {
