@@ -15,7 +15,7 @@
 - Active Model Contract: `mct_143d1f71246161628208ae657ef4a73b1c20fe4714384bc2e2e22d886fda1b56`
 - Active ordinary models (19): Task v10, Wish v10, Day Record v7, Event v8, Person Group v2, Anniversary v2, Activity v3, Goal v3, Person Profile v2, Habit v3, Football Match v1, Football Performance v1, Health Assessment v1, Health Concern v1, Health Document v1, Health Event v1, Health Metric v1, Health Observation v1, Health Regimen v1.
 - Independent rollouts: [Console #43533673820](https://github.com/huangshirui/LifeSpace/actions/runs/43533673820) and [Account #43606678174](https://github.com/huangshirui/LifeSpace/actions/runs/43606678174), Console `533321d`, Account `95c3fb5d`; [private MCP Adapter #43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505), `cc1573600a919cc435298be5be5d0f547dcb2fe7`.
-- Release confidence: **exact release-bound production deployment evidence**; authenticated Production OAuth/MCP positive tool-call and browser journeys remain unverified; cold-cache ChatGPT CIMD returned upstream HTTP 403 after release (#580).
+- Release confidence: **exact release-bound production deployment evidence**; real Production ChatGPT CIMD Consent, Discovery, Person preview and read-only MCP calls verified on 2026-11-15, including cold-cache reconnect and old authorization revocation; intermittent upstream HTTP 403 remains #580. Broader write/Delegation and negative replay acceptance remain separate.
 
 > 本页与成功的 production workflow 精确绑定。main、PR 或 staging 中的能力不能自动视为 Production；已部署也不等于已完成所有真实业务场景验收。
 
@@ -23,8 +23,8 @@
 
 - Activity v3: explicit `planned/active/completed/cancelled` lifecycle, default active, guarded start/complete/cancel/reopen/reset actions; dates and relationships unchanged. Legacy records backfilled active provisionally; not historical completion evidence.
 - CIMD: cache only validated explicitly public metadata during HTTP freshness (maximum five minutes); local client/policy and authority checked live; response cookies not retained. DCR/static approval rechecks active registration and exact callback. Cold-cache ChatGPT metadata requests still returned 403 in real production; #580 remains open. No stale fallback.
-- Private MCP Resource Secret: owner recovery [#43602173685](https://github.com/huangshirui/LifeSpace/actions/runs/43602173685) synchronized only Adapter secret, verified actual synthetic invalid-token rejection; positive user tool calls not yet verified.
-- Core/Account Person consent preview: current Person/whole-Space Grant, configured Server operations and requested Scope; ordinary model Grant does not grant Person. Both code deployments verified, real consent page still blocked by #580, #581 open.
+- Private MCP Resource Secret: owner recovery [#43602173685](https://github.com/huangshirui/LifeSpace/actions/runs/43602173685) synchronized only Adapter secret, verified actual synthetic invalid-token rejection and positive real user read calls after two CIMD connections; #585 closed.
+- Core/Account Person consent preview: current Person/whole-Space Grant, configured Server operations and requested Scope; ordinary model Grant does not grant Person. Both code deployments verified; owner confirmed Person preview and real Person query returned nonempty results; #581 closed.
 
 ## 1. LifeSpace 是什么
 
@@ -255,7 +255,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 7. Cloudflare isolation / bindings verification；
 8. canonical `lsp_svc_*` service authentication + active Model Contract verification。
 
-2026-11-14 (UTC+8) [Production #43605536269](https://github.com/huangshirui/LifeSpace/actions/runs/43605536269) exact candidate `95c3fb5d4d40a88cf68f9e32a65aedb9c4dfa159` completed all three jobs (provenance, APAC gate, deploy/verify). Core 0.54.0 / schema79; Identity 0.19.0 / schema19; 19 active models including Activity v3. Account same SHA independently deployed. Previous security release and intervening deployment are recorded in Changelog. Real Production OAuth/MCP acceptance remains blocked by #580; no claim of successful user tool calls.
+2026-11-14 (UTC+8) [Production #43605536269](https://github.com/huangshirui/LifeSpace/actions/runs/43605536269) exact candidate `95c3fb5d4d40a88cf68f9e32a65aedb9c4dfa159` completed all three jobs (provenance, APAC gate, deploy/verify). Core 0.54.0 / schema79; Identity 0.19.0 / schema19; 19 active models including Activity v3. Account same SHA independently deployed. Previous security release and intervening deployment are recorded in Changelog. On 2026-11-15 real CIMD authorization, Discovery, Person preview, paginated read and cold-cache reconnect/revoke succeeded. #580 remains open for intermittent upstream 403; full acceptance matrix #499 remains independent.
 
 Production runtime signing material、Bootstrap Secret 与 Core↔Identity shared authentication secret 由本次 workflow 证实原值保留；`sync_production_bootstrap_secret=false`、`repair_core_identity_shared_secret=false`。真实 `lsp_svc_* -> Core -> Identity introspection` 使用专门配置的 Model Admin Service Token 通过，并验证 Active Model Contract；正常发布不创建 Bootstrap 临时生产身份。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 
