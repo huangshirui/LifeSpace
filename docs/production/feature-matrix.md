@@ -21,12 +21,13 @@
 | Identity | Agent API Credential (`lsp_agt_*`) | ✅ | revocable；绑定 Application + Agent；credential possession 不授予业务 Authority |
 | Service Auth | Opaque Service API Token (`lsp_svc_*`) | ✅ | canonical scoped / revocable service credential；legacy `lsp_pat_*` 仅兼容 |
 | Service Auth | OAuth `client_credentials` | ✅ | 面向第三方/策略控制服务 |
-| OAuth | Authorization code / PKCE, refresh / revoke, Resource-bound execution | ✅ | Identity 0.19.0 已部署；本轮真实 Production 授权及撤权待复测 |
+| OAuth | Authorization code / PKCE, refresh / revoke, Resource-bound execution | ✅ | Identity 0.19.0 已部署；真实 Production CIMD 授权、撤销及重连通过；未重放旧 Token |
 | OAuth | Console-managed CIMD / DCR admission | ✅ | 当前 Identity 准入策略、网络和 limiter 约束；CIMD 显式 freshness 上限五分钟；ChatGPT 冷缓存上游 403 仍待解决 #580 |
 | MCP | Current Server configuration / enabled state | ✅ | Core schema 79，配置不产生底层 Authority |
-| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 95c3fb5d + private Adapter cc15736；内部凭据已同步，真实 Production E2E 待验收 |
-| OAuth | Core/Account Person Directory consent projection | ✅ | Core and Account 95c3fb5d deployed; actual user preview pending, #581 |
-| MCP | Private Resource Server credential recovery | ✅ | #43602173685 actual synthetic negative-token probe passed after Adapter-only synchronization; real positive calls not yet verified |
+| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 95c3fb5d + private Adapter cc15736；内部凭据已同步，真实 Production Discovery、读取及重连通过 |
+| OAuth | Core/Account Person Directory consent projection | ✅ | Core and Account 95c3fb5d deployed; owner-confirmed actual Person preview and read, #581 closed |
+| MCP | Private Resource Server credential recovery | ✅ | #43602173685 actual synthetic negative-token probe passed after Adapter-only synchronization; real positive read and reconnect passed, #585 closed |
+| MCP | Real Production CIMD consent / discovery / read / cold-cache reconnect | ✅ | 2026-11-15 two successful cycles, old authorization revoked; #580 intermittent availability remains open |
 | MCP | Real Production OAuth/Delegation E2E on latest release | ❓ | 独立验收，不能用 Staging 或部署成功替代 |
 | Space | Space membership | ✅ | 普通业务授权基础 |
 | Space | Data Grant | ✅ | 显式、可撤销的数据授权 |
@@ -129,7 +130,7 @@ Active Model Contract: `mct_143d1f71246161628208ae657ef4a73b1c20fe4714384bc2e2e2
 - Production Model Admin 使用已配置的专用 `models:manage` `lsp_svc_*`，不再每次通过 Bootstrap 临时创建 Application/User/Principal/Token 或直接删除生产 Identity D1
 - 正式 APAC User JWT + Service Token 性能门禁：✅；临时 Probe/Smoke Authority Cleanup：✅
 
-- 独立 Console [#43533673820](https://github.com/huangshirui/LifeSpace/actions/runs/43533673820)、Account [#43606678174](https://github.com/huangshirui/LifeSpace/actions/runs/43606678174)、private MCP Adapter [#43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505) 部署通过；真实 Production OAuth/MCP/Delegation 待验收。
+- 独立 Console [#43533673820](https://github.com/huangshirui/LifeSpace/actions/runs/43533673820)、Account [#43606678174](https://github.com/huangshirui/LifeSpace/actions/runs/43606678174)、private MCP Adapter [#43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505) 部署通过；真实 Production CIMD/MCP read、重连/撤销已验证；更广泛 Delegation/写入与否定矩阵仍独立。
 
 Feature Matrix 状态必须由成功的 production workflow 明确推进，不以 main / staging / downstream consumer 状态代替 production 事实。
 
