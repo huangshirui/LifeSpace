@@ -77,8 +77,7 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
     && typeof env.SPACE_ID === "string" && /^spc_[A-Za-z0-9_]+$/u.test(env.SPACE_ID)
     && (path === "/api/v1/spaces/" + env.SPACE_ID + "/_discovery"
       || path === "/api/v1/spaces/" + env.SPACE_ID + "/models/task/records?limit=10"
-      || (path.startsWith("/api/v1/spaces/" + env.SPACE_ID + "/models/task/records/")
-        && /^rec_[A-Za-z0-9]+$/u.test(path.split("/").at(-1))));
+      || new RegExp("^/api/v1/spaces/" + env.SPACE_ID + "/models/task/records/rec_[A-Za-z0-9]+$", "u").test(path));
   if (credentialMode === "member" ? !memberPath : !isAllowedBenchmarkRequest(path, method, env.SPACE_ID)) {
     return json({ error: "benchmark_request_not_allowed" }, 403);
   }

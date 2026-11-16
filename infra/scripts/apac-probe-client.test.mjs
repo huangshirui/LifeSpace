@@ -112,3 +112,12 @@ test("exposes secret-free per-call transport diagnostics without changing latenc
   assert.ok(Number.isFinite(observations[0].runnerToProbeMs));
   assert.doesNotMatch(JSON.stringify(observations), /probe-secret|secret data|private/u);
 });
+
+test("member adapter requires matching credential mode",async()=>{
+  const adapter=createApacProbeRequestAdapter({probeUrl:"https://probe.example",probeToken:"probe-token",credentialMode:"member",
+    fetchImpl:async(_url,init)=>{
+      assert.equal(JSON.parse(init.body).credentialMode,"member");
+      return jsonResponse({status:200,elapsedMs:40,payload:{data:[]},credentialMode:"user"});
+    }});
+  await assert.rejects(adapter("/api/v1/spaces/spc_test/models/task/records?limit=10"),/credential mode mismatch/u);
+});
