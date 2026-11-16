@@ -66,15 +66,25 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
 
   const method = typeof input?.method === "string" ? input.method.toUpperCase() : "GET";
   const path = typeof input?.path === "string" ? input.path : "";
-  if (!isAllowedBenchmarkRequest(path, method, env.SPACE_ID)) {
-    return json({ error: "benchmark_request_not_allowed" }, 403);
-  }
-
   const credentialMode = input?.credentialMode ?? "user";
-  if (credentialMode !== "user" && credentialMode !== "service") {
+  if (!["user", "service", "member"].includes(credentialMode)) {
     return json({ error: "benchmark_credential_mode_not_allowed" }, 403);
   }
-  const bearer = credentialMode === "service" ? env.SERVICE_BEARER : env.USER_BEARER;
+  // The extra credential is a run-scoped Editor, never the owner. Its probe
+  // can read only the exact synthetic Space's Task records and Discovery.
+  // No control-plane mutations, arbitrary model keys, or credential fallback.
+  const memberPath = credentialMode === "member" && method === "GET"
+    && typeof env.SPACE_ID === "string" && /^spc_[A-Za-z0-9_]+$/u.test(env.SPACE_ID)
+    && (path === "/api/v1/spaces/" + env.SPACE_ID + "/_discovery"
+      || path === "/api/v1/spaces/" + env.SPACE_ID + "/models/task/records?limit=10"
+      || (path.startsWith("/api/v1/spaces/" + env.SPACE_ID + "/models/task/records/")
+        && /^rec_[A-Za-z0-9]+$/u.test(path.split("/").at(-1))));
+  if (credentialMode === "member" ? !memberPath : !isAllowedBenchmarkRequest(path, method, env.SPACE_ID)) {
+    return json({ error: "benchmark_request_not_allowed" }, 403);
+  }
+  const bearer = credentialMode === "member" ? env.MEMBER_BEARER
+    : credentialMode === "service" ? env.SERVICE_BEARER : env.USER_BEARER;
+  if (!bearer) return json({ error: "probe_not_configured" }, 503);
 
   const correlationId = crypto.randomUUID();
   const started = performance.now();

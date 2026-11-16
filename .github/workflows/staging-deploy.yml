@@ -109,6 +109,7 @@ jobs:
           node --check infra/scripts/verify-staging-eventing.mjs
           node --check infra/scripts/verify-staging-eventing-principal-revocation.mjs
           node --check infra/scripts/verify-staging-authority-v3.mjs
+          node --check infra/scripts/staging-model-ceiling-acceptance.mjs
           node --check infra/scripts/verify-staging-platform-golden-flow.mjs
           node --check infra/scripts/baseline-model-semantics.mjs
           node --check infra/scripts/publish-staging-baseline-model-semantics.mjs
@@ -242,6 +243,9 @@ jobs:
 
       - name: Verify Agent Principal and bounded re-delegation
         run: node infra/scripts/verify-staging-authority-v3.mjs
+
+      - name: Verify live member model ceiling and revocation
+        run: node infra/scripts/staging-model-ceiling-acceptance.mjs
 
       - name: Verify active Model Contract D1 pointer
         env:
