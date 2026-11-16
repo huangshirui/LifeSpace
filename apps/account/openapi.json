@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Account Center and OAuth Consent BFF",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "Same-origin Cloudflare Access user BFF for Identity-owned profile and OAuth, Core-owned Space/invite and Delegation; user-bound CSRF mutations. No Account database, cross-service D1 access or privileged admin credential."
   },
   "paths": {
@@ -1022,6 +1022,154 @@
           },
           "409": {
             "description": "Changed version or no longer available"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}/members/{userId}/model-access": {
+      "get": {
+        "summary": "Unified model ceiling configuration for authorized Space manager",
+        "security": [],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,124}$"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^usr_[A-Za-z0-9_-]{3,124}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authorized model configuration or saved ceiling"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "Current authority or browser/CSRF check denied"
+          },
+          "404": {
+            "description": "Space/member/model unavailable"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}/members/{userId}/model-access/{modelKey}": {
+      "post": {
+        "summary": "Set or clear one member model ceiling using same-origin CSRF and exact target confirmation",
+        "security": [],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,124}$"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^usr_[A-Za-z0-9_-]{3,124}$"
+            }
+          },
+          {
+            "name": "modelKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{1,62}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "confirmSpaceId",
+                  "confirmUserId",
+                  "confirmModelKey",
+                  "maxAccess"
+                ],
+                "properties": {
+                  "intent": {
+                    "const": "change-member-model-access"
+                  },
+                  "confirmSpaceId": {
+                    "type": "string"
+                  },
+                  "confirmUserId": {
+                    "type": "string"
+                  },
+                  "confirmModelKey": {
+                    "type": "string"
+                  },
+                  "maxAccess": {
+                    "enum": [
+                      "none",
+                      "read",
+                      "write",
+                      "manage",
+                      null
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authorized model configuration or saved ceiling"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "No Access session"
+          },
+          "403": {
+            "description": "Current authority or browser/CSRF check denied"
+          },
+          "404": {
+            "description": "Space/member/model unavailable"
           },
           "502": {
             "description": "Invalid upstream response"

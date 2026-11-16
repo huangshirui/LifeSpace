@@ -17,6 +17,25 @@ const ACCOUNT_EXTERNAL = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})\/e
 const ACCOUNT_AUTHORIZATION = /^\/api\/account\/authorizations\/(oaz_[A-Za-z0-9_-]{16,128})(?:\/(revoke))?$/u;
 const ACCOUNT_SPACE_DETAIL = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})(?:\/(members))?$/u;
 const SPACE_ROLES = new Set(["owner","admin","editor","viewer"]);
+const ACCOUNT_MODEL_ACCESS = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,124})\/members\/(usr_[A-Za-z0-9_-]{3,124})\/model-access(?:\/([a-z][a-z0-9_]{1,62}))?$/u;
+const CEILING_VALUES = new Set(["none","read","write","manage",null]);
+function projectMemberModelAccess(item,spaceId,userId) {
+  const validAccess=values=>Array.isArray(values)&&values.length<=3
+    &&values.every(value=>["read","write","manage"].includes(value));
+  if(!isObject(item)||item.spaceId!==spaceId||item.userId!==userId
+    ||(item.role!==null&&!SPACE_ROLES.has(item.role))||!Array.isArray(item.models)||item.models.length>2000
+    ||item.models.some(model=>!isObject(model)||!safeText(model.modelKey,63)||!/^[a-z][a-z0-9_]{1,62}$/u.test(model.modelKey)
+      ||!safeText(model.displayName,200)||typeof model.available!=="boolean"||!CEILING_VALUES.has(model.ceiling)
+      ||!validAccess(model.baseAccess)||!validAccess(model.boundedAccess))) return null;
+  return {spaceId,userId,role:item.role,models:item.models.map(model=>({
+    modelKey:model.modelKey,displayName:model.displayName,available:model.available,ceiling:model.ceiling,
+    baseAccess:model.baseAccess,boundedAccess:model.boundedAccess,
+  }))};
+}
+function memberModelAccessPath(match) {
+  return "/api/v1/spaces/"+encodedPath(match[1])+"/members/"+encodedPath(match[2])+"/model-access"
+    +(match[3]?"/"+encodedPath(match[3]):"");
+}
 function validAuthorization(item) {
   return isObject(item) && /^oaz_[A-Za-z0-9_-]{16,128}$/u.test(item.id||"")
     && safeText(item.clientId,1024) && safeText(item.clientName,200)
@@ -250,9 +269,10 @@ export async function accountFetch(req, env) {
       "/api/account/login-email/change","/api/account/spaces/create",
       "/api/account/spaces/invite-preview","/api/account/spaces/join"].includes(path)
     && path !== "/api/account/authorizations" && !ACCOUNT_AUTHORIZATION.test(path)
-    && !ACCOUNT_SPACE_DETAIL.test(path) && !ACCOUNT_EXTERNAL.test(path)
+    && !ACCOUNT_SPACE_DETAIL.test(path) && !ACCOUNT_EXTERNAL.test(path) && !ACCOUNT_MODEL_ACCESS.test(path)
     && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
-  const mutation = ["/api/account/profile","/api/account/profile/avatar",
+  const memberModelAccess = ACCOUNT_MODEL_ACCESS.exec(path);
+  const mutation = Boolean(memberModelAccess?.[3]) || ["/api/account/profile","/api/account/profile/avatar",
     "/api/account/login-email/change","/api/account/spaces/create",
     "/api/account/spaces/invite-preview","/api/account/spaces/join"].includes(path);
   if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny"
@@ -350,6 +370,15 @@ export async function accountFetch(req, env) {
       displayName:item.displayName,status:item.status,access:item.access,
       createdAt:item.createdAt,
     }))}});
+  }
+  if(memberModelAccess&&!memberModelAccess[3]){
+    if(url.search)return fail(400,"INVALID_REQUEST","模型权限不接受额外参数");
+    const upstream=await boundedUpstream(env,"CORE",memberModelAccessPath(memberModelAccess),linked.token);
+    if(!upstream?.ok)return fail([403,404].includes(upstream?.status)?upstream.status:503,
+      "MODEL_ACCESS_UNAVAILABLE","无法读取成员模型权限");
+    const projection=projectMemberModelAccess(await data(upstream),memberModelAccess[1],memberModelAccess[2]);
+    if(!projection)return fail(502,"CORE_INVALID_RESPONSE","模型权限响应异常");
+    return responseJson({data:projection});
   }
   const spaceDetail = ACCOUNT_SPACE_DETAIL.exec(path);
   if (spaceDetail) {
@@ -568,6 +597,22 @@ export async function accountFetch(req, env) {
   if (raw.length > 2048) return fail(413, "REQUEST_TOO_LARGE", "授权内容过大");
   let input;
   try { input = JSON.parse(raw); } catch { return fail(400, "INVALID_REQUEST", "授权内容无效"); }
+  if(memberModelAccess?.[3]){
+    if(url.search||!isObject(input)||Object.keys(input).sort().join(",")!=="confirmModelKey,confirmSpaceId,confirmUserId,intent,maxAccess"
+      ||input.intent!=="change-member-model-access"||input.confirmSpaceId!==memberModelAccess[1]
+      ||input.confirmUserId!==memberModelAccess[2]||input.confirmModelKey!==memberModelAccess[3]
+      ||!CEILING_VALUES.has(input.maxAccess))
+      return fail(400,"INVALID_REQUEST","请确认具体成员、模型及权限上限");
+    let upstream;
+    try{upstream=await service(env,"CORE",memberModelAccessPath(memberModelAccess),{
+      method:input.maxAccess===null?"DELETE":"PUT",
+      headers:{authorization:"Bearer "+linked.token,...(input.maxAccess===null?{}:{"content-type":JSON_TYPE})},
+      ...(input.maxAccess===null?{}:{body:JSON.stringify({maxAccess:input.maxAccess})}),
+    });}catch{return fail(503,"CORE_UNAVAILABLE","模型权限保存失败");}
+    if(upstream.status!==204)return fail([400,403,404,409,422].includes(upstream.status)?upstream.status:503,
+      "MODEL_ACCESS_UPDATE_FAILED","权限配置未保存，请检查当前管理权限或模型状态");
+    return responseJson({data:{modelKey:memberModelAccess[3],ceiling:input.maxAccess}});
+  }
   if (path === "/api/account/profile") {
     if(url.search || !isObject(input) || Object.keys(input).sort().join(",")!=="displayName,intent"
       || input.intent!=="update-profile" || !safeText(input.displayName,50)

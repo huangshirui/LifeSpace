@@ -109,6 +109,7 @@ describe("Entity Role Capability Authority Sources", () => {
     expect(userCounter.preparedSql).toHaveLength(1);
     expect(userCounter.preparedSql[0]).toContain("space_memberships");
     expect(userCounter.preparedSql[0]).toContain("data_grants");
+    expect(userCounter.preparedSql[0]).toContain("model_access_ceilings");
 
     const agentCounter: Counter = { preparedSql: [] };
     const agent: Principal = {
@@ -130,5 +131,6 @@ describe("Entity Role Capability Authority Sources", () => {
     expect(agentCounter.preparedSql).toHaveLength(1);
     expect(agentCounter.preparedSql[0]).not.toContain("space_memberships");
     expect(agentCounter.preparedSql[0]).toContain("data_grants");
+    expect(agentCounter.preparedSql[0]).not.toContain("model_access_ceilings");
   });
 });

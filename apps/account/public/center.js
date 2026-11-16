@@ -169,7 +169,15 @@ async function loadSpaceDetail(id) {
       for(const member of members) {
         const row=el("div","member-row");
         const detail=el("span");detail.append(el("strong","",member.displayName));
-        row.append(detail,el("span","role",roles[member.role]||member.role));
+        const actions=el("div","member-actions");
+        actions.append(el("span","role",roles[member.role]||member.role));
+        if(member.userId!==state.user?.id&&member.role!=="owner"
+          &&(info.access==="owner"||(info.access==="admin"&&["editor","viewer"].includes(member.role)))){
+          const button=el("button","button compact","模型权限");button.type="button";
+          button.addEventListener("click",()=>void openMemberAccess(id,info.name,member));
+          actions.append(button);
+        }
+        row.append(detail,actions);
         listing.append(row);
       }
       const tech=el("details","technical-details");
@@ -182,6 +190,111 @@ async function loadSpaceDetail(id) {
     if(state.space===id)target.replaceChildren(el("p","placeholder","无法读取空间详情："+msg(e)));
   }
 }
+// Member Model Access Ceiling: render only the Core Space-side projection.
+// The member list is read-only; each authority change has a dedicated editor.
+const memberAccessLabels={inherit:"继承",none:"无权限",read:"只读",write:"读写",manage:"管理"};
+const memberAccess={target:null,config:null,editing:null,busy:false,revision:0};
+const accessLabel=value=>memberAccessLabels[value??"inherit"]??"—";
+const accessSummary=values=>values.length?accessLabel(values[values.length-1]):"无权限";
+const memberAccessPath=target=>"/api/account/spaces/"+encodeURIComponent(target.spaceId)+"/members/"+encodeURIComponent(target.userId)+"/model-access";
+function closeMemberAccess(){
+  if(memberAccess.busy)return;
+  memberAccess.revision++;memberAccess.target=null;memberAccess.config=null;memberAccess.editing=null;
+  $("member-access-dialog").close();
+}
+async function reloadMemberAccess(){
+  const target=memberAccess.target,revision=++memberAccess.revision;
+  if(!target)return;
+  memberAccess.config=null;memberAccess.editing=null;
+  $("member-access-editor").hidden=true;$("member-access-list").hidden=false;
+  $("member-access-title").textContent="成员模型权限";
+  $("member-access-models").replaceChildren(el("p","placeholder","正在读取权限…"));
+  $("member-access-error").hidden=true;
+  try{
+    const config=await api(memberAccessPath(target));
+    if(memberAccess.revision!==revision||memberAccess.target!==target)return;
+    memberAccess.config=config;renderMemberAccess();
+  }catch(e){
+    if(memberAccess.revision!==revision)return;
+    $("member-access-models").replaceChildren(el("p","placeholder","无法读取权限："+msg(e)));
+  }
+}
+async function openMemberAccess(spaceId,spaceName,member){
+  if(memberAccess.busy)return;
+  memberAccess.target={spaceId,spaceName,userId:member.userId,displayName:member.displayName};
+  $("member-access-context").textContent=spaceName+" · "+member.displayName;
+  $("member-access-search").value="";
+  $("member-access-dialog").showModal();
+  await reloadMemberAccess();
+}
+function renderMemberAccess(){
+  const root=$("member-access-models");root.replaceChildren();
+  const config=memberAccess.config;if(!config)return;
+  const search=$("member-access-search").value.trim().toLocaleLowerCase();
+  const rows=config.models.filter(model=>!search||[model.displayName,model.modelKey].some(v=>v.toLocaleLowerCase().includes(search)));
+  if(!rows.length)root.append(el("p","placeholder","没有匹配的模型"));
+  for(const model of rows){
+    const row=el("div","member-access-row");
+    const name=el("div","member-access-name");name.append(el("strong","",model.displayName),el("small","",model.modelKey+(model.available?"":" · 当前不可用")));
+    const summary=el("div","member-access-summary");
+    summary.append(el("span","","上限："+accessLabel(model.ceiling)),el("small","","Space 权限："+accessSummary(model.baseAccess)+" → "+accessSummary(model.boundedAccess)));
+    const button=el("button","button compact","编辑");button.type="button";
+    button.disabled=config.role==="owner"||(!model.available&&model.ceiling===null);
+    button.addEventListener("click",()=>editMemberAccess(model));
+    row.append(name,summary,button);root.append(row);
+  }
+}
+function editMemberAccess(model){
+  if(memberAccess.busy||!memberAccess.config)return;
+  memberAccess.editing=model;
+  $("member-access-title").textContent="编辑模型权限";
+  $("member-access-model-name").textContent=model.displayName+" · "+model.modelKey;
+  $("member-access-list").hidden=true;$("member-access-editor").hidden=false;
+  const select=$("member-access-value");select.replaceChildren();
+  for(const value of (model.available?["inherit","none","read","write","manage"]:["inherit"])){
+    const option=el("option","",memberAccessLabels[value]);option.value=value;select.append(option);
+  }
+  select.value=model.available?(model.ceiling??"inherit"):"inherit";
+  $("member-access-save").disabled=select.value===(model.ceiling??"inherit");
+  $("member-access-error").hidden=true;select.focus();
+}
+function backMemberAccess(){
+  if(memberAccess.busy)return;
+  memberAccess.editing=null;$("member-access-editor").hidden=true;$("member-access-list").hidden=false;
+  $("member-access-title").textContent="成员模型权限";$("member-access-error").hidden=true;renderMemberAccess();
+  $("member-access-search").focus();
+}
+async function saveMemberAccess(){
+  const target=memberAccess.target,model=memberAccess.editing;
+  if(!target||!model||memberAccess.busy)return;
+  const value=$("member-access-value").value;
+  if(value===(model.ceiling??"inherit"))return;
+  memberAccess.busy=true;
+  for(const id of ["member-access-save","member-access-back","member-access-value"])$(id).disabled=true;
+  $("member-access-error").hidden=true;
+  try{
+    await post(memberAccessPath(target)+"/"+encodeURIComponent(model.modelKey),{
+      intent:"change-member-model-access",confirmSpaceId:target.spaceId,confirmUserId:target.userId,
+      confirmModelKey:model.modelKey,maxAccess:value==="inherit"?null:value,
+    });
+    memberAccess.busy=false;await reloadMemberAccess();$("member-access-search").focus();
+  }catch(e){
+    $("member-access-error").textContent=msg(e);$("member-access-error").hidden=false;
+  }finally{
+    memberAccess.busy=false;
+    $("member-access-back").disabled=false;$("member-access-value").disabled=false;
+    $("member-access-save").disabled=$("member-access-value").value===(memberAccess.editing?.ceiling??"inherit");
+  }
+}
+$("member-access-search").addEventListener("input",renderMemberAccess);
+$("member-access-refresh").addEventListener("click",()=>void reloadMemberAccess());
+$("member-access-close").addEventListener("click",closeMemberAccess);
+$("member-access-back").addEventListener("click",backMemberAccess);
+$("member-access-value").addEventListener("change",()=>{
+  $("member-access-save").disabled=memberAccess.busy||$("member-access-value").value===(memberAccess.editing?.ceiling??"inherit");
+});
+$("member-access-editor").addEventListener("submit",event=>{event.preventDefault();void saveMemberAccess();});
+$("member-access-dialog").addEventListener("cancel",event=>{event.preventDefault();if(!memberAccess.busy){if(memberAccess.editing)backMemberAccess();else closeMemberAccess();}});
 function auditRow(item) {
   const card=el("article","delegation-item"),head=el("div","delegation-head");
   const title=el("div");

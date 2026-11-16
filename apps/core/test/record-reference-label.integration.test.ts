@@ -170,6 +170,34 @@ async function createTarget(
 }
 
 describe("ordinary-record reference projection", () => {
+  it("denies lookup and resolution of a restricted target with the existing User JWT",async()=>{
+    const f=await fixture();
+    const {targetKey,sourceKey}=await publishPair(f,{field:"name"});
+    const target=await createTarget(f,targetKey,{name:"Private target label"});
+    const editorId="usr_editor_"+f.suffix, now=new Date().toISOString();
+    await f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+      .bind("mem_editor_"+f.suffix,f.spaceId,editorId,"editor",now,now).run();
+    const bearer=await token(f.privateKey,editorId,f.clientId);
+    const lookupPath=`/api/v1/spaces/${f.spaceId}/_relation-targets/${sourceKey}/targetRecordId`;
+    const resolutionPath=`/api/v1/spaces/${f.spaceId}/_reference-resolutions/${sourceKey}/targetRecordId`;
+    expect((await request(f.publicKey,bearer,lookupPath)).status).toBe(200);
+    expect((await request(f.publicKey,bearer,resolutionPath,"POST",{ids:[target.data.id]})).status).toBe(200);
+    await f.db.prepare(`INSERT INTO model_access_ceilings
+      (space_id,entity_type,entity_id,model_key,max_access,created_by_user_id,updated_by_user_id,created_at,updated_at)
+      VALUES(?,'user',?,?,'none',?,?,?,?)`).bind(f.spaceId,editorId,targetKey,f.userId,f.userId,now,now).run();
+    for(const response of [
+      await request(f.publicKey,bearer,lookupPath),
+      await request(f.publicKey,bearer,resolutionPath,"POST",{ids:[target.data.id]}),
+    ]){
+      expect(response.status).toBe(403);
+      expect(await response.text()).not.toContain("Private target label");
+    }
+    expect((await request(f.publicKey,f.accessToken,lookupPath)).status).toBe(200);
+    await f.db.prepare("DELETE FROM model_access_ceilings WHERE space_id=? AND entity_type='user' AND entity_id=? AND model_key=?")
+      .bind(f.spaceId,editorId,targetKey).run();
+    expect((await request(f.publicKey,bearer,resolutionPath,"POST",{ids:[target.data.id]})).status).toBe(200);
+  });
+
   it("uses one model-owned template for lookup, search, pagination and batch resolution", async () => {
     const f = await fixture();
     const { targetKey, sourceKey } = await publishPair(f, { template: "{name} · {date}" });

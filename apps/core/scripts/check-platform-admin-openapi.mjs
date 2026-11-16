@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.8.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.9.0") {
   throw new Error("Core Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -16,6 +16,8 @@ const requiredPaths = [
   "/api/v1/platform-admin/applications/{applicationId}/model-access",
   "/api/v1/platform-admin/spaces",
   "/api/v1/platform-admin/spaces/{spaceId}",
+  "/api/v1/platform-admin/spaces/{spaceId}/members/{userId}/model-access",
+  "/api/v1/platform-admin/spaces/{spaceId}/members/{userId}/model-access/{modelKey}",
   "/api/v1/platform-admin/spaces/{spaceId}/grants",
   "/api/v1/platform-admin/spaces/{spaceId}/grants/{grantId}",
   "/api/v1/platform-admin/spaces/{spaceId}/external-providers",

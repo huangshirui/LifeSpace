@@ -30,6 +30,9 @@ const required = [
   ["grant create intent", "create-space-data-grant"],
   ["grant update intent", "update-space-data-grant"],
   ["grant revoke intent", "revoke-space-data-grant"],
+  ["member model access intent", "change-member-model-access"],
+  ["member model access target confirmation", "confirmUserId"],
+  ["canonical model target confirmation", "confirmModelKey"],
 ];
 
 for (const [label, token] of required) {

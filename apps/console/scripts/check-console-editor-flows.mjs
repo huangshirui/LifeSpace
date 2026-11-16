@@ -33,3 +33,16 @@ assert.ok(tokenManager.includes("setRevealPath(result.revealPath)"));
 assert.ok(audience.includes('if (registering) return <ConsoleDialog'));
 assert.ok(audience.includes("confirmAudienceId: item.id"));
 console.log("Console Application/Agent/Service independent editor flow checks passed");
+
+const memberCeiling=readFileSync(new URL("../src/MemberModelAccessDialog.tsx",import.meta.url),"utf8");
+const memberPage=readFileSync(new URL("../src/App.tsx",import.meta.url),"utf8");
+assert.ok(memberPage.includes('member.role !== "owner" && <MemberModelAccessButton'));
+assert.ok(memberCeiling.includes('if (editing) return <ConsoleDialog key="edit"'));
+assert.ok(memberCeiling.includes('<ConsoleDialog key="list"'));
+assert.ok(memberCeiling.includes('maxAccess: value === "inherit" ? null : value'));
+assert.ok(memberCeiling.includes('confirmUserId: member.userId'));
+assert.ok(memberCeiling.includes('confirmModelKey: target.modelKey'));
+assert.ok(memberCeiling.includes('if (current) setConfig(result)'));
+assert.ok(memberCeiling.includes('onClose={cancelEditor}'));
+assert.ok(!memberCeiling.includes('providerKey'));
+console.log("Console Member Model Access dedicated editor checks passed");

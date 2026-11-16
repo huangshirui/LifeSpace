@@ -11,6 +11,7 @@ import { ENTITY_ROLE_CAPABILITIES, type AuthoritySource } from "./entity-role-ca
 import type { Actor, AuthorityD1Timing, Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import type { ModelAccess } from "./model-definition";
+import { modelAccessWithinCeiling, type ModelAccessCeiling } from "./model-access-ceiling";
 export type ModelAuthorityTarget = { key: string; definition: { access: ModelAccess[] } };
 
 const accessRank: Record<ModelAccess, number> = { read: 2, write: 3, manage: 4 };
@@ -37,6 +38,20 @@ const permissionMaxAccess: Record<Permission, ModelAccess | null> = {
   write: "write",
   manage: "manage",
 };
+
+/** Space-side authority only, without Application, credential or Policy.
+ * Used for control-plane previews; this does not authorize an operation. */
+export function previewModelSpaceAccess(
+  role: SpaceRole | null, grants: readonly Permission[], model: ModelAuthorityTarget,
+  ceiling: ModelAccessCeiling | null = null,
+): ModelAccess[] {
+  const membership = role ? roleMaxAccess[role] : null;
+  const rank = Math.max(membership ? accessRank[membership] : 0,
+    ...grants.map(permission => permissionRank[permission]));
+  return (["read","write","manage"] as ModelAccess[]).filter(required =>
+    model.definition.access.includes(required) && rank >= accessRank[required]
+    && modelAccessWithinCeiling(role, ceiling, required));
+}
 
 export type DelegationSelector = {
   delegationId?: string | null;
@@ -82,6 +97,7 @@ type BaseAuthoritySnapshotRow = {
   catalog_access: ModelAccess | null;
   membership_role: SpaceRole | null;
   grant_permission: Permission | null;
+  model_access_ceiling: ModelAccessCeiling | null;
   principal_person_id: string | null;
 };
 
@@ -189,6 +205,19 @@ function baseAuthorityStatement(
     bindings.push(spaceId, principal.type, principal.id, model.key);
   }
 
+  // A ceiling constrains the verified Root Principal, never the executing Actor.
+  // Fold the indexed lookup into the existing authority snapshot. Independent
+  // non-User roots do not query the table in V1.
+  const ceilingProjection = principal.type === "user"
+    ? `(
+        SELECT max_access FROM model_access_ceilings
+        WHERE space_id=? AND entity_type='user' AND entity_id=? AND model_key=?
+      )`
+    : "NULL";
+  if (principal.type === "user") {
+    bindings.push(spaceId, principal.id, model.key);
+  }
+
   // Space Person is Policy Identity, not an Authority Source. Keep this bridge
   // independent from Entity Role Capability.authoritySources.
   bindings.push(principal.type, spaceId, principal.id);
@@ -204,6 +233,7 @@ function baseAuthorityStatement(
       ) AS catalog_access,
       ${membershipProjection} AS membership_role,
       ${dataGrantProjection} AS grant_permission,
+      ${ceilingProjection} AS model_access_ceiling,
       (
         SELECT id FROM space_people
         WHERE ?='user' AND space_id=? AND linked_user_id=? AND deleted_at IS NULL LIMIT 1
@@ -297,7 +327,8 @@ function baseDecision(
   const grantAllowed = grantAccess !== null
     && grantAccess !== undefined
     && accessRank[grantAccess] >= accessRank[request.required];
-  if (!membershipAllowed && !grantAllowed) {
+  if ((!membershipAllowed && !grantAllowed)
+    || !modelAccessWithinCeiling(row.membership_role, row.model_access_ceiling ?? null, request.required)) {
     throw new ApiError(
       "PRINCIPAL_AUTHORITY_INSUFFICIENT",
       `Space ${spacePermissions[request.required]} permission is required`,

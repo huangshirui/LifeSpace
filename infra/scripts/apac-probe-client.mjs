@@ -13,7 +13,7 @@ export function createApacProbeRequestAdapter({
 }) {
   if (!probeUrl) throw new Error("probeUrl is required");
   if (!probeToken) throw new Error("probeToken is required");
-  if (credentialMode !== "user" && credentialMode !== "service") {
+  if (!["user", "service", "member"].includes(credentialMode)) {
     throw new Error(`unsupported credentialMode: ${String(credentialMode)}`);
   }
   if (!Number.isInteger(routeAttempts) || routeAttempts < 1) {

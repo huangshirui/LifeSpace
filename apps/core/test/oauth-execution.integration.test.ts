@@ -481,6 +481,64 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",base,represented,{name:"Revoked"},headers)).status).toBe(401);
   });
 
+  it("rechecks the represented User ceiling for OAuth approval and already-issued delegation, without changing independent Agent grants",async()=>{
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    const records=base+"/models/task/records";
+    const manager="usr_owner_"+crypto.randomUUID().replaceAll("-","");
+    const now=new Date().toISOString();
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    await f.setServerOperations(["query","get","create"]);
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+        .bind("mem_owner_"+manager,f.space,manager,"owner",now,now),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+        .bind("mem_editor_"+f.oauthUser,f.space,f.oauthUser,"editor",now,now),
+      f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'").bind(f.application),
+    ]);
+    const patch={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    const issue=async(reason:string)=>{
+      const response=await f.request("POST",base+"/oauth-delegation-requests",patch,{modelKey:"task",operation:"create",reason});
+      expect(response.status).toBe(201);
+      return (await response.json() as {data:{id:string}}).data.id;
+    };
+    const approve=(id:string)=>f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+id+"/approve",{mode:"until_revoked"});
+    const approved=await approve(await issue("First approved write"));
+    expect(approved.status).toBe(200);
+    const dlg=(await approved.json() as {data:{delegations:Array<{id:string}>}}).data.delegations[0]!.id;
+    const represented={...patch,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg};
+    const headers={"x-lifespace-delegation-id":dlg};
+    const pending=await issue("Second pending write");
+    const managePath=base+"/members/"+f.oauthUser+"/model-access/task";
+    const count=async()=>Number(await f.db.prepare("SELECT COUNT(*) n FROM resource_records WHERE space_id=? AND model_key='task'").bind(f.space).first("n"));
+    expect((await f.request("POST",records,represented,{name:"Before limit"},headers)).status).toBe(201);
+    const beforeCount=await count();
+    const directManifest=async()=>{
+      const response=await f.request("GET",base+"/_discovery/operations",patch);
+      expect(response.status).toBe(200);
+      return (await response.json() as {data:{operations:Array<{operation:string;operationRef:string}>}}).data.operations;
+    };
+    const oldManifest=await directManifest();
+    const query=oldManifest.find(op=>op.operation==="query")!;
+    expect(query).toBeDefined();
+    expect(oldManifest.some(op=>op.operation==="create")).toBe(false);
+    expect((await f.accountRequest("PUT",managePath,{maxAccess:"none"},manager)).status).toBe(204);
+    expect((await approve(pending)).status).toBe(403);
+    expect(await f.db.prepare("SELECT COUNT(*) n FROM authorization_request_delegations WHERE request_id=?").bind(pending).first("n")).toBe(0);
+    expect((await f.request("POST",records,represented,{name:"Denied"},headers)).status).toBe(403);
+    expect(await count()).toBe(beforeCount);
+    // The direct OAuth Agent uses its own explicit read Grant, not User authority.
+    expect(await directManifest()).toEqual(oldManifest);
+    expect((await f.request("POST",base+"/_operations/"+query.operationRef+"/invoke",patch,
+      {arguments:{spaceId:f.space,data:{page:{limit:1}}}})).status).toBe(200);
+    expect((await f.request("POST",records,patch,{name:"No independent write grant"})).status).toBe(403);
+    expect((await f.accountRequest("DELETE",managePath,undefined,manager)).status).toBe(204);
+    expect((await approve(pending)).status).toBe(200);
+    expect((await f.request("POST",records,represented,{name:"Restored"},headers)).status).toBe(201);
+    expect(await count()).toBe(beforeCount+1);
+  });
+
   it("Account User can grant bounded repeated / long-lived exact operation and revoke without OAuth consent", async () => {
     const f=await fixture();
     const base="/api/v1/spaces/"+f.space+"/models/task/records";

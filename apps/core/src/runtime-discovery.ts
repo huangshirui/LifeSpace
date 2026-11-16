@@ -9,6 +9,7 @@ import type { CalendarCapabilityDefinition, CheckInCapabilityDefinition } from "
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
+import { modelAccessWithinCeiling, type ModelAccessCeiling } from "./model-access-ceiling";
 import { listPublishedModels, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { referenceLabelSemantic } from "./reference-label";
@@ -21,6 +22,8 @@ type AppContext = Context<AppEnv>;
 
 type CatalogRow = { model_key: string; max_access: ModelAccess };
 type MembershipRow = { role: SpaceRole };
+type CeilingRow = { model_key: string; max_access: ModelAccessCeiling };
+type SpaceCeilingRow = CeilingRow & { space_id: string };
 type MembershipAccessRow = MembershipRow & { space_id: string; space_name: string };
 type GrantRow = { resource_type: "space" | "model"; resource_id: string | null; permission: Permission };
 type GrantAccessRow = GrantRow & { source_space_id: string; space_name: string };
@@ -76,6 +79,7 @@ type AggregateDiscoveryState = {
   membershipsBySpace: Map<string, MembershipRow>;
   spaceNamesById: Map<string, string>;
   grantsBySpace: Map<string, GrantRow[]>;
+  ceilingsBySpace: Map<string, Map<string, ModelAccessCeiling>>;
   delegatedAgent: boolean;
   delegatedBySpace: Map<string, Map<string, ModelAccess>>;
   candidateSpaceIds: string[];
@@ -226,6 +230,7 @@ export function visibleModelAccess(
   membership: MembershipRow | null,
   grants: GrantRow[],
   delegatedByModel?: Map<string, ModelAccess>,
+  ceilingsByModel?: ReadonlyMap<string, ModelAccessCeiling>,
 ): VisibleModel[] {
   return models.flatMap((model) => {
     if (model.definition.origin === "external") return [];
@@ -237,7 +242,7 @@ export function visibleModelAccess(
       catalogAccess,
       spaceAuthorityRank(principal, membership, grants, model.key),
       delegatedByModel === undefined ? undefined : (delegatedByModel.get(model.key) ?? null),
-    );
+    ).filter(access => modelAccessWithinCeiling(membership?.role ?? null, ceilingsByModel?.get(model.key) ?? null, access));
     return allowed.length ? [{ model, access: allowed }] : [];
   });
 }
@@ -249,8 +254,9 @@ function visibleModels(
   membership: MembershipRow | null,
   grants: GrantRow[],
   delegatedByModel?: Map<string, ModelAccess>,
+  ceilingsByModel?: ReadonlyMap<string, ModelAccessCeiling>,
 ) {
-  return visibleModelAccess(principal, models, catalogByModel, membership, grants, delegatedByModel)
+  return visibleModelAccess(principal, models, catalogByModel, membership, grants, delegatedByModel, ceilingsByModel)
     .map(({ model, access }) => dto(model, access));
 }
 
@@ -307,6 +313,13 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
       WHERE m.user_id=? AND m.deleted_at IS NULL AND s.deleted_at IS NULL`).bind(principal.id));
   }
 
+  const ceilingIndex = principal.type === "user" ? statements.length : -1;
+  if (principal.type === "user") {
+    statements.push(context.env.DB.prepare(`SELECT c.space_id,c.model_key,c.max_access
+      FROM model_access_ceilings c JOIN spaces s ON s.id=c.space_id
+      WHERE c.entity_type='user' AND c.entity_id=? AND s.deleted_at IS NULL`).bind(principal.id));
+  }
+
   const grantsIndex = statements.length;
   statements.push(context.env.DB.prepare(`SELECT g.source_space_id,g.resource_type,g.resource_id,g.permission,s.name space_name
     FROM data_grants g
@@ -345,6 +358,15 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
     if (!spaceNamesById.has(row.source_space_id)) spaceNamesById.set(row.source_space_id, row.space_name);
   }
 
+  const ceilingsBySpace = new Map<string, Map<string, ModelAccessCeiling>>();
+  if (ceilingIndex >= 0) {
+    for (const row of (results[ceilingIndex].results ?? []) as SpaceCeilingRow[]) {
+      const ceilings = ceilingsBySpace.get(row.space_id) ?? new Map<string, ModelAccessCeiling>();
+      ceilings.set(row.model_key, row.max_access);
+      ceilingsBySpace.set(row.space_id, ceilings);
+    }
+  }
+
   const models = await listPublishedModels(context.env);
   const modelKeys = models.map((model) => model.key);
   const delegatedBySpace = new Map<string, Map<string, ModelAccess>>();
@@ -361,6 +383,7 @@ async function aggregateDiscoveryState(context: AppContext): Promise<AggregateDi
     membershipsBySpace,
     spaceNamesById,
     grantsBySpace,
+    ceilingsBySpace,
     delegatedAgent,
     delegatedBySpace,
     candidateSpaceIds: [...new Set<string>([
@@ -383,6 +406,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         state.membershipsBySpace.get(spaceId) ?? null,
         state.grantsBySpace.get(spaceId) ?? [],
         state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
+        state.ceilingsBySpace.get(spaceId),
       );
       const combined = [...visible,...(external.get(spaceId)??[])];
       return combined.length ? [{ spaceId, spaceName: state.spaceNamesById.get(spaceId)!, models: combined }] : [];
@@ -410,6 +434,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         state.membershipsBySpace.get(spaceId) ?? null,
         state.grantsBySpace.get(spaceId) ?? [],
         state.delegatedAgent ? (state.delegatedBySpace.get(spaceId) ?? new Map<string, ModelAccess>()) : undefined,
+        state.ceilingsBySpace.get(spaceId),
       );
       const selected = oauthQueryKeys
         ? visible.filter(entry => oauthQueryKeys.has(entry.model.key))
@@ -447,6 +472,12 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         WHERE space_id=? AND user_id=? AND deleted_at IS NULL LIMIT 1`).bind(spaceId, principal.id));
     }
 
+    const ceilingIndex = principal.type === "user" ? statements.length : -1;
+    if (principal.type === "user") {
+      statements.push(context.env.DB.prepare(`SELECT model_key,max_access FROM model_access_ceilings
+        WHERE space_id=? AND entity_type='user' AND entity_id=?`).bind(spaceId, principal.id));
+    }
+
     const grantsIndex = statements.length;
     statements.push(context.env.DB.prepare(`SELECT resource_type,resource_id,permission FROM data_grants
       WHERE source_space_id=? AND grantee_type=? AND grantee_id=?
@@ -479,6 +510,10 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       ? ((results[membershipIndex].results ?? [])[0] as MembershipRow | undefined) ?? null
       : null;
     const grants = (results[grantsIndex].results ?? []) as GrantRow[];
+    const ceilingsByModel = new Map<string, ModelAccessCeiling>(
+      (ceilingIndex >= 0 ? (results[ceilingIndex].results ?? []) as CeilingRow[] : [])
+        .map(row => [row.model_key, row.max_access] as const),
+    );
     const models = await listPublishedModels(context.env);
     const delegatedByModel = new Map<string, ModelAccess>();
     if (delegatedAgent) {
@@ -499,6 +534,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       membership,
       grants,
       delegatedAgent ? delegatedByModel : undefined,
+      ceilingsByModel,
     );
 
     const external = await visibleExternalModels(context.env,principal,[spaceId],context.req.header("x-lifespace-delegation-id"));

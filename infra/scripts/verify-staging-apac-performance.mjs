@@ -6,6 +6,7 @@ import { APAC_RELEASE_SAMPLE_COUNT } from "./performance-release-targets.mjs";
 import { planApacConfirmation, evaluateApacConfirmation, APAC_CONFIRMATION_ROUNDS } from "./apac-release-acceptance.mjs";
 import { runStagingPerformanceBenchmark } from "./staging-canonical-performance-benchmark.mjs";
 import { runStagingServicePerformanceBenchmark } from "./staging-service-performance-benchmark.mjs";
+import { runCeilingApacAcceptance } from "./staging-model-ceiling-acceptance.mjs";
 
 const coreBaseUrl = (process.env.LIFESPACE_CORE_STAGING_URL ?? "").replace(/\/+$/u, "");
 const userBearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
@@ -146,3 +147,5 @@ console.log(JSON.stringify({ APAC_RELEASE_DECISION: decision,
 if (decision.status !== "passed") {
   throw new Error(`Staging APAC performance release gate blocked: ${JSON.stringify(decision)}`);
 }
+// Additive non-Owner gate; do not weaken or substitute the existing release gate.
+await runCeilingApacAcceptance(process.env, requestThroughApacProbe("member"));

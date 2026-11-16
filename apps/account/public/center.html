@@ -170,6 +170,24 @@
     </div>
   </main>
 </div>
+<dialog id="member-access-dialog" aria-labelledby="member-access-title">
+  <h2 id="member-access-title">成员模型权限</h2>
+  <p id="member-access-context"></p>
+  <section id="member-access-list">
+    <p class="inline-note">权限上限只能收窄已有 Space 权限。下方为 Space 侧预览，应用、凭证和其他规则仍可能进一步限制访问。</p>
+    <div class="member-access-searchbar"><input id="member-access-search" type="search" maxlength="100" aria-label="搜索模型" placeholder="搜索模型名称或标识"><button id="member-access-refresh" type="button" class="button">刷新</button></div>
+    <div id="member-access-models" class="member-access-models" aria-live="polite"></div>
+    <div class="dialog-actions"><button id="member-access-close" type="button" class="button">关闭</button></div>
+  </section>
+  <form id="member-access-editor" hidden>
+    <p id="member-access-model-name"></p>
+    <label for="member-access-value">权限上限</label>
+    <select id="member-access-value"></select>
+    <p>继承表示移除上限，而不是授予新的权限。保存后，已有用户令牌与代表该用户的委托也受当前权限约束。</p>
+    <p id="member-access-error" class="dialog-error" role="alert" hidden></p>
+    <div class="dialog-actions"><button id="member-access-back" type="button" class="button">取消</button><button id="member-access-save" type="submit" class="button primary">确认保存</button></div>
+  </form>
+</dialog>
 <dialog id="revoke-dialog" aria-labelledby="revoke-heading" aria-describedby="revoke-detail">
   <h2 id="revoke-heading">撤销授权</h2><p id="revoke-detail"></p>
   <p id="revoke-error" class="dialog-error" role="alert" hidden></p>

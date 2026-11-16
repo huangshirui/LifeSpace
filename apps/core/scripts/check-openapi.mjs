@@ -11,7 +11,7 @@ if (corePackageVersion !== document.info?.version) {
   throw new Error(`Core release package version ${corePackageVersion} differs from Kernel contract ${document.info?.version}`);
 }
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.54.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.55.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
@@ -40,6 +40,8 @@ const requiredPaths = [
   "/api/v1/spaces/{spaceId}/avatar",
   "/api/v1/spaces/{spaceId}/members",
   "/api/v1/spaces/{spaceId}/members/{userId}",
+  "/api/v1/spaces/{spaceId}/members/{userId}/model-access",
+  "/api/v1/spaces/{spaceId}/members/{userId}/model-access/{modelKey}",
   "/api/v1/spaces/{spaceId}/leave",
   "/api/v1/spaces/{spaceId}/invites",
   "/api/v1/spaces/{spaceId}/invites/{inviteId}/revoke",

@@ -12,7 +12,7 @@ const avatarUrl="https://auth-staging.example.test/assets/users/"+USER+"/avatar"
 
 function setup(){
   const requests=[];
-  let displayName="Test User",email="old@example.test",version=2,linked=true;
+  let displayName="Test User",email="old@example.test",version=2,linked=true,ceiling=null;
   const env={
     ENVIRONMENT:"staging",ACCOUNT_CSRF_SECRET:"a-local-test-secret-with-at-least-thirty-two-characters",
     IDENTITY_APPLICATION_CREDENTIAL:"lsa_test_private",
@@ -58,6 +58,17 @@ function setup(){
       const path=new URL(req.url).pathname;
       requests.push({who:"core",path,method:req.method});
       assert.equal(req.headers.get("authorization"),"Bearer "+token);
+      const memberPath="/api/v1/spaces/"+SPACE+"/members/usr_child/model-access";
+      if(path===memberPath&&req.method==="GET")return Response.json({data:{
+        spaceId:SPACE,userId:"usr_child",role:"editor",models:[
+          {modelKey:"task",displayName:"Task",available:true,ceiling,baseAccess:["read","write"],boundedAccess:ceiling==="none"?[]:["read","write"],providerKey:"must-not-leak"},
+        ],secret:"must-not-leak"}});
+      if(path===memberPath+"/task"&&req.method==="PUT"){
+        const input=await req.json();assert.deepEqual(input,{maxAccess:"none"});ceiling=input.maxAccess;
+        return new Response(null,{status:204});
+      }
+      if(path===memberPath+"/task"&&req.method==="DELETE"){ceiling=null;return new Response(null,{status:204});}
+      if(path.includes("/members/usr_denied/model-access"))return Response.json({error:{code:"FORBIDDEN"}},{status:403});
       if(path==="/api/v1/me/spaces")
         return Response.json({data:[{id:SPACE,name:"My Space",timezone:"Asia/Shanghai",role:"owner"}]});
       if(path==="/api/v1/spaces" && req.method==="POST"){
@@ -166,4 +177,28 @@ test("Legacy standalone Delegation management redirects into the consolidated ta
   const r=await t.request("/delegations");
   assert.equal(r.status,302);
   assert.equal(r.headers.get("location"),ORIGIN+"/center#connections/delegations");
+});
+
+test("Member model ceilings use only current User authority with target confirmation and CSRF",async()=>{
+  const t=setup(),a=await t.auth(),base="/api/account/spaces/"+SPACE+"/members/usr_child/model-access";
+  const payload={intent:"change-member-model-access",confirmSpaceId:SPACE,confirmUserId:"usr_child",confirmModelKey:"task",maxAccess:"none"};
+  const initial=await t.request(base);assert.equal(initial.status,200);
+  const first=await initial.json();assert.equal(first.data.models[0].ceiling,null);
+  assert.ok(!JSON.stringify(first).includes("must-not-leak"));
+  const count=()=>t.requests.filter(x=>x.who==="core").length;
+  const before=count();
+  assert.equal((await t.post(base+"/task",payload,{csrf:"wrong",cookie:a.cookie})).status,403);
+  assert.equal((await t.post(base+"/task",payload,a,{origin:"https://evil.test"})).status,403);
+  assert.equal((await t.post(base+"/task",{...payload,confirmModelKey:"event"},a)).status,400);
+  assert.equal((await t.post(base+"/task",{...payload,actorUserId:"usr_admin"},a)).status,400);
+  assert.equal((await t.post(base+"/task",{...payload,maxAccess:"inherit"},a)).status,400);
+  assert.equal(count(),before);
+  assert.equal((await t.request(base+"/task")).status,405);
+  assert.equal((await t.post(base,payload,a)).status,405);
+  assert.equal((await t.post(base+"/task",payload,a)).status,200);
+  assert.equal((await (await t.request(base)).json()).data.models[0].ceiling,"none");
+  assert.equal((await t.post(base+"/task",{...payload,maxAccess:null},a)).status,200);
+  assert.equal((await (await t.request(base)).json()).data.models[0].ceiling,null);
+  assert.equal((await t.request(base.replace("usr_child","usr_denied"))).status,403);
+  assert.ok(t.requests.filter(x=>x.who==="core").every(x=>!x.path.includes("platform-admin")));
 });

@@ -163,6 +163,97 @@ function opaqueIdentity(principal: Principal, calls: { count: number }): Partial
 }
 
 describe("Semantic Relation Runtime", () => {
+  it("rechecks existing bearer across record, history, relation and native file paths after a ceiling change", async () => {
+    const f=await fixture(), now=new Date().toISOString(), editorId="usr_editor_"+crypto.randomUUID().replaceAll("-","");
+    await f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+      .bind("mem_"+editorId,f.spaceId,editorId,"editor",now,now).run();
+    const bearer=await token(f.privateKey,editorId,f.clientId);
+    const base=`/api/v1/spaces/${f.spaceId}`;
+    const call=(path:string,init:RequestInit={},bindings:Partial<Bindings>={})=>request(f.publicKey,bearer,base+path,init,bindings);
+    const source=await createRecord(f,f.sourceModelKey,"visible source");
+    const target=await createRecord(f,f.targetModelKey,"private target");
+    const relationInput={source:{kind:"record",modelKey:f.sourceModelKey,recordId:source.id},predicate:"relates_to",
+      target:{kind:"record",modelKey:f.targetModelKey,recordId:target.id}};
+    const relation=await request(f.publicKey,f.bearer,base+"/semantic-relations",{method:"POST",body:JSON.stringify(relationInput)});
+    expect(relation.status).toBe(200);
+    const edge=(await json(relation)).data.id;
+    const listPath=`/semantic-relations?sourceModelKey=${f.sourceModelKey}&sourceRecordId=${source.id}&hydrate=both`;
+    const recordPath=`/models/${f.targetModelKey}/records/${target.id}`;
+    const historyPath=`/changes?recordId=${target.id}`;
+    const history=await call(historyPath);
+    expect(history.status).toBe(200);
+    const changeId=(await json(history)).data.items[0].id;
+    expect((await call(recordPath)).status).toBe(200);
+    expect((await json(await call(listPath))).data.items).toHaveLength(1);
+    const putCeiling=(key:string,ceiling:"none"|"read")=>f.db.prepare(`INSERT INTO model_access_ceilings
+      (space_id,entity_type,entity_id,model_key,max_access,created_by_user_id,updated_by_user_id,created_at,updated_at)
+      VALUES(?,'user',?,?,?,?,?,?,?) ON CONFLICT(space_id,entity_type,entity_id,model_key)
+      DO UPDATE SET max_access=excluded.max_access,updated_at=excluded.updated_at`)
+      .bind(f.spaceId,editorId,key,ceiling,f.userId,f.userId,now,now).run();
+    await putCeiling(f.targetModelKey,"none");
+    expect((await call(recordPath)).status).toBe(403);
+    expect((await call(historyPath)).status).toBe(403);
+    expect((await call(`/changes/${target.id}`)).status).toBe(403);
+    expect((await call(`/changes/by-id/${changeId}`)).status).toBe(403);
+    expect((await call(`/_discovery/models/${f.targetModelKey}`)).status).toBe(404);
+    const edges=await call(listPath);
+    expect(edges.status).toBe(200);
+    expect((await json(edges)).data).toEqual({items:[],nextCursor:null});
+    expect((await call(`/semantic-relations/${edge}?hydrate=both`)).status).toBe(404);
+    expect((await call("/semantic-relations",{method:"POST",body:JSON.stringify(relationInput)})).status).toBe(403);
+    expect((await call(`/models/${f.sourceModelKey}/records/${source.id}`)).status).toBe(200);
+    expect((await request(f.publicKey,f.bearer,base+recordPath)).status).toBe(200);
+    await putCeiling(f.targetModelKey,"read");
+    expect((await call(recordPath)).status).toBe(200);
+    expect((await call(recordPath,{method:"PATCH",body:JSON.stringify({version:target.version,name:"denied mutation"})})).status).toBe(403);
+
+    // File bytes are one object, not copied when attached to a second model.
+    const originKey="file_origin_"+f.userId.slice(-8), holderKey="file_holder_"+f.userId.slice(-8);
+    const publisher:Principal={type:"service",id:"svc_file_"+f.userId.slice(-8),clientId:"lifespace-platform-admin",scopes:["models:manage"],tokenId:"tok_file"};
+    for(const key of [originKey,holderKey]){
+      await publishModelDefinition({DB:f.db} as Bindings,publisher,{
+        definitionVersion:1,key,display:{singular:"File holder",plural:"File holders"},
+        fields:{name:{type:"string",required:true},attachment:{type:"file",nullable:true}},
+        access:["read","write"],lifecycle:{optimisticConcurrency:true,softDelete:true},
+      },"initial");
+      await f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)")
+        .bind(f.clientId,key,"write","service",publisher.id).run();
+    }
+    const fileId="fil_"+crypto.randomUUID().replaceAll("-","");
+    const uploadId="upl_"+crypto.randomUUID().replaceAll("-","");
+    await f.db.batch([
+      f.db.prepare(`INSERT INTO files(id,space_id,name,content_type,size_bytes,object_key,status,application_id,principal_type,principal_id,actor_type,actor_id,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(fileId,f.spaceId,"private.pdf","application/pdf",10,`files/${f.spaceId}/${fileId}`,"ready",f.clientId,"user",f.userId,"user",f.userId,now),
+      f.db.prepare(`INSERT INTO file_upload_sessions(id,space_id,model_key,field_key,record_id,destination,file_id,object_key,name,content_type,
+        expected_size,status,application_id,principal_type,principal_id,actor_type,actor_id,expires_at,created_at,completed_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(uploadId,f.spaceId,originKey,"attachment",null,"native",fileId,`uploads/native/${f.spaceId}/${uploadId}`,"private.pdf","application/pdf",
+          10,"completed",f.clientId,"user",f.userId,"user",f.userId,now,now,now),
+    ]);
+    const attached=await call(`/models/${holderKey}/records`,{method:"POST",body:JSON.stringify({name:"visible holder",attachment:fileId})});
+    expect(attached.status).toBe(201);
+    const holderId=(await json(attached)).data.id;
+    const download={method:"POST",body:JSON.stringify({modelKey:holderKey,recordId:holderId,fieldKey:"attachment",fileId})};
+    const signer={R2_S3_ACCOUNT_ID:"0123456789abcdef0123456789abcdef",R2_S3_ACCESS_KEY_ID:"test-key",R2_S3_SECRET_ACCESS_KEY:"test-only-not-a-real-secret"} as Partial<Bindings>;
+    const cost:DatabaseCost={roundTrips:0,rowsRead:0,sql:[]}, db=countingDatabase(f.db,cost);
+    await getRuntimeModel({DB:db} as Bindings,holderKey);
+    cost.roundTrips=0;
+    const before=await call("/file-downloads",download,{...signer,DB:db});
+    expect(before.status).toBe(200);
+    expect((await json(before)).data.url).toContain("X-Amz-Expires=300");
+    const beforeTrips=cost.roundTrips;
+    await putCeiling(originKey,"none");
+    cost.roundTrips=0;
+    const blocked=await call("/file-downloads",download,{...signer,DB:db});
+    expect(blocked.status).toBe(404);
+    expect(await json(blocked)).not.toHaveProperty("data");
+    expect(cost.roundTrips).toBe(beforeTrips);
+    expect((await request(f.publicKey,f.bearer,base+"/file-downloads",download,signer)).status).toBe(200);
+    await putCeiling(originKey,"read");
+    expect((await call("/file-downloads",download,signer)).status).toBe(200);
+  },30000);
+
   it("keeps per-item atomicity in the bounded non-atomic endpoint-contention replay", async () => {
     for (const atomicConsistency of [true, false]) {
       const f = await fixture(); const target = await createRecord(f, f.targetModelKey, "target");
