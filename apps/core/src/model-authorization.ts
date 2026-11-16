@@ -39,6 +39,20 @@ const permissionMaxAccess: Record<Permission, ModelAccess | null> = {
   manage: "manage",
 };
 
+/** Space-side authority only, without Application, credential or Policy.
+ * Used for control-plane previews; this does not authorize an operation. */
+export function previewModelSpaceAccess(
+  role: SpaceRole | null, grants: readonly Permission[], model: ModelAuthorityTarget,
+  ceiling: ModelAccessCeiling | null = null,
+): ModelAccess[] {
+  const membership = role ? roleMaxAccess[role] : null;
+  const rank = Math.max(membership ? accessRank[membership] : 0,
+    ...grants.map(permission => permissionRank[permission]));
+  return (["read","write","manage"] as ModelAccess[]).filter(required =>
+    model.definition.access.includes(required) && rank >= accessRank[required]
+    && modelAccessWithinCeiling(role, ceiling, required));
+}
+
 export type DelegationSelector = {
   delegationId?: string | null;
   recordId?: string | null;

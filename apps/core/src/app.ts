@@ -33,6 +33,7 @@ import { registerSpaceRoutes } from "./spaces";
 import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
+import { registerModelAccessCeilingRoutes } from "./model-access-ceiling-routes";
 import { registerFileRoutes } from "./file-routes";
 import { logPerformanceTiming, startPerformanceTiming } from "./performance-timing";
 import { CORE_KERNEL_CONTRACT_VERSION } from "./kernel-contract";
@@ -112,6 +113,7 @@ export function createApp() {
   registerSpaceAvatarRoutes(app);
   registerFileRoutes(app);
   registerGrantRoutes(app);
+  registerModelAccessCeilingRoutes(app);
   registerSpaceLifecycleRoutes(app);
   registerSpaceRoutes(app);
   registerPersonDirectoryRoutes(app);

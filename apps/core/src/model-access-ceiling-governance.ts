@@ -1,4 +1,6 @@
-import type { SpaceRole } from "./authorization";
+import type { Permission, SpaceRole } from "./authorization";
+import { previewModelSpaceAccess } from "./model-authorization";
+import { listSpaceAuthorityModels } from "./space-model-catalog";
 import type { Bindings, Principal } from "./env";
 import { resolveSpaceAuthorityModel } from "./external-model";
 import { ApiError } from "./http";
@@ -52,6 +54,47 @@ export async function listModelAccessCeilings(env: Bindings, manager: CeilingMan
     WHERE c.space_id=? AND c.entity_type='user' AND c.entity_id=? ORDER BY c.model_key`)
     .bind(target.spaceId,target.userId).all<CeilingRow>();
   return rows.results.map(row=>({modelKey:row.model_key,maxAccess:row.max_access,createdAt:row.created_at,updatedAt:row.updated_at}));
+}
+
+/** One configuration projection for all Space model keys. It deliberately
+ * does not evaluate the manager's Application access against the target User.
+ * Preview is Space-side only; actual execution still checks the full authority. */
+export async function getModelAccessCeilingConfiguration(env: Bindings, manager: CeilingManager, target: Target) {
+  const snapshot = await targetSnapshot(env,manager,target);
+  const [rows, grants, catalog] = await Promise.all([
+    env.DB.prepare(`SELECT model_key,max_access,created_at,updated_at
+      FROM model_access_ceilings WHERE space_id=? AND entity_type='user' AND entity_id=?`)
+      .bind(target.spaceId,target.userId).all<CeilingRow>(),
+    env.DB.prepare(`SELECT resource_type,resource_id,permission FROM data_grants
+      WHERE source_space_id=? AND grantee_type='user' AND grantee_id=?
+        AND resource_type IN ('space','model') AND revoked_at IS NULL
+        AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))`)
+      .bind(target.spaceId,target.userId).all<{resource_type:"space"|"model";resource_id:string|null;permission:Permission}>(),
+    listSpaceAuthorityModels(env,target.spaceId),
+  ]);
+  const configured = new Map(rows.results.map(row=>[row.model_key,row.max_access]));
+  const whole:Permission[] = [], byModel = new Map<string,Permission[]>();
+  for (const grant of grants.results) {
+    if (grant.resource_type==="space") whole.push(grant.permission);
+    else if (grant.resource_id) {
+      const permissions=byModel.get(grant.resource_id)??[];
+      permissions.push(grant.permission);
+      byModel.set(grant.resource_id,permissions);
+    }
+  }
+  const models = catalog.map(({target:model,displayName})=>{
+    const ceiling=configured.get(model.key)??null;
+    configured.delete(model.key);
+    const permissions=[...whole,...(byModel.get(model.key)??[])];
+    return {modelKey:model.key,displayName,available:true,ceiling,
+      baseAccess:previewModelSpaceAccess(snapshot.target_role,permissions,model),
+      boundedAccess:previewModelSpaceAccess(snapshot.target_role,permissions,model,ceiling)};
+  });
+  for(const [modelKey,ceiling] of configured){
+    models.push({modelKey,displayName:modelKey,available:false,ceiling,baseAccess:[],boundedAccess:[]});
+  }
+  return {spaceId:target.spaceId,userId:target.userId,role:snapshot.target_role,
+    models:models.sort((left,right)=>left.modelKey.localeCompare(right.modelKey))};
 }
 
 /** Set a sparse ceiling, or clear it with null (= inherit).

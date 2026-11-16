@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.8.0
+  version: 0.9.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
     platform automation. This contract is separate from both the downstream Core Kernel Contract and
@@ -21,6 +21,48 @@ tags:
   - name: MCP Server Governance
   - name: Platform Audit
 paths:
+  /api/v1/platform-admin/spaces/{spaceId}/members/{userId}/model-access:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - { name: userId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Space Grant Governance]
+      operationId: getPlatformMemberModelAccessCeilings
+      description: Read the unified Space model ceiling configuration; requires spaces:manage and platform-admin actor proof. This is not ordinary business-data authority.
+      responses:
+        '200': { description: Model access configuration, content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/ModelAccessCeilingConfigurationResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Space or member not found }
+  /api/v1/platform-admin/spaces/{spaceId}/members/{userId}/model-access/{modelKey}:
+    parameters:
+      - $ref: '#/components/parameters/SpaceId'
+      - { name: userId, in: path, required: true, schema: { type: string } }
+      - { name: modelKey, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Space Grant Governance]
+      operationId: setPlatformMemberModelAccessCeiling
+      description: Set a canonical model ceiling for a non-Owner active User; requires spaces:manage and platform-admin actor proof. Same service, authority semantics and schema as the Kernel.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: './openapi.yaml#/components/schemas/SetModelAccessCeilingRequest' } } }
+      responses:
+        '204': { description: Ceiling set and audited }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Space, member or model not found }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Space Grant Governance]
+      operationId: clearPlatformMemberModelAccessCeiling
+      description: Restore inheritance including retained unavailable restrictions; requires spaces:manage and platform-admin actor proof.
+      responses:
+        '204': { description: Ceiling cleared and audited }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Space or member not found }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/platform-admin/mcp-servers:
     get:
       tags: [MCP Server Governance]
