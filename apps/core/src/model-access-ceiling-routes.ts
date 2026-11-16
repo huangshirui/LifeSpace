@@ -1,4 +1,4 @@
-import type { Context,Hono } from "hono";
+import type { Context,Hono,MiddlewareHandler } from "hono";
 import type { Bindings,Variables } from "./env";
 import { requireScope } from "./auth";
 import { requirePlatformAdminContext } from "./platform-admin-auth";
@@ -39,14 +39,14 @@ export function registerModelAccessCeilingRoutes(app:Hono<AppEnv>):void {
   for(const platform of [false,true]){
     const base=platform?"/api/v1/platform-admin/spaces/:spaceId/members/:userId/model-access"
       :"/api/v1/spaces/:spaceId/members/:userId/model-access";
-    const middleware=platform?[]:[requireScope(scope)];
-    app.get(base,...middleware,async c=>c.json(success(await getModelAccessCeilingConfiguration(c.env,await manager(c,platform),target(c)))));
-    app.put(base+"/:modelKey",...middleware,async c=>{
+    const middleware: MiddlewareHandler<AppEnv> = platform ? async (_c,next)=>{ await next(); } : requireScope(scope);
+    app.get(base,middleware,async c=>c.json(success(await getModelAccessCeilingConfiguration(c.env,await manager(c,platform),target(c)))));
+    app.put(base+"/:modelKey",middleware,async c=>{
       const authority=await manager(c,platform);
       await changeModelAccessCeiling(c.env,authority,target(c),key(c),await maxAccess(c),c.get("requestId"));
       return c.body(null,204);
     });
-    app.delete(base+"/:modelKey",...middleware,async c=>{
+    app.delete(base+"/:modelKey",middleware,async c=>{
       await changeModelAccessCeiling(c.env,await manager(c,platform),target(c),key(c),null,c.get("requestId"));
       return c.body(null,204);
     });
