@@ -73,3 +73,8 @@ Replaces the Schema 77 Draft/Publish catalog with one canonical current Server c
 ## 0079 Activity explicit lifecycle / 活动状态
 
 Compatible additive model release (Issue #578): a required read-only status with server default active and five guarded Actions. Date fields are independent. Existing records all receive active as the conservative migration default, not an inferred completion fact. Preserves IDs, record versions, dates, relations, icons and historical Registry rows; updates only model version and new status. Fails closed unless schema 78 and the reviewed Activity v2 hash are active, and verifies record/storage counts. The SQL storage default protects legacy inserts during migration/Worker rollout. Apply before the Core Worker; verify staging and exact active Model Contract, and obtain explicit Production approval. Use the normal pre-release D1 snapshot/Time Travel gate; do not down-migrate or restore production data without Owner approval.
+
+
+## 0080 Model Access Ceiling / 模型访问权限上限 (development candidate)
+
+Additive sparse Core Authority storage for #589; no records backfilled, no Registry revision or Model Contract change. Only User entity type can be persisted in V1. Apply before candidate Worker. No configuration surface is exposed until all enforcement paths and governance checks are complete. Before a ceiling is set an old Worker can ignore the empty table; after activation never roll back to an implementation that ignores ceilings. No historical migration edits.

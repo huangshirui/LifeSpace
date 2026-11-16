@@ -370,3 +370,8 @@ surface is added. Contract projection and release details: `docs/identity-oauth.
 ## 2026-11-12 · Console-owned OAuth admission (candidate)
 
 CIMD and DCR current admission policy belongs to Identity D1 and is managed only by authorized Console operators; no duplicate deployment switches. Changing discovery grants no User/Agent authority and does not revoke existing OAuth grants/tokens. Existing callback and per-operation checks remain.
+
+
+## Model Access Ceiling V1 / 模型访问权限上限（development candidate, #589）
+
+The accepted design is Space × Entity × Model, a current-state restriction on the actual Root Principal, not a new grant or actor role. V1 supports only User targets; no row means inherit. None/read/write/manage only narrow the positive Membership/Data Grant union. Independent non-User roots are unchanged. The initial implementation is staged on a draft branch; management APIs must remain unavailable until every relevant projection and execution path enforces the ceiling. See [planned V1 specification](model-access-ceiling-v1.md). This is not deployed behavior.
