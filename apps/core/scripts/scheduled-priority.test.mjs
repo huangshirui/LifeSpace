@@ -36,3 +36,12 @@ test("Cron logs evidence of trigger lateness versus in-handler job duration", ()
   assert.match(source, /durationMs: Date\.now\(\) - beganAt/u);
   assert.match(source, /console\.warn\("Core scheduled jobs latency"/u);
 });
+
+test("per-environment cadence prevents non-due jobs from accessing D1", () => {
+  const configuration = JSON.parse(readFileSync(fileURLToPath(new URL("../scheduled-jobs.json", import.meta.url)), "utf8"));
+  for (const environment of ["staging","production"]) {
+    assert.deepEqual(configuration[environment], {eventing:1,"external-models":30,recurrence:15,"file-cleanup":60});
+  }
+  assert.match(source, /if \(!scheduledJobDue\(name, env\.ENVIRONMENT, controller\.scheduledTime\)\) continue;/u);
+  assert.ok(source.indexOf("if (!scheduledJobDue") < source.indexOf("await work(env)"));
+});

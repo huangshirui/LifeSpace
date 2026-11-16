@@ -1,0 +1,20 @@
+{
+  "local": {
+    "eventing": 1,
+    "external-models": 1,
+    "recurrence": 1,
+    "file-cleanup": 1
+  },
+  "staging": {
+    "eventing": 1,
+    "external-models": 30,
+    "recurrence": 15,
+    "file-cleanup": 60
+  },
+  "production": {
+    "eventing": 1,
+    "external-models": 30,
+    "recurrence": 15,
+    "file-cleanup": 60
+  }
+}

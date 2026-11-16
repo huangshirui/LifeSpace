@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
 import { ApiError } from "../src/http";
 import worker from "../src/index";
+import { scheduledJobDue, type ScheduledJob } from "../src/scheduled-policy";
 
 function fixture(rollingError?: Error, outboxError?: Error, externalError?: Error, cleanupError?: Error) {
   const queries: string[] = [];
@@ -89,5 +90,42 @@ describe("Scheduled job failure isolation", () => {
     await expect(worker.scheduled(controller, f.env)).rejects.toBe(error);
     expect(f.queries.filter((query) => query.includes("FROM file_upload_sessions"))).toHaveLength(1);
     expect(indexOfQuery(f.queries, "dispatched_at IS NULL")).toBe(0);
+  });
+});
+
+describe("Environment-owned schedule policy (#593)", () => {
+  const jobs: ScheduledJob[] = ["eventing", "external-models", "recurrence", "file-cleanup"];
+  const start = Date.parse("2026-11-16T00:00:00.000Z");
+  for (const target of ["staging", "production"] as const) {
+    it(`uses independent reviewed ${target} cadence over 24 hours`, () => {
+      const counts = jobs.map(job => Array.from({ length: 1440 }, (_, i) =>
+        scheduledJobDue(job, target, start + i * 60_000)).filter(Boolean).length);
+      expect(counts).toEqual([1440, 48, 96, 24]);
+    });
+    it(`does not touch D1 for off-cadence ${target} jobs, and runs due jobs despite delayed invocation`, async () => {
+      const at = (minute: number) => ({ scheduledTime: start + minute * 60_000 }) as ScheduledController;
+      const f = fixture(undefined, undefined, new Error("External refresh unavailable"));
+      const bindings = { ...f.env, ENVIRONMENT: target } as Bindings;
+      await worker.scheduled(at(1), bindings);
+      expect(f.queries.length).toBeGreaterThan(0);
+      expect(f.queries.every(query => query.includes("dispatched_at IS NULL"))).toBe(true);
+      f.queries.length = 0;
+      await worker.scheduled(at(15), bindings);
+      expect(indexOfQuery(f.queries, "FROM recurrence_plans")).toBeGreaterThan(0);
+      expect(indexOfQuery(f.queries, "FROM file_upload_sessions")).toBe(-1);
+      expect(indexOfQuery(f.queries, "FROM external_models")).toBe(-1);
+      f.queries.length = 0;
+      await expect(worker.scheduled(at(30), bindings)).rejects.toBeInstanceOf(AggregateError);
+      expect(indexOfQuery(f.queries, "FROM external_models")).toBeGreaterThan(0);
+      expect(indexOfQuery(f.queries, "FROM recurrence_plans")).toBeGreaterThan(0);
+      expect(indexOfQuery(f.queries, "FROM file_upload_sessions")).toBe(-1);
+      f.queries.length = 0;
+      await expect(worker.scheduled(at(60), bindings)).rejects.toBeInstanceOf(AggregateError);
+      expect(indexOfQuery(f.queries, "FROM file_upload_sessions")).toBeGreaterThan(indexOfQuery(f.queries, "FROM recurrence_plans"));
+      expect(indexOfQuery(f.queries, "dispatched_at IS NULL")).toBe(0);
+    });
+  }
+  it("retains every-minute local direct-scheduler tests", () => {
+    expect(jobs.every(job => scheduledJobDue(job, "local", start + 60_000))).toBe(true);
   });
 });

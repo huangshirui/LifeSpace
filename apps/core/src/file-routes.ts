@@ -516,14 +516,21 @@ export async function cleanupFileUploads(env: Bindings): Promise<void> {
   // and the permanent key lives only in the ready File row.
   const staleExecuting = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const staleUnknown = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const rows = await env.DB.prepare(`SELECT * FROM file_upload_sessions
-    WHERE cleaned_at IS NULL AND (
-      (status='pending' AND expires_at<=?)
-      OR status='failed'
-      OR status='completed'
-      OR (status='executing' AND expires_at<=?)
-      OR (status='unknown' AND expires_at<=?)
-    ) ORDER BY created_at LIMIT 50`).bind(now, staleExecuting, staleUnknown).all<UploadSessionRow>();
+  const rows = await env.DB.prepare(`SELECT * FROM file_upload_sessions WHERE id IN (
+      SELECT id FROM (
+        SELECT id,created_at FROM file_upload_sessions INDEXED BY idx_file_upload_sessions_due
+          WHERE cleaned_at IS NULL AND status IN ('pending','executing','unknown') AND status='pending' AND expires_at<=?
+        UNION ALL SELECT id,created_at FROM file_upload_sessions INDEXED BY idx_file_upload_sessions_due
+          WHERE cleaned_at IS NULL AND status IN ('pending','executing','unknown') AND status='executing' AND expires_at<=?
+        UNION ALL SELECT id,created_at FROM file_upload_sessions INDEXED BY idx_file_upload_sessions_due
+          WHERE cleaned_at IS NULL AND status IN ('pending','executing','unknown') AND status='unknown' AND expires_at<=?
+        UNION ALL SELECT id,created_at FROM (
+          SELECT id,created_at FROM file_upload_sessions INDEXED BY idx_file_upload_sessions_terminal
+            WHERE cleaned_at IS NULL AND status IN ('failed','completed')
+          ORDER BY created_at,id LIMIT 50
+        )
+      ) ORDER BY created_at,id LIMIT 50
+    ) ORDER BY created_at,id LIMIT 50`).bind(now, staleExecuting, staleUnknown).all<UploadSessionRow>();
   for (const row of rows.results ?? []) {
     try {
       if (row.destination === "native" && row.file_id && (row.status === "failed" || row.status === "executing")) {
@@ -545,7 +552,7 @@ export async function cleanupFileUploads(env: Bindings): Promise<void> {
   }
   // Reconcile deletions that were committed in D1 but interrupted before
   // the R2 object was removed or the terminal tombstone was persisted.
-  const deletions = await env.DB.prepare("SELECT id,object_key FROM files WHERE status='deleting' ORDER BY deletion_requested_at LIMIT 20")
+  const deletions = await env.DB.prepare("SELECT id,object_key FROM files WHERE status='deleting' ORDER BY deletion_requested_at,id LIMIT 20")
     .all<{ id: string; object_key: string }>();
   for (const file of deletions.results ?? []) {
     try {
