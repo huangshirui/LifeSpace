@@ -411,6 +411,104 @@ async function fixture(definitionKey?: string) {
 }
 
 describe("Space-local External Model framework", () => {
+  it("uses the same member model-access API and live authority for both Native and bound models",async()=>{
+    const f=await fixture(); await f.authorize();
+    const suffix=crypto.randomUUID().replaceAll("-","");
+    const child="usr_"+suffix,agent="agt_"+suffix,now=new Date().toISOString();
+    const base="/api/v1/spaces/"+f.space;
+    const config=base+"/members/"+child+"/model-access";
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+        .bind("mem_"+suffix,f.space,child,"editor",now,now),
+      f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)")
+        .bind(f.application,"task","write","user",f.user),
+      f.db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)")
+        .bind("grt_"+suffix,f.space,"user",child,"space",null,"write",f.user,now),
+      f.db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)")
+        .bind("grt_agent_"+suffix,f.space,"agent",agent,"model",f.model,"write",f.user,now),
+    ]);
+    const childToken=await f.token(child);
+    const childAgent=await f.token(child,"user",["resources:read","resources:write"],agent);
+    const independentAgent=await f.token(agent,"agent",["resources:read","resources:write"]);
+    const childRequest=(path:string,method="GET",body?:unknown,headers:Record<string,string>={})=>f.request(path,method,body,childToken,headers);
+    const set=(key:string,maxAccess:string)=>f.request(config+"/"+key,"PUT",{maxAccess});
+    const getConfig=async()=>{
+      const response=await f.request(config);
+      expect(response.status).toBe(200);
+      return (await response.json<any>()).data;
+    };
+    f.state.calls=[];
+    const before=await getConfig();
+    for(const key of ["task",f.model]){
+      expect(before.models.find((m:any)=>m.modelKey===key)).toMatchObject({
+        available:true,ceiling:null,baseAccess:["read","write"],boundedAccess:["read","write"],
+      });
+    }
+    expect(JSON.stringify(before)).not.toMatch(/"origin"|"registrationId"|"providerKey"|"credentialRef"/u);
+    expect(f.state.calls).toEqual([]);
+    expect((await childRequest(config)).status).toBe(403);
+    expect((await childRequest(config+"/"+f.model,"PUT",{maxAccess:"manage"})).status).toBe(403);
+    expect((await set(f.registration,"none")).status).toBe(404);
+    expect((await set(f.model,"inherit")).status).toBe(422);
+    const issued=await childRequest(base+"/delegations","POST",{
+      actor:{type:"agent",id:agent},scope:{target:{type:"model",id:f.model},maxAccess:"write"},
+    });
+    expect(issued.status).toBe(201);
+    const dlg=(await issued.json<any>()).data.id;
+    expect((await childRequest(f.path+"/query","POST",{})).status).toBe(200);
+    const beforeWrite=await f.request(f.path,"POST",{amount:2},childAgent,{"x-lifespace-delegation-id":dlg});
+    expect(beforeWrite.status).toBe(201);
+    expect((await set("task","none")).status).toBe(204);
+    expect((await set(f.model,"none")).status).toBe(204);
+    f.state.calls=[];
+    const restricted=await getConfig();
+    for(const key of ["task",f.model]){
+      expect(restricted.models.find((m:any)=>m.modelKey===key)).toMatchObject({ceiling:"none",baseAccess:["read","write"],boundedAccess:[]});
+    }
+    expect((await childRequest(base+"/models/task/records")).status).toBe(403);
+    expect((await childRequest(f.path+"/query","POST",{})).status).toBe(403);
+    expect((await childRequest(f.path,"POST",{amount:2})).status).toBe(403);
+    expect((await f.request(f.path,"POST",{amount:2},childAgent,{"x-lifespace-delegation-id":dlg})).status).toBe(403);
+    expect((await childRequest(base+"/delegations","POST",{
+      actor:{type:"agent",id:agent},scope:{target:{type:"model",id:f.model},maxAccess:"read"},
+    })).status).toBe(403);
+    const perSpace=await childRequest(base+"/_discovery");
+    expect(perSpace.status).toBe(200);
+    expect((await perSpace.json<any>()).data.models.map((m:any)=>m.key)).not.toContain(f.model);
+    expect((await childRequest(base+"/_discovery/models/"+f.model)).status).toBe(404);
+    const inventory=await childRequest("/api/v1/me/_discovery/inventory");
+    expect(inventory.status).toBe(200);
+    expect((await inventory.json<any>()).data.models.map((m:any)=>m.key)).not.toContain(f.model);
+    const bulk=await childRequest(base+"/models/batch","POST",{atomicConsistency:false,operations:[
+      {operation:"create",modelKey:f.model,data:{amount:2}},
+      {operation:"create",modelKey:"task",data:{name:"denied"}},
+    ]});
+    expect(bulk.status).toBe(200);
+    expect((await bulk.json<any>()).data.items.every((m:any)=>m.status==="failed")).toBe(true);
+    expect(f.state.calls).toEqual([]);
+    // Independent Agent authority stays independent from the User root.
+    expect((await f.request(f.path+"/query","POST",{},independentAgent)).status).toBe(200);
+    expect((await f.request(f.path+"/query","POST",{})).status).toBe(200);
+    expect((await set(f.model,"read")).status).toBe(204);
+    expect((await childRequest(f.path+"/query","POST",{})).status).toBe(200);
+    f.state.calls=[];
+    expect((await childRequest(f.path,"POST",{amount:3})).status).toBe(403);
+    expect(f.state.calls).toEqual([]);
+    const discovery=(await (await childRequest(base+"/_discovery")).json<any>()).data;
+    expect(discovery.models.find((m:any)=>m.key===f.model)?.access).toEqual(["read"]);
+    expect((await f.request(config+"/"+f.model,"DELETE")).status).toBe(204);
+    expect((await childRequest(f.path,"POST",{amount:3})).status).toBe(201);
+    expect((await f.request(config+"/task","DELETE")).status).toBe(204);
+    expect((await childRequest(base+"/models/task/records")).status).toBe(200);
+    // Retain a restriction when a binding is unavailable; restore does not
+    // depend on a provider-specific permission table or an ext_* identifier.
+    expect((await set(f.model,"none")).status).toBe(204);
+    expect((await f.request(base+"/external-models/"+f.model,"PATCH",{status:"disabled"})).status).toBe(200);
+    const dormant=await getConfig();
+    expect(dormant.models.find((m:any)=>m.modelKey===f.model)).toMatchObject({available:false,ceiling:"none",boundedAccess:[]});
+    expect((await f.request(config+"/"+f.model,"DELETE")).status).toBe(204);
+  },30000);
+
   it("uses Core's same OAuth MCP model operation catalog for provider-backed Query/Create and live capability narrowing", async () => {
     const f=await fixture(); await f.authorize();
     const suffix=crypto.randomUUID().replaceAll("-","");

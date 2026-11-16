@@ -79,6 +79,42 @@ async function call(
 }
 
 describe("Core Platform Admin governance", () => {
+  it("uses the same member ceiling contract with dual proof and does not create runtime authority",async()=>{
+    const pair=await keys(),db=(env as unknown as TestEnv).DB;
+    const suffix=crypto.randomUUID().replaceAll("-","");
+    const spaceId="spc_"+suffix,ownerId="usr_owner_"+suffix,childId="usr_child_"+suffix;
+    const clientId="app_console_"+suffix,executorId="svc_"+suffix,now=new Date().toISOString();
+    await db.batch([
+      db.prepare("INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)").bind(spaceId,"Ceiling",ownerId,now,now,"UTC"),
+      db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)").bind("mem_owner_"+suffix,spaceId,ownerId,"owner",now,now),
+      db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)").bind("mem_child_"+suffix,spaceId,childId,"editor",now,now),
+    ]);
+    const executor=await principalToken(pair.privateKey,"service",executorId,clientId,["spaces:manage"]);
+    const withoutScope=await principalToken(pair.privateKey,"service",executorId,clientId,["spaces:inspect"]);
+    const actor=await adminActor(pair.privateKey,clientId);
+    const mismatch=await adminActor(pair.privateKey,"app_mismatch");
+    const wrongPurpose=await principalToken(pair.privateKey,"user",actor.userId,clientId,["platform:admin"]);
+    const base="/api/v1/platform-admin/spaces/"+spaceId+"/members/"+childId+"/model-access";
+    const mutation={method:"PUT",body:{maxAccess:"none"}};
+    expect((await call(pair.publicKey,executor,null,base+"/task",mutation)).status).toBe(401);
+    expect((await call(pair.publicKey,executor,wrongPurpose,base+"/task",mutation)).status).toBe(401);
+    expect((await call(pair.publicKey,executor,mismatch.token,base+"/task",mutation)).status).toBe(403);
+    expect((await call(pair.publicKey,withoutScope,actor.token,base+"/task",mutation)).status).toBe(403);
+    expect((await call(pair.publicKey,executor,actor.token,base+"/task",mutation)).status).toBe(204);
+    const configured=await call(pair.publicKey,executor,actor.token,base);
+    expect(configured.status).toBe(200);
+    expect((await configured.json<any>()).data.models.find((m:any)=>m.modelKey==="task")).toMatchObject({ceiling:"none",boundedAccess:[]});
+    const owner=await principalToken(pair.privateKey,"user",ownerId,clientId,["spaces:manage"]);
+    const regular=await call(pair.publicKey,owner,null,"/api/v1/spaces/"+spaceId+"/members/"+childId+"/model-access");
+    expect(regular.status).toBe(200);
+    expect((await regular.json<any>()).data.models.find((m:any)=>m.modelKey==="task")).toMatchObject({ceiling:"none",boundedAccess:[]});
+    expect((await call(pair.publicKey,executor,actor.token,base+"/task",{method:"DELETE"})).status).toBe(204);
+    expect(await db.prepare("SELECT id FROM space_memberships WHERE space_id=? AND user_id IN (?,?)").bind(spaceId,actor.userId,executorId).first()).toBeNull();
+    expect(await db.prepare("SELECT id FROM data_grants WHERE source_space_id=?").bind(spaceId).first()).toBeNull();
+    const audits=await db.prepare("SELECT actor_user_id,executor_principal_id FROM platform_admin_audit WHERE operation='model_access_ceiling.change' AND actor_user_id=?").bind(actor.userId).all();
+    expect(audits.results).toEqual(Array(2).fill({actor_user_id:actor.userId,executor_principal_id:executorId}));
+  });
+
   it("creates, updates and revokes the authoritative Data Grant without Space membership", async () => {
     const pair = await keys();
     const clientId = `app_console_${crypto.randomUUID().replaceAll("-", "")}`;
