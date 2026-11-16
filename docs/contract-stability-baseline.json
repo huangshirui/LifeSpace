@@ -482,7 +482,7 @@
     {
       "id": "account-consent-bff",
       "source": "apps/account/openapi.json",
-      "operationSetSha256": "sha256:5beb0c4125cf96baeb3a3324910cae4091b714b92a292c351780f94f1edf0a55",
+      "operationSetSha256": "sha256:f96bc6d2af3858c4814c7cda1851dfc4f73e90b956557ed1d05b529e1021d26c",
       "groups": [
         {
           "id": "account-oauth-consent",
@@ -530,6 +530,13 @@
           "visibility": "internal",
           "operationPattern": "^(GET /api/account/authorizations(?:/\\{authorizationId\\})?|POST /api/account/authorizations/\\{authorizationId\\}/revoke)$",
           "commitment": "Only the current Account user may list/get/revoke an individual OAuth Authorization, never Agent-wide grants."
+        },
+        {
+          "id": "account-member-model-ceiling",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/account/spaces/\\{spaceId\\}/members/\\{userId\\}/model-access$|^POST /api/account/spaces/\\{spaceId\\}/members/\\{userId\\}/model-access/\\{modelKey\\}$",
+          "commitment": "Current Account User only, explicit target and CSRF; Core owns unified model ceiling authorization."
         }
       ]
     }

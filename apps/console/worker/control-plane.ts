@@ -36,6 +36,7 @@ const intents = {
   createGrant: "create-space-data-grant",
   updateGrant: "update-space-data-grant",
   revokeGrant: "revoke-space-data-grant",
+  changeMemberModelAccess: "change-member-model-access",
 } as const;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -620,8 +621,63 @@ function spaceGrantItemTarget(pathname: string): { spaceId: string; grantId: str
   }
 }
 
+// Bounded member configuration BFF: only platform-admin actor+executor,
+// no ordinary User Scope or provider-specific authorization endpoints.
+const memberModelAccessPattern=/^\/api\/spaces\/(spc_[A-Za-z0-9_-]{1,124})\/members\/(usr_[A-Za-z0-9_-]{1,124})\/model-access(?:\/([a-z][a-z0-9_]{1,62}))?$/u;
+const ceilingValues = new Set<unknown>(["none","read","write","manage",null]);
+function projectMemberModelAccess(payload:unknown,spaceId:string,memberId:string):JsonRecord|null{
+  const item=dataRecord(payload);
+  const access=(values:unknown)=>Array.isArray(values)&&values.length<=3&&values.every(v=>["read","write","manage"].includes(v));
+  if(!item||item.spaceId!==spaceId||item.userId!==memberId
+    ||![null,"owner","admin","editor","viewer"].includes(item.role as string|null)
+    ||!Array.isArray(item.models)||item.models.length>2000)return null;
+  const models:JsonRecord[]=[];
+  for(const model of item.models){
+    if(!isRecord(model)||typeof model.modelKey!=="string"||!validModelKey(model.modelKey)
+      ||typeof model.displayName!=="string"||model.displayName.length>200||typeof model.available!=="boolean"
+      ||!ceilingValues.has(model.ceiling)||!access(model.baseAccess)||!access(model.boundedAccess))return null;
+    models.push({modelKey:model.modelKey,displayName:model.displayName,available:model.available,ceiling:model.ceiling,
+      baseAccess:model.baseAccess,boundedAccess:model.boundedAccess});
+  }
+  return {spaceId,userId:memberId,role:item.role,models};
+}
+async function memberModelAccess(request:Request,env:Env,match:RegExpExecArray):Promise<Response>{
+  const [,spaceId,memberId,modelKey]=match;
+  if(new URL(request.url).search)return failure("INVALID_REQUEST","Unexpected query parameters",400,requestId(request));
+  const path="/api/v1/platform-admin/spaces/"+encodeURIComponent(spaceId)+"/members/"+encodeURIComponent(memberId)+"/model-access"
+    +(modelKey?"/"+encodeURIComponent(modelKey):"");
+  if(!modelKey&&request.method==="GET"){
+    const context=await requireAdminContext(request,env);
+    if(context instanceof Response)return context;
+    const result=await serviceRequest(env.CORE,env.CORE_BASE_URL,path,{method:"GET",headers:coreHeaders(context)});
+    if(!result.response.ok)return upstreamFailure(request,result,"MODEL_ACCESS_UNAVAILABLE","Unable to read member model access");
+    const data=projectMemberModelAccess(result.payload,spaceId,memberId);
+    return data?json({data}):failure("UPSTREAM_RESPONSE_INVALID","Invalid member model access response",502,requestId(request));
+  }
+  if(!modelKey||request.method!=="POST")return failure("METHOD_NOT_ALLOWED","Method not allowed",405,requestId(request));
+  const guard=exactSameOriginMutation(request,intents.changeMemberModelAccess);
+  if(guard)return guard;
+  const body=await readJsonObject(request);
+  if(body instanceof Response)return body;
+  if(Object.keys(body).sort().join(",")!=="confirmModelKey,confirmSpaceId,confirmUserId,maxAccess"
+    ||body.confirmSpaceId!==spaceId||body.confirmUserId!==memberId||body.confirmModelKey!==modelKey
+    ||!ceilingValues.has(body.maxAccess))
+    return failure("CONFIRMATION_REQUIRED","Confirm the exact Space, member, model and ceiling",422,requestId(request));
+  const context=await requireAdminContext(request,env);
+  if(context instanceof Response)return context;
+  const inherit=body.maxAccess===null;
+  const result=await serviceRequest(env.CORE,env.CORE_BASE_URL,path,{
+    method:inherit?"DELETE":"PUT",headers:coreHeaders(context,!inherit),
+    ...(inherit?{}:{body:JSON.stringify({maxAccess:body.maxAccess})}),
+  });
+  if(result.response.status!==204)return upstreamFailure(request,result,"MODEL_ACCESS_UPDATE_FAILED","Unable to save member model access");
+  return json({data:{modelKey,ceiling:body.maxAccess}});
+}
+
 async function controlPlaneRoute(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+  const memberAccess=memberModelAccessPattern.exec(url.pathname);
+  if(memberAccess)return memberModelAccess(request,env,memberAccess);
   if (url.pathname === "/api/mcp-servers") {
     if (request.method === "GET") return mcpCore(request, env, "/api/v1/platform-admin/mcp-servers", "GET");
     if (request.method === "POST") return mcpCore(request, env, "/api/v1/platform-admin/mcp-servers", "POST", "create");

@@ -6,8 +6,13 @@ const expect = ["/api/account/authorizations",
   "/api/account/profile", "/api/account/profile/avatar", "/api/account/spaces",
   "/api/account/spaces/create", "/api/account/spaces/invite-preview", "/api/account/spaces/join",
   "/api/account/spaces/{spaceId}", "/api/account/spaces/{spaceId}/members", "/api/account/spaces/{spaceId}/external-connections", "/api/session", "/api/oauth/request", "/api/oauth/choices", "/api/oauth/capabilities", "/api/oauth/confirm"];
-if (api.openapi !== "3.1.0" || api.info.version !== "0.5.0") throw new Error("Account BFF contract mismatch");
+if (api.openapi !== "3.1.0" || api.info.version !== "0.6.0") throw new Error("Account BFF contract mismatch");
 for (const path of expect) if (!api.paths[path]) throw new Error("Missing Account route " + path);
+const ceilingPath="/api/account/spaces/{spaceId}/members/{userId}/model-access";
+const ceiling=api.paths[ceilingPath+"/{modelKey}"]?.post;
+if(!api.paths[ceilingPath]?.get||!ceiling?.responses?.["403"]
+  ||ceiling.requestBody?.content?.["application/json"]?.schema?.properties?.intent?.const!=="change-member-model-access")
+  throw new Error("Missing bounded Account member ceiling contract");
 const session = api.paths["/api/session"].get;
 if (!session.parameters?.some(p=>p.name==="include"&&p.schema?.enum?.join(",")==="login-email")
   || !session.responses?.["400"] || !session.responses?.["403"])
