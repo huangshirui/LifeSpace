@@ -4,6 +4,7 @@ import { createApp } from "./app";
 import { dispatchPendingDomainEvents, processWebhookDeliveryQueue, type WebhookDeliveryQueueMessage } from "./eventing";
 import type { Bindings } from "./env";
 import { cleanupFileUploads } from "./file-routes";
+import { scheduledJobDue } from "./scheduled-policy";
 
 const app = createApp();
 
@@ -30,6 +31,7 @@ export default {
     for (const [name, work] of jobs) {
       const beganAt = Date.now();
       try {
+        if (!scheduledJobDue(name, env.ENVIRONMENT, controller.scheduledTime)) continue;
         await work(env);
         durations.push({ job: name, durationMs: Date.now() - beganAt, status: "ok" });
       } catch (error) {

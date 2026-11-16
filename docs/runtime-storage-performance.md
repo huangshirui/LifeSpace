@@ -127,6 +127,14 @@ Tests must fail when these structural budgets regress unless an explicit archite
 - Reusing already-loaded record/audit evidence is preferred to write-then-read-back when the response can be constructed safely from authoritative values already in the mutation context.
 - Relation target checks across multiple fields are batched rather than awaited field by field.
 
+## 6.1 Scheduled maintenance cost / 定时维护成本
+
+Core keeps a single minute Cron for Eventing. `apps/core/scheduled-jobs.json` is the deployment-owned configuration: Staging and Production have independent interval maps (minutes), both defaulting to Eventing 1, External reconciliation 30, Recurrence 15 and File cleanup 60. Local development retains minute ticks. Changes to one environment's map do not change the other and take effect on its normal deployment. No additional D1 scheduler state, network calls or long-lived Authority cache; jobs not due are skipped before I/O. Use the scheduled UTC timestamp to avoid skipping a job merely because invocation was late. Eventing remains first; failures are isolated among jobs due that tick. Missed ticks retry via the existing durable pending/due state on the next relevant sweep; no new public trigger route. Local/CI integration tests call handlers directly.
+
+External schema/identity per-row eligibility (including EXTERNAL_SCHEMA_REFRESH_SECONDS) remains separate from the polling cadence; scheduled observation may lag up to 30 minutes in a healthy, non-backlogged environment. Recurrence rechecks current Authority and keeps on-demand materialization; scheduled rolling may lag 15 minutes. File cleanup only repairs abandoned staging bytes and pending tombstones; synchronous upload/delete behavior and 24-hour executing / 7-day unknown retention thresholds are unchanged. Repair may lag one hour, and bounded batches (50 uploads and 20 deletion tombstones per sweep) limit throughput; if backlog requires more capacity, tune that environment rather than weakening safety.
+
+Schema 81 uses partial due/terminal upload indexes and a partial covering deleting-file index. Retained cleaned/deleted rows must never be scanned by the scheduled sweep. Select only eligible candidates, keep oldest-first selection and batch limits. Existing Eventing/External/Recurrence due indexes remain in use. Regression checks use actual D1 meta.rows_read and EXPLAIN QUERY PLAN on historical/future fixtures, separately from transport latency. Apply migration before Worker deployment; old Worker SQL remains valid if rolled back. No public contract or Model Definition change. Track live cost and backlog in #593.
+
 ## 7. Mutation rules
 
 Mutation performance optimizations must preserve:
