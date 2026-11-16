@@ -121,6 +121,7 @@ Tests must fail when these structural budgets regress unless an explicit archite
 ## 6. Query and hydration rules
 
 - Query filtering/sorting uses typed physical columns and declared indexes.
+- Canonical fixed-field relation membership must use a source-Space/model-scoped independent target-set lookup (Person or record), not a target-leading correlated scan repeated per candidate. Reuse the first two bound parameters to preserve the existing query complexity limit. Preserve Boolean, cursor, relation integrity and current Authority semantics. In addition to round trips, relation-heavy regression fixtures must check actual D1 `meta.rows_read` and indexed `EXPLAIN QUERY PLAN` evidence. This is a storage execution optimization, not a new Model or contract. Production rollout/measurement is tracked in #591.
 - Relation hydration is batched.
 - Person/reference labels must not create N+1 D1 access.
 - Capability projections may be joined/batched when required for correctness or performance.
