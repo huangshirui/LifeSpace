@@ -189,6 +189,42 @@ describe("#165 M3-S2 compact inventory performance", () => {
     const afterTrips = counter.roundTrips;
     expect(afterTrips).toBe(beforeTrips);
 
+    // Exercise real runtime discovery with sparse ceilings, not just a rank helper.
+    // The owner exemption is intentional; these two target memberships are Editors.
+    const restrictedSpaces = scenario.spaceIds.slice(0, 2);
+    const now = new Date().toISOString();
+    await database.batch(restrictedSpaces.flatMap((spaceId, index) => [
+      database.prepare("UPDATE space_memberships SET role='editor' WHERE space_id=? AND user_id=?")
+        .bind(spaceId, scenario.userId),
+      database.prepare(`INSERT INTO model_access_ceilings
+        (space_id,entity_type,entity_id,model_key,max_access,created_by_user_id,updated_by_user_id,created_at,updated_at)
+        VALUES(?,'user',?,'task',?,?,?,?,?)`)
+        .bind(spaceId,scenario.userId,index===0?"none":"read",scenario.userId,scenario.userId,now,now),
+    ]));
+    reset(counter);
+    const restrictedInventory = await request("/api/v1/me/_discovery/inventory");
+    expect(restrictedInventory.status).toBe(200);
+    const restrictedPayload = await restrictedInventory.json() as {
+      data: { spaces: Array<{ spaceId: string; models: Array<{modelKey:string;access:string[]}> }> };
+    };
+    expect(counter.roundTrips).toBe(inventoryTrips);
+    expect(restrictedPayload.data.spaces.find(s=>s.spaceId===restrictedSpaces[0])?.models.find(m=>m.modelKey==="task")).toBeUndefined();
+    expect(restrictedPayload.data.spaces.find(s=>s.spaceId===restrictedSpaces[1])?.models.find(m=>m.modelKey==="task")?.access).toEqual(["read"]);
+    expect(restrictedPayload.data.spaces.find(s=>s.spaceId===scenario.spaceIds[2])?.models.find(m=>m.modelKey==="task")?.access).toEqual(["read","write"]);
+    reset(counter);
+    const restrictedFull = await request("/api/v1/me/_discovery");
+    expect(restrictedFull.status).toBe(200);
+    const restrictedFullPayload = await restrictedFull.json() as {
+      data:{spaces:Array<{spaceId:string;models:Array<{key:string;access:string[]}>}>};
+    };
+    expect(counter.roundTrips).toBe(fullTrips);
+    expect(restrictedFullPayload.data.spaces.find(s=>s.spaceId===restrictedSpaces[0])?.models.find(m=>m.key==="task")).toBeUndefined();
+    expect(restrictedFullPayload.data.spaces.find(s=>s.spaceId===restrictedSpaces[1])?.models.find(m=>m.key==="task")?.access).toEqual(["read"]);
+    const perSpace = await request(`/api/v1/spaces/${restrictedSpaces[0]}/_discovery`);
+    expect(perSpace.status).toBe(200);
+    const perSpacePayload = await perSpace.json() as {data:{models:Array<{key:string}>}};
+    expect(perSpacePayload.data.models.some(m=>m.key==="task")).toBe(false);
+
     console.info(`M3S2_COMPACT_INVENTORY ${JSON.stringify({
       scenario: "32-spaces-x-4-models",
       full: { bytes: fullBytes, roundTrips: fullTrips, modelDtos: fullModelDtos },

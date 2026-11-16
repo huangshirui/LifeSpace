@@ -53,8 +53,27 @@ describe("Model Access Ceiling V1", () => {
     expect(samples).toEqual([1]);
     expect(results[0]?.ok).toBe(true);
     expect(results.slice(1).every(r=>!r.ok && r.error.status===403)).toBe(true);
+    const delegationId = `dlg_${suffix}`;
+    await db.batch([
+      db.prepare(`INSERT INTO delegations(
+        id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+        created_by_type,created_by_id,created_at,parent_delegation_id,remaining_redelegation_depth
+      ) VALUES(?,'user',?,'agent',?,?,?,?,?,?,?,?)`)
+        .bind(delegationId,userId,agentId,clientId,spaceId,"user",userId,now,null,0),
+      db.prepare(`INSERT INTO delegation_scopes(delegation_id,target_type,target_id,target_model_key,max_access)
+        VALUES(?,'model','task','task','write')`).bind(delegationId),
+    ]);
+    const represented: Principal = {...user,actor:{type:"agent",id:agentId},purpose:"agent_execution"};
+    const opaqueAgent: Principal = {...agent,purpose:"agent_api"};
+    const selector = {delegationId};
+    expect((await requireModelAccess(bindings,represented,spaceId,task,"read",selector)).principal.id).toBe(userId);
+    await expect(requireModelAccess(bindings,represented,spaceId,task,"write",selector)).rejects.toMatchObject({status:403});
+    expect((await requireModelAccess(bindings,opaqueAgent,spaceId,task,"read",selector)).principal.id).toBe(userId);
+    await expect(requireModelAccess(bindings,opaqueAgent,spaceId,task,"write",selector)).rejects.toMatchObject({status:403});
     await set("none");
     await expect(requireModelAccess(bindings,user,spaceId,task,"read")).rejects.toMatchObject({status:403});
+    await expect(requireModelAccess(bindings,represented,spaceId,task,"read",selector)).rejects.toMatchObject({status:403});
+    await expect(requireModelAccess(bindings,opaqueAgent,spaceId,task,"read",selector)).rejects.toMatchObject({status:403});
     expect((await requireModelAccess(bindings,agent,spaceId,task,"write")).authority.spaceAuthority).toBe("grant");
 
     // Independent User grant survives membership removal, but the ceiling does too.
