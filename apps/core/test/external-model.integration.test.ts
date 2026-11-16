@@ -483,8 +483,16 @@ describe("Space-local External Model framework", () => {
       {operation:"create",modelKey:f.model,data:{amount:2}},
       {operation:"create",modelKey:"task",data:{name:"denied"}},
     ]});
-    expect(bulk.status).toBe(200);
-    expect((await bulk.json<any>()).data.items.every((m:any)=>m.status==="failed")).toBe(true);
+    // Preserve the existing mixed-batch contract: a rejected Native sub-batch
+    // returns its request-level 403 before any Provider mutation.
+    expect(bulk.status).toBe(403);
+    expect(f.state.calls).toEqual([]);
+    // Provider-only non-atomic Batch keeps its existing per-item failure shape.
+    const externalOnly=await childRequest(base+"/models/batch","POST",{atomicConsistency:false,operations:[
+      {operation:"create",modelKey:f.model,data:{amount:2}},
+    ]});
+    expect(externalOnly.status).toBe(200);
+    expect((await externalOnly.json<any>()).data.items[0]).toMatchObject({status:"failed",error:{status:403}});
     expect(f.state.calls).toEqual([]);
     // Independent Agent authority stays independent from the User root.
     expect((await f.request(f.path+"/query","POST",{},independentAgent)).status).toBe(200);
