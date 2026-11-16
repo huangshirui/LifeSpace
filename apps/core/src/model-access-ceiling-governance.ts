@@ -71,8 +71,13 @@ export async function changeModelAccessCeiling(
   // Only an active non-Owner member can receive a new ceiling. Retained
   // restrictions can still be cleared even if the model is retired/unbound.
   if (next!==null && !snapshot.target_role) throw new ApiError("MEMBER_NOT_FOUND","Active member required",404);
-  if (next!==null && !await resolveSpaceAuthorityModel(env,target.spaceId,modelKey)) {
-    throw new ApiError("MODEL_NOT_FOUND","Published Space model not found",404);
+  if (next!==null) {
+    const model = await resolveSpaceAuthorityModel(env,target.spaceId,modelKey);
+    // External registration aliases (ext_*) must not persist a ceiling under
+    // an address different from the canonical runtime Authority model key.
+    if (!model || model.key !== modelKey) {
+      throw new ApiError("MODEL_NOT_FOUND","Canonical published Space model key required",404);
+    }
   }
   const user = actor(manager), platform = manager.kind==="platform" ? manager.admin : null;
   const auditId = `mca_${crypto.randomUUID().replaceAll("-","")}`;

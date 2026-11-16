@@ -53,4 +53,9 @@ CREATE TABLE model_access_ceiling_audit (
 );
 CREATE INDEX idx_model_access_ceiling_audit_space
   ON model_access_ceiling_audit(space_id,created_at,id);
+-- File download can check a completed native upload's origin without scanning
+-- all sessions, including when a File has another accessible record link.
+CREATE INDEX idx_file_upload_sessions_native_file
+  ON file_upload_sessions(space_id,file_id,model_key)
+  WHERE destination='native' AND status='completed';
 UPDATE schema_metadata SET value='80' WHERE key='schema_version';

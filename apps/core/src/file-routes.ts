@@ -400,6 +400,38 @@ export async function requireNativeFileReadPolicy(
   await requireModelPolicy(env, decision.principal, spaceId, model, "read", undefined, undefined, decision.policyIdentity);
 }
 
+/** Must be called only after current model/record read authority and policy.
+ * A File is the same object even if its ID is attached to another model.
+ * A User ceiling on the original upload model must not be bypassed by
+ * reattaching the known ID elsewhere. No new D1 round trip; independent
+ * principals retain the existing query. Historical objects without an upload
+ * session keep their existing link-based authority boundary. */
+export async function findDownloadableNativeFile(
+  env: Bindings, root: Principal, spaceId: string, modelKey: string,
+  recordId: string, fieldKey: string, fileId: string,
+) {
+  const user = root.type === "user";
+  const originConstraint = user ? `
+    AND (
+      NOT EXISTS (
+        SELECT 1 FROM file_upload_sessions u
+        JOIN model_access_ceilings c ON c.space_id=u.space_id AND c.model_key=u.model_key
+          AND c.entity_type='user' AND c.entity_id=? AND c.max_access='none'
+        WHERE u.space_id=f.space_id AND u.file_id=f.id
+          AND u.destination='native' AND u.status='completed'
+      )
+      OR EXISTS (
+        SELECT 1 FROM space_memberships m
+        WHERE m.space_id=f.space_id AND m.user_id=? AND m.deleted_at IS NULL AND m.role='owner'
+      )
+    )` : "";
+  return env.DB.prepare(`SELECT f.id,f.name,f.content_type,f.size_bytes,f.object_key,f.created_at
+    FROM resource_file_links l JOIN files f ON f.id=l.file_id
+    WHERE l.source_space_id=? AND l.source_model_key=? AND l.source_record_id=? AND l.field_key=? AND l.file_id=? AND f.status='ready'${originConstraint}`)
+    .bind(spaceId, modelKey, recordId, fieldKey, fileId, ...(user ? [root.id,root.id] : []))
+    .first<{ id: string; name: string; content_type: string; size_bytes: number; object_key: string; created_at: string }>();
+}
+
 async function createDownload(context: Context<AppEnv>) {
   const input = object(await context.req.json<unknown>().catch(() => null));
   onlyKeys(input, ["modelKey", "recordId", "fieldKey", "fileId"]);
@@ -422,10 +454,7 @@ async function createDownload(context: Context<AppEnv>) {
     const icon = current?.icon_json ? JSON.parse(current.icon_json) as { type?: string; fileId?: string } : null;
     if (icon?.type !== "image" || icon.fileId !== fileId) throw new ApiError("FILE_NOT_FOUND", "Icon reference not found", 404);
   }
-  const row = await context.env.DB.prepare(`SELECT f.id,f.name,f.content_type,f.size_bytes,f.object_key,f.created_at
-    FROM resource_file_links l JOIN files f ON f.id=l.file_id
-    WHERE l.source_space_id=? AND l.source_model_key=? AND l.source_record_id=? AND l.field_key=? AND l.file_id=? AND f.status='ready'`)
-    .bind(spaceId, modelKey, recordId, fieldKey, fileId).first<{ id: string; name: string; content_type: string; size_bytes: number; object_key: string; created_at: string }>();
+  const row = await findDownloadableNativeFile(context.env, decision.principal, spaceId, modelKey, recordId, fieldKey, fileId);
   if (!row) throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
   const url = await presignR2Object(context.env, row.object_key, "GET", DOWNLOAD_TTL_SECONDS);
   const expiresAt = new Date(Date.now() + DOWNLOAD_TTL_SECONDS * 1000).toISOString();
