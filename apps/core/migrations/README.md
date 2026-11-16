@@ -78,3 +78,5 @@ Compatible additive model release (Issue #578): a required read-only status with
 ## 0080 Model Access Ceiling / 模型访问权限上限 (development candidate)
 
 Additive sparse Core Authority storage for #589; no records backfilled, no Registry revision or Model Contract change. Only User entity type can be persisted in V1. Apply before candidate Worker. No configuration surface is exposed until all enforcement paths and governance checks are complete. Before a ceiling is set an old Worker can ignore the empty table; after activation never roll back to an implementation that ignores ceilings. No historical migration edits.
+
+Schema 80 also adds a separate transaction-time Recurrence generation guard for User ceilings (Plan and Task) and a secret-free configuration audit table; no ordinary mutation round trip is added. Audit/configuration writers are not exposed by the partial implementation.

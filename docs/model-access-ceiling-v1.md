@@ -75,3 +75,7 @@ Previous run differs substantially despite same runtime source. Do not mistake n
 2. Complete all data/authority paths, Discovery, governance/audit and compatibility; negative and positive tests, including restricted direct and delegated user with current Grant, stale token, restore, lifecycle and side channels. No partial production exposure.
 3. Account and Console configuration UX; HomeMew/ALOHA/Adapters remain compatible when unconfigured and can optionally improve UI. Do not change application identity.
 4. CI typecheck/contracts/build/migrations/security/structural budgets. Exact candidate Staging APAC plus user A/B, denied/allowed, old JWT, Grants, delegation, relation/files/history, external and cleanup. Owner-controlled production only after acceptance. Update production docs after exact successful release. Keep #589 open until acceptance.
+
+### Implementation note — Recurrence transaction boundary
+
+The existing recurrence_generation_guard from migration 0057 independently rechecks membership/Grant/catalog at commit. Schema 80 composes an additional trigger on the same guard table for User Plan/Task ceilings (Owner exemption, none/read deny writes), preserving the original trigger and the same D1 batch. Add denial tests that narrow either target between preflight and commit. The audit table is shared governance evidence, not ordinary record history. No configuration route is enabled yet.

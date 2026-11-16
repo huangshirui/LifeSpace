@@ -179,6 +179,30 @@ describe("Metadata-driven Recurrence runtime", () => {
     expect((await f.db.prepare("SELECT COUNT(*) n FROM recurrence_plans WHERE space_id=?").bind(f.spaceId).first<any>()).n).toBe(0);
     expect((await f.db.prepare("SELECT COUNT(*) n FROM semantic_relations WHERE space_id=?").bind(f.spaceId).first<any>()).n).toBe(0);
   });
+  it.each(["plan", "task"] as const)("rolls back generation when %s ceiling is narrowed at commit", async target => {
+    const f = await fixture();
+    // A protected ordinary member, not a trusted Owner.
+    await f.db.prepare("UPDATE space_memberships SET role='editor' WHERE space_id=? AND user_id=?").bind(f.spaceId,f.principal.id).run();
+    const cost: DatabaseCost = { roundTrips: 0, rowsRead: 0, sql: [] };
+    let narrowed = false;
+    const db = countingDatabase(f.db, cost, async sql => {
+      if (!narrowed && sql.some(statement => statement.includes("INSERT INTO resource_records"))) {
+        narrowed = true;
+        const now = new Date().toISOString();
+        await f.db.prepare(`INSERT INTO model_access_ceilings
+          (space_id,entity_type,entity_id,model_key,max_access,created_by_user_id,updated_by_user_id,created_at,updated_at)
+          VALUES(?,'user',?,?,'read',?,?,?,?)`)
+          .bind(f.spaceId,f.principal.id,target==="plan"?f.modelKey:"task","usr_manager","usr_manager",now,now).run();
+      }
+    });
+    await expect(createGenericResource({...f.bindings,DB:db}, f.fresh(), f.spaceId, f.planModel, {
+      title:"Ceiling commit race",firstDue:"2026-11-01",repeat:completion,
+    })).rejects.toThrow("RECURRENCE_AUTHORITY_UNAVAILABLE");
+    expect(narrowed).toBe(true);
+    for (const table of ["resource_records","recurrence_plans","semantic_relations"]) {
+      expect((await f.db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE space_id=?`).bind(f.spaceId).first<{n:number}>())?.n).toBe(0);
+    }
+  });
   it("measures real User JWT, Service Token and represented Agent Token 20-plan paths", async () => {
     const f = await fixture(), pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
     const pem = (label: string, bytes: ArrayBuffer) => `-----BEGIN ${label}-----\n${btoa(String.fromCharCode(...new Uint8Array(bytes))).match(/.{1,64}/g)!.join("\n")}\n-----END ${label}-----`;
