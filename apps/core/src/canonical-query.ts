@@ -992,7 +992,11 @@ async function predicateFragment(
     const target = await resolveRelationTarget(env, principal, spaceId, model, predicate.field, field, predicate.value, principalPersonId);
     const person = field.type === "person" || field.type === "person_list";
     return {
-      sql: `EXISTS(SELECT 1 FROM resource_relations rel WHERE rel.source_record_id=r.id AND rel.field_key=? AND rel.target_type=? AND ${person ? "rel.target_person_id" : "rel.target_record_id"}=?)`,
+      // The first two bindings of every canonical query (including temporal streams)
+      // are the source Space and Model. Reuse them instead of growing the binding
+      // budget. An independent semi-join reads the target relation set once, rather
+      // than scanning every relation for that target for each candidate record.
+      sql: `r.id IN (SELECT rel.source_record_id FROM resource_relations rel WHERE rel.source_space_id=?1 AND rel.source_model_key=?2 AND rel.field_key=? AND rel.target_type=? AND ${person ? "rel.target_person_id" : "rel.target_record_id"}=?)`,
       args: [predicate.field, person ? "person" : "record", target],
     };
   }
@@ -1257,7 +1261,7 @@ export async function queryCanonicalResources(
   const signature = stableJson(parsed.query);
   const rawSorts = parsed.sorts.map((sort) => sort.raw);
   const args: unknown[] = [spaceId, model.key];
-  const where: string[] = ["r.space_id=?", "r.model_key=?", "r.deleted_at IS NULL"];
+  const where: string[] = ["r.space_id=?1", "r.model_key=?2", "r.deleted_at IS NULL"];
   if (parsed.query.search) {
     const fragment = searchFragment(model, parsed.query.search.text);
     where.push(fragment.sql);
