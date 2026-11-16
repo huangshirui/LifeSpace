@@ -322,3 +322,12 @@
 .console-combobox-option strong { font-size: 13px; }
 .console-combobox-option small, .console-combobox-status { color: var(--muted); font-size: 12px; }
 .console-combobox-status { padding: 10px 12px; }
+
+.member-model-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.member-ceiling-search{display:flex;gap:8px;margin:16px 0}
+.member-ceiling-search input{flex:1;min-width:0;border:1px solid #dbe3ed;border-radius:8px;padding:8px 10px;font:inherit}
+.member-ceiling-list{max-height:min(50vh,440px);overflow:auto}
+.member-ceiling-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 2px;border-bottom:1px solid #edf0f4}
+.member-ceiling-row strong,.member-ceiling-row small,.member-ceiling-row span{display:block;overflow-wrap:anywhere}
+.member-ceiling-row small{font-size:11px;color:#64748b;margin-top:4px}
+@media(max-width:650px){.member-ceiling-row{grid-template-columns:minmax(0,1fr) auto;gap:6px 10px}.member-ceiling-row>div:nth-child(2){grid-row:2;grid-column:1}.member-ceiling-row>button{grid-row:1 / span 2;grid-column:2}}

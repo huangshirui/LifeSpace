@@ -64,3 +64,18 @@ test("Account Center renders upstream content as text and revocation is an expli
   assert.match(js,/"x-lifespace-csrf":state\.csrf/u);
   assert.match(js,/api\("\/api\/account\/authorizations\?offset=/u);
 });
+
+test("Member model permission editing is a dedicated, lazy-loaded dialog using Core previews",()=>{
+  assert.match(html,/id="member-access-dialog"/u);
+  assert.match(html,/<form id="member-access-editor" hidden>/u);
+  assert.match(js,/button\.addEventListener\("click",\(\)=>void openMemberAccess/u);
+  assert.match(js,/member\.userId!==state\.user\?\.id&&member\.role!=="owner"/u);
+  assert.match(js,/info\.access==="admin"&&\["editor","viewer"\]\.includes\(member\.role\)/u);
+  assert.match(js,/model\.baseAccess\)\+" → "\+accessSummary\(model\.boundedAccess\)/u);
+  assert.match(js,/maxAccess:value==="inherit"\?null:value/u);
+  assert.match(js,/confirmUserId:target\.userId/u);
+  assert.match(js,/confirmModelKey:model\.modelKey/u);
+  assert.match(js,/memberAccess\.revision!==revision/u);
+  assert.match(js,/\$\("member-access-list"\)\.hidden=true/u);
+  assert.match(css,/#member-access-dialog\{width:min\(740px/u);
+});

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { consoleApi, ConsoleApiError } from "./api";
+import { MemberModelAccessButton } from "./MemberModelAccessDialog";
 import McpServersPage from "./McpServersPage";
 import { GrantGranteeLabel, useGrantLabels } from "./GrantGranteePicker";
 import OAuthClientAdmissionPage from "./OAuthClientAdmissionPage";
@@ -364,7 +365,7 @@ function SpaceDetailPage({ id }: { id: string }) {
     <PageHeader eyebrow="Space" title={space.name} description={space.id} actions={<button className="secondary-button" onClick={() => navigate("/spaces")}>返回列表</button>} />
     <Section title="Ownership boundary"><KeyValue rows={[["Timezone", space.timezone], ["Owner creator", <Code>{space.createdByUserId}</Code>], ["Version", space.version], ["Created", formatDate(space.createdAt)], ["Updated", formatDate(space.updatedAt)]]} /></Section>
     <div className="two-column">
-      <Section title={`Members (${space.members.length})`}>{!space.members.length ? <Empty /> : <div className="stack-list">{space.members.map((member) => <div className="stack-row" key={member.id}><div><strong>{member.displayName}</strong><small>{member.userId} · {member.personId}</small></div><Badge value={member.role} tone="neutral" /></div>)}</div>}</Section>
+      <Section title={`Members (${space.members.length})`}>{!space.members.length ? <Empty /> : <div className="stack-list">{space.members.map((member) => <div className="stack-row" key={member.id}><div><strong>{member.displayName}</strong><small>{member.userId} · {member.personId}</small></div><div className="member-model-actions"><Badge value={member.role} tone="neutral" />{member.role !== "owner" && <MemberModelAccessButton spaceId={space.id} spaceName={space.name} member={member} />}</div></div>)}</div>}</Section>
       <Section title="Record counts">{!Object.keys(space.recordCounts).length ? <Empty /> : <div className="stack-list">{Object.entries(space.recordCounts).sort(([a], [b]) => a.localeCompare(b)).map(([key, count]) => <div className="stack-row" key={key}><strong>{key}</strong><span>{count}</span></div>)}</div>}</Section>
     </div>
     <Section title={`Data Grants (${space.grants.length})`} description="包含已撤销 grant，便于诊断治理历史。">
