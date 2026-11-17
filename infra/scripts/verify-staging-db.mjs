@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 import process from "node:process";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PROVING_MODELS, STAGING_EXPECTATIONS } from "./staging-expectations.mjs";
 
 const CORE_DIR = new URL("../../apps/core/", import.meta.url);
@@ -55,6 +57,13 @@ const MODEL_TABLES = new Map([
   ["person_group", "mdl_person_group"],
 ]);
 
+const REQUIRED_TRIGGERS = [
+  "finalize_claimed_ai_model_proposal_after_publication",
+  "trg_space_people_advance_version",
+  "trg_space_person_change_validate",
+  "trg_space_person_change_delegation_consume_single_use",
+];
+
 const RETIRED_TABLES = [
   "resource_index_values",
   "events",
@@ -77,6 +86,11 @@ function runSql(sql) {
     ["exec", "wrangler", "d1", "execute", "DB", "--remote", "--env", "staging", "--json", `--command=${sql}`],
     { cwd: CORE_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], env: process.env },
   );
+  return decodeSqlRows(stdout);
+}
+
+// Fail closed even if a successful integrity check would return no rows.
+export function decodeSqlRows(stdout) {
   let parsed;
   try {
     parsed = JSON.parse(stdout);
@@ -86,13 +100,15 @@ function runSql(sql) {
   const entries = Array.isArray(parsed) ? parsed : [parsed];
   for (const entry of entries) {
     if (entry?.success === false) fail("Staging D1 query failed", entry);
+  }
+  for (const entry of entries) {
     if (Array.isArray(entry?.results)) return entry.results;
     if (Array.isArray(entry?.result?.results)) return entry.result.results;
   }
-  return [];
+  fail("Wrangler did not return a staging D1 result array");
 }
 
-function single(sql, label) {
+function single(runSql, sql, label) {
   const rows = runSql(sql);
   if (rows.length !== 1) fail(`${label}: expected exactly one row`, rows);
   return rows[0];
@@ -113,95 +129,111 @@ function assertTruthy(value, label) {
   if (!value) fail(label);
 }
 
-const schema = single("SELECT value FROM schema_metadata WHERE key='schema_version'", "schema_metadata");
-assertEqual(schema.value, STAGING_EXPECTATIONS.core.schemaVersion, "Core staging schema version");
-
-const modelRows = runSql(`SELECT model_key,version,schema_hash,state
-  FROM model_definitions WHERE state='published' ORDER BY model_key`);
-const actualModels = new Map(modelRows.map((row) => [row.model_key, row]));
-const verifiedModelVersions = {};
-for (const [key, expected] of EXPECTED_MODELS) {
-  const row = actualModels.get(key);
-  assertTruthy(row, `Published proving model ${key} is missing from staging Registry`);
-  assertAtLeast(row.version, expected.minimumVersion, `${key} version`);
-  assertEqual(row.schema_hash, expected.hash, `${key} schema hash`);
-  verifiedModelVersions[key] = Number(row.version);
+// One sqlite_master inventory proves the same table and trigger checks.
+export function verifySchemaInventory(runSql) {
+  const inventory = runSql("SELECT type,name FROM sqlite_master WHERE type IN ('table','trigger')");
+  const tableSet = new Set(inventory.filter(row => row.type === "table").map(row => row.name));
+  const triggerSet = new Set(inventory.filter(row => row.type === "trigger").map(row => row.name));
+  for (const table of REQUIRED_PLATFORM_TABLES) assertTruthy(tableSet.has(table), `Required platform table ${table} is missing`);
+  for (const table of RETIRED_TABLES) if (tableSet.has(table)) fail(`Retired table ${table} still exists`);
+  for (const name of REQUIRED_TRIGGERS) assertTruthy(triggerSet.has(name), `Required trigger ${name} is missing`);
 }
 
-const tableSet = new Set(runSql("SELECT name FROM sqlite_master WHERE type='table'").map((row) => row.name));
-for (const table of REQUIRED_PLATFORM_TABLES) assertTruthy(tableSet.has(table), `Required platform table ${table} is missing`);
-for (const table of RETIRED_TABLES) if (tableSet.has(table)) fail(`Retired table ${table} still exists`);
-
-const resourceColumns = new Set(runSql("SELECT name FROM pragma_table_info('resource_records')").map((row) => row.name));
-if (resourceColumns.has("data_json")) fail("Legacy resource_records.data_json column still exists");
-
-const personColumns = new Set(runSql("SELECT name FROM pragma_table_info('space_people')").map((row) => row.name));
-assertTruthy(personColumns.has("version"), "Space Person optimistic-concurrency version is missing");
-const personIndexes = new Set(runSql("SELECT name FROM pragma_index_list('space_people')").map((row) => row.name));
-assertTruthy(personIndexes.has("idx_space_people_lookup"), "Space Person lookup index is missing");
-const personNameIndexes = new Set(runSql("SELECT name FROM pragma_index_list('space_person_names')").map((row) => row.name));
-assertTruthy(personNameIndexes.has("idx_space_person_names_lookup"), "Space Person alternate-name lookup index is missing");
-
-for (const [table, expectedColumns] of REQUIRED_TYPED_COLUMNS) {
-  const actualColumns = new Set(runSql(`SELECT name FROM pragma_table_info('${table}')`).map((row) => row.name));
-  for (const column of expectedColumns) assertTruthy(actualColumns.has(column), `Typed model table ${table} is missing column ${column}`);
-  for (const column of FORBIDDEN_TYPED_COLUMNS.get(table) ?? []) {
-    if (actualColumns.has(column)) fail(`Typed model table ${table} still contains retired column ${column}`);
-  }
-}
-
-for (const [modelKey, table] of MODEL_TABLES) {
-  const orphanEnvelopes = runSql(`SELECT
+export function orphanEnvelopeSql(modelKey) {
+  const table = MODEL_TABLES.get(modelKey);
+  if (!table) fail("Unsupported proving model for typed-envelope verification");
+  // Keep all envelopes (including tombstones), the exact composite lookup,
+  // and bounded ordered diagnostics; never sample or substitute counts.
+  return `SELECT
       r.id,r.space_id,r.model_key,r.model_version,r.version,
       r.created_by_type,r.created_by_id,r.created_at,r.updated_at,r.deleted_at
     FROM resource_records r
-    LEFT JOIN ${table} m ON m.record_id=r.id AND m.space_id=r.space_id
-    WHERE r.model_key='${modelKey}' AND m.record_id IS NULL
+    WHERE r.model_key='${modelKey}' AND NOT EXISTS(
+      SELECT 1 FROM ${table} m WHERE m.record_id=r.id AND m.space_id=r.space_id
+    )
     ORDER BY r.created_at,r.id
-    LIMIT 20`);
-  if (orphanEnvelopes.length) {
-    fail(`${modelKey} resources without typed rows: expected 0, got at least ${orphanEnvelopes.length}`, orphanEnvelopes);
+    LIMIT 20`;
+}
+
+export function verifyTypedEnvelopes(runSql) {
+  for (const modelKey of MODEL_TABLES.keys()) {
+    const orphanEnvelopes = runSql(orphanEnvelopeSql(modelKey));
+    if (orphanEnvelopes.length) {
+      fail(`${modelKey} resources without typed rows: expected 0, got at least ${orphanEnvelopes.length}`, orphanEnvelopes);
+    }
   }
 }
 
-const draftColumns = new Set(runSql("SELECT name FROM pragma_table_info('model_definition_drafts')").map((row) => row.name));
-for (const column of ["source", "proposal_status", "schema_hash", "diff_json", "recommended_compatibility", "publication_token", "publication_started_at", "published_model_id"]) {
-  assertTruthy(draftColumns.has(column), `AI Model Admin proposal column ${column} is missing`);
+export function verifyStagingDatabase(runSql, { requireActiveModelContract = false } = {}) {
+  const schema = single(runSql, "SELECT value FROM schema_metadata WHERE key='schema_version'", "schema_metadata");
+  assertEqual(schema.value, STAGING_EXPECTATIONS.core.schemaVersion, "Core staging schema version");
+
+  const modelRows = runSql(`SELECT model_key,version,schema_hash,state
+    FROM model_definitions WHERE state='published' ORDER BY model_key`);
+  const actualModels = new Map(modelRows.map((row) => [row.model_key, row]));
+  const verifiedModelVersions = {};
+  for (const [key, expected] of EXPECTED_MODELS) {
+    const row = actualModels.get(key);
+    assertTruthy(row, `Published proving model ${key} is missing from staging Registry`);
+    assertAtLeast(row.version, expected.minimumVersion, `${key} version`);
+    assertEqual(row.schema_hash, expected.hash, `${key} schema hash`);
+    verifiedModelVersions[key] = Number(row.version);
+  }
+
+  verifySchemaInventory(runSql);
+
+  const resourceColumns = new Set(runSql("SELECT name FROM pragma_table_info('resource_records')").map((row) => row.name));
+  if (resourceColumns.has("data_json")) fail("Legacy resource_records.data_json column still exists");
+
+  const personColumns = new Set(runSql("SELECT name FROM pragma_table_info('space_people')").map((row) => row.name));
+  assertTruthy(personColumns.has("version"), "Space Person optimistic-concurrency version is missing");
+  const personIndexes = new Set(runSql("SELECT name FROM pragma_index_list('space_people')").map((row) => row.name));
+  assertTruthy(personIndexes.has("idx_space_people_lookup"), "Space Person lookup index is missing");
+  const personNameIndexes = new Set(runSql("SELECT name FROM pragma_index_list('space_person_names')").map((row) => row.name));
+  assertTruthy(personNameIndexes.has("idx_space_person_names_lookup"), "Space Person alternate-name lookup index is missing");
+
+  for (const [table, expectedColumns] of REQUIRED_TYPED_COLUMNS) {
+    const actualColumns = new Set(runSql(`SELECT name FROM pragma_table_info('${table}')`).map((row) => row.name));
+    for (const column of expectedColumns) assertTruthy(actualColumns.has(column), `Typed model table ${table} is missing column ${column}`);
+    for (const column of FORBIDDEN_TYPED_COLUMNS.get(table) ?? []) {
+      if (actualColumns.has(column)) fail(`Typed model table ${table} still contains retired column ${column}`);
+    }
+  }
+
+  verifyTypedEnvelopes(runSql);
+
+  const draftColumns = new Set(runSql("SELECT name FROM pragma_table_info('model_definition_drafts')").map((row) => row.name));
+  for (const column of ["source", "proposal_status", "schema_hash", "diff_json", "recommended_compatibility", "publication_token", "publication_started_at", "published_model_id"]) {
+    assertTruthy(draftColumns.has(column), `AI Model Admin proposal column ${column} is missing`);
+  }
+
+  const contractRows = runSql(`SELECT s.active_contract_id,s.registry_revision,r.contract_hash
+    FROM model_contract_state s JOIN model_contract_revisions r ON r.id=s.active_contract_id`);
+  if (requireActiveModelContract) {
+    if (contractRows.length !== 1) fail("Active Model Contract Revision has not been initialized", contractRows);
+    const contract = contractRows[0];
+    assertTruthy(/^mct_[a-f0-9]{64}$/u.test(contract.active_contract_id), "Active Model Contract ID is invalid");
+    assertEqual(contract.contract_hash, contract.active_contract_id.slice(4), "Active Model Contract content hash");
+    assertTruthy(Number(contract.registry_revision) >= 1, "Active Model Contract registry revision is invalid");
+  } else if (contractRows.length > 1) {
+    fail("Model Contract state contains multiple active rows", contractRows);
+  }
+
+  return {
+    ok: true,
+    schemaVersion: STAGING_EXPECTATIONS.core.schemaVersion,
+    models: verifiedModelVersions,
+    typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
+    personDirectoryGovernedStorage: true,
+    typedEnvelopeConsistency: true,
+    legacyGenericStorageRemoved: true,
+    activeModelContract: contractRows[0]?.active_contract_id ?? null,
+    proposalAuditTrigger: true,
+  };
 }
 
-const trigger = single(`SELECT name FROM sqlite_master
-  WHERE type='trigger' AND name='finalize_claimed_ai_model_proposal_after_publication'`, "AI proposal audit trigger");
-assertEqual(trigger.name, "finalize_claimed_ai_model_proposal_after_publication", "AI proposal audit trigger");
-
-for (const triggerName of [
-  "trg_space_people_advance_version",
-  "trg_space_person_change_validate",
-  "trg_space_person_change_delegation_consume_single_use",
-]) {
-  const row = single(`SELECT name FROM sqlite_master WHERE type='trigger' AND name='${triggerName}'`, triggerName);
-  assertEqual(row.name, triggerName, `${triggerName} trigger`);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  console.log(JSON.stringify(verifyStagingDatabase(runSql, {
+    requireActiveModelContract: process.env.REQUIRE_ACTIVE_MODEL_CONTRACT === "1",
+  }), null, 2));
 }
-
-const contractRows = runSql(`SELECT s.active_contract_id,s.registry_revision,r.contract_hash
-  FROM model_contract_state s JOIN model_contract_revisions r ON r.id=s.active_contract_id`);
-if (process.env.REQUIRE_ACTIVE_MODEL_CONTRACT === "1") {
-  if (contractRows.length !== 1) fail("Active Model Contract Revision has not been initialized", contractRows);
-  const contract = contractRows[0];
-  assertTruthy(/^mct_[a-f0-9]{64}$/u.test(contract.active_contract_id), "Active Model Contract ID is invalid");
-  assertEqual(contract.contract_hash, contract.active_contract_id.slice(4), "Active Model Contract content hash");
-  assertTruthy(Number(contract.registry_revision) >= 1, "Active Model Contract registry revision is invalid");
-} else if (contractRows.length > 1) {
-  fail("Model Contract state contains multiple active rows", contractRows);
-}
-
-console.log(JSON.stringify({
-  ok: true,
-  schemaVersion: STAGING_EXPECTATIONS.core.schemaVersion,
-  models: verifiedModelVersions,
-  typedModelTables: [...REQUIRED_TYPED_COLUMNS.keys()],
-  personDirectoryGovernedStorage: true,
-  typedEnvelopeConsistency: true,
-  legacyGenericStorageRemoved: true,
-  activeModelContract: contractRows[0]?.active_contract_id ?? null,
-  proposalAuditTrigger: true,
-}, null, 2));

@@ -45,7 +45,7 @@ Normal staging and production releases use Core-first -> Identity ordering so a 
 - `ensure-staging-domains.mjs`: verifies/repairs staging custom domains.
 - `staging-expectations.mjs`: derives repository-owned expected contract/schema versions and proving-model baseline.
 - `prepare-staging-smoke.mjs`: prepares masked ephemeral staging principals/tokens/Space/model access.
-- `verify-staging-db.mjs`: verifies staging schema/platform persistence/active model contract state.
+- `verify-staging-db.mjs`: verifies staging schema/platform persistence/active model contract state. Uses one table/trigger inventory scan and exact indexed anti-joins for all five existing proving-model envelope checks (including soft-deleted rows); no sampling or count shortcut. Malformed D1 results fail closed. Node SQLite tests compare the bounded diagnostics with the former LEFT JOIN.
 - `verify-staging-http.mjs`: verifies authenticated Kernel/Model Contract/Model Admin boundaries.
 - `verify-staging-models.mjs`: verifies Task/Wish/Day Record/Event platform semantics.
 - `cleanup-staging-smoke.mjs`: revokes temporary authority best-effort.
