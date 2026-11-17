@@ -3,7 +3,7 @@ import test from "node:test";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import worker,{EventingSmokeSession,HOST,mac,PROTOCOL} from "../eventing-smoke-receiver/worker.mjs";
-import {receiverClient} from "./eventing-smoke-receiver-client.mjs";
+import {receiverClient,runReceiverSelfTest} from "./eventing-smoke-receiver-client.mjs";
 const control="a".repeat(64),signing="b".repeat(64);
 function fixture(){
   const objects=new Map();
@@ -111,11 +111,36 @@ test("canonical workflow preflights without provisioning and requires both accep
   assert.match(verifier,/Real delivery 204 has no unique matching receiver receipt/);
   assert.match(independent,/GITHUB_TRIGGERING_ACTOR.*huangshirui/);
   assert.match(independent,/group: lifespace-staging-deploy/);
-  assert.match(independent,/--self-test/);
+  assert.match(independent,/--self-test --verify-only/);
+  assert.match(independent,/name: Deploy independent staging receiver\n\s+if: inputs\.mode == 'deploy'/);
   const config=JSON.parse(read("../eventing-smoke-receiver/wrangler.jsonc"));
   assert.equal(config.workers_dev,false);
   assert.equal(config.preview_urls,false);
   assert.deepEqual(config.routes,[{pattern:HOST,custom_domain:true}]);
   assert.deepEqual(config.durable_objects.bindings,[{name:"SESSIONS",class_name:"EventingSmokeSession"}]);
   assert.ok(!config.d1_databases&&!config.services&&!config.env);
+});
+
+test("verify existing receiver exercises exact signature denial and receipt without provisioning",async()=>{
+  const f=fixture();
+  await runReceiverSelfTest(f.client,{fetcher:f.fetcher});
+  assert.equal(f.objects.get(f.client.sessionId).data.size,0);
+});
+test("self-test reports sanitized HTTP and CF-Ray, never retries a failed signed request or accepts arbitrary 401",async()=>{
+  for(const status of [500,401]){
+    const f=fixture();
+    let sent=0;
+    const fetcher=async(url,init)=>{
+      sent++;
+      return new Response("edge error", {status,headers:{"cf-ray":"a5bef8dec811ce94-SJC"}});
+    };
+    await assert.rejects(()=>runReceiverSelfTest(f.client,{fetcher}),error=>{
+      assert.match(error.message,new RegExp("HTTP "+status+" CF-Ray a5bef8dec811ce94-SJC"));
+      assert.ok(!error.message.includes(f.client.url));
+      assert.ok(!error.message.includes(control));
+      return true;
+    });
+    assert.equal(sent,1);
+    assert.equal(f.objects.get(f.client.sessionId).data.size,0);
+  }
 });
