@@ -4,6 +4,7 @@
   "main": "worker.mjs",
   "compatibility_date": "2026-08-08",
   "workers_dev": true,
+  "observability": { "enabled": true, "head_sampling_rate": 1, "logs": { "enabled": true, "invocation_logs": false } },
   "placement": { "region": "aws:ap-southeast-1" }
 }
 

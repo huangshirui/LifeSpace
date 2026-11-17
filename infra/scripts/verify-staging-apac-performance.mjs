@@ -56,7 +56,10 @@ requirePlatformGoldenFlow();
 
 const userAdapter = requestThroughApacProbe("user");
 const serviceAdapter = requestThroughApacProbe("service");
-
+const memberAdapter = requestThroughApacProbe("member");
+let phase="user_initial";
+let completed=false;
+try {
 const userResult = await runStagingPerformanceBenchmark({
   coreBaseUrl,
   bearer: userBearer,
@@ -69,6 +72,8 @@ const userResult = await runStagingPerformanceBenchmark({
   requestAdapter: userAdapter,
 });
 
+console.log(JSON.stringify({APAC_CHECKPOINT:"user_initial_complete",observations:userAdapter.diagnostics().length}));
+phase="service_initial";
 const serviceResult = await runStagingServicePerformanceBenchmark({
   coreBaseUrl,
   bearer: serviceBearer,
@@ -81,6 +86,8 @@ const serviceResult = await runStagingServicePerformanceBenchmark({
 });
 
 
+console.log(JSON.stringify({APAC_CHECKPOINT:"service_initial_complete",observations:serviceAdapter.diagnostics().length}));
+phase="absolute_evaluation";
 function summarizeProbeDiagnostics(observations) {
   const groups = new Map();
   for (const item of observations) {
@@ -100,6 +107,9 @@ function summarizeProbeDiagnostics(observations) {
     coreBodyP90Ms: p(samples.map((s) => s.coreBodyMs), 90),
     runnerToProbeP90Ms: p(samples.map((s) => s.runnerToProbeMs), 90),
     probeIngressColos: [...new Set(samples.map((s) => s.probeIngressColo).filter(Boolean))].sort(),
+    probePlacements: [...new Set(samples.map(s=>s.probePlacement).filter(Boolean))].sort(),
+    corePlacements: [...new Set(samples.map(s=>s.corePlacement).filter(Boolean))].sort(),
+    unknownCorePlacement: samples.filter(s=>!s.corePlacement).length,
     slowCoreHeaderSamples: samples.filter((s) => s.coreHeadersMs > 200).slice(0, 45)
       .map((s) => ({ coreRequestId: s.coreRequestId, coreHeadersMs: s.coreHeadersMs, coreBodyMs: s.coreBodyMs })),
   }));
@@ -148,4 +158,14 @@ if (decision.status !== "passed") {
   throw new Error(`Staging APAC performance release gate blocked: ${JSON.stringify(decision)}`);
 }
 // Additive non-Owner gate; do not weaken or substitute the existing release gate.
-await runCeilingApacAcceptance(process.env, requestThroughApacProbe("member"));
+phase="member_ceiling";
+await runCeilingApacAcceptance(process.env, memberAdapter);
+completed=true;
+} finally {
+  // Retain all completed request IDs and timings even when a later transport
+  // or cleanup fails. This is evidence only, never an acceptance result.
+  const adapters={user:userAdapter,service:serviceAdapter,member:memberAdapter};
+  for(const [mode,adapter] of Object.entries(adapters)){
+    console.log(JSON.stringify({APAC_REQUEST_EVIDENCE:{mode,phase,completed,observations:adapter.diagnostics(),failures:adapter.failures()}},null,2));
+  }
+}

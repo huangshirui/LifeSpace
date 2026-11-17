@@ -121,3 +121,18 @@ test("member adapter requires matching credential mode",async()=>{
     }});
   await assert.rejects(adapter("/api/v1/spaces/spc_test/models/task/records?limit=10"),/credential mode mismatch/u);
 });
+
+test("transport and response-body reset retain completed observations and do not retry ambiguous mutations", async()=>{
+  for(const stage of ["runner_fetch_failed","runner_response_read_failed"]){
+    let calls=0;const error=Object.assign(Error("private token and path"),{cause:{code:"ECONNRESET"}});
+    const request=createApacProbeRequestAdapter({probeUrl:"https://probe.example",probeToken:"private-token",credentialMode:"service",
+      fetchImpl:async()=>{calls++;if(calls===1)return jsonResponse({status:200,elapsedMs:40,credentialMode:"service",coreRequestId:"35a880fa-33d3-4732-8cfb-961bfb83e9e2",corePlacement:"remote-SIN",probePlacement:"local-SIN",probeIngressColo:"DFW"});if(stage==="runner_fetch_failed")throw error;return {status:200,headers:new Headers({"cf-ray":"a5bef8dec811ce94-SIN"}),text:async()=>{throw error;}};},
+      sleepImpl:async()=>{throw Error("must not retry reset");}});
+    await request("/api/v1/spaces/spc_test/models/task/records");
+    await assert.rejects(()=>request("/api/v1/spaces/spc_test/models/task/records/rec_test",{method:"PATCH",body:{name:"private data"}}),new RegExp(stage));
+    assert.equal(calls,2);assert.equal(request.diagnostics().length,1);assert.equal(request.diagnostics()[0].corePlacement,"remote-SIN");
+    const failures=request.failures();assert.equal(failures.length,1);assert.equal(failures[0].stage,stage);assert.equal(failures[0].transportCode,"ECONNRESET");
+    assert.equal(failures[0].route,"PATCH /api/v1/spaces/spc_*/models/task/records/rec_*");
+    assert.doesNotMatch(JSON.stringify(failures),/private|spc_test|rec_test/u);
+  }
+});

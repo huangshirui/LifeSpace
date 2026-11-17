@@ -57,12 +57,11 @@ test("APAC probe reports Core fetch failures as JSON", async () => {
   );
 
   assert.equal(response.status, 502);
-  assert.deepEqual(await response.json(), {
-    error: "core_fetch_failed",
-    message: "Core request failed",
-    method: "GET",
-    path: "/api/v1/spaces/spc_test/models/task/records?limit=1",
-  });
+  const payload=await response.json();
+  assert.equal(payload.error,"core_fetch_failed");
+  assert.equal(payload.route,"GET /api/v1/spaces/spc_*/models/task/records");
+  assert.match(payload.correlationId,/^[0-9a-f-]{36}$/u);
+  assert.doesNotMatch(JSON.stringify(payload),/synthetic-secret|spc_test|private/u);
 });
 
 test("APAC probe reports Core response-body read failures instead of throwing a bare 500", async () => {
@@ -79,11 +78,10 @@ test("APAC probe reports Core response-body read failures instead of throwing a 
   assert.equal(response.status, 502);
   const payload = await response.json();
   assert.equal(payload.error, "core_response_read_failed");
-  assert.equal(payload.message, "Core response could not be read");
+  assert.match(payload.correlationId,/^[0-9a-f-]{36}$/u);
   assert.doesNotMatch(JSON.stringify(payload), /synthetic-secret|internal\/private\/path/u);
   assert.equal(payload.upstreamStatus, 201);
-  assert.equal(payload.method, "POST");
-  assert.equal(payload.path, "/api/v1/spaces/spc_test/models/task/records");
+  assert.equal(payload.route, "POST /api/v1/spaces/spc_*/models/task/records");
   assert.equal(typeof payload.elapsedMs, "number");
 });
 
@@ -120,4 +118,13 @@ test("Editor probe credential is explicitly configured and restricted to exact r
   }
   assert.equal((await handleProbeRequest(probeRequest({credentialMode:"member",method:"GET",path:allowed[0]}),env,upstream)).status,503);
   assert.equal(called,3);
+});
+
+test("probe captures only validated placement metadata, preserving ingress as a separate field",async()=>{
+  const request=probeRequest({method:"GET",path:"/api/v1/spaces/spc_test/models/task/records"});
+  request.headers.set("cf-placement","remote-SIN");
+  const response=await handleProbeRequest(request,env,async()=>new Response('{"data":[]}',{headers:{"cf-placement":"remote-SIN","cf-ray":"a5bef8dec811ce94-SIN"}}));
+  const result=await response.json();assert.equal(result.probePlacement,"remote-SIN");assert.equal(result.corePlacement,"remote-SIN");assert.equal(result.probeIngressColo,null);
+  const malformed=await handleProbeRequest(request,env,async()=>new Response('{"data":[]}',{headers:{"cf-placement":"secret invalid value"}}));
+  assert.equal((await malformed.json()).corePlacement,null);
 });

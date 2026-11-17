@@ -1,3 +1,5 @@
+import {randomUUID} from "node:crypto";
+import {safePlacement,safeColo,safeUuid,safeRay,safeRoute,safeTransportCode,safeMs} from "../performance-probe/diagnostic-fields.mjs";
 function defaultSleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -21,19 +23,31 @@ export function createApacProbeRequestAdapter({
   }
 
   const observations = [];
+  const failures = [];
   const request = async (path, { method = "GET", body } = {}) => {
+    const route = safeRoute(path,method.toUpperCase());
+    const probeRequestId = randomUUID();
+    const fail = (stage,attempt,response,error,detail={}) => {
+      const record={credentialMode,route,probeRequestId,stage,attempt,httpStatus:response?.status??null,cfRay:safeRay(response?.headers?.get("cf-ray")),transportCode:error?safeTransportCode(error):null,...detail};
+      if(failures.length<100)failures.push(record);
+      console.error(JSON.stringify({APAC_PROBE_FAILURE:record}));
+      return Error("APAC probe "+stage+(response?" HTTP "+response.status:"")+" ("+(record.transportCode??"see diagnostics")+")");
+    };
     for (let attempt = 1; attempt <= routeAttempts; attempt += 1) {
       const start = performance.now();
-      const response = await fetchImpl(`${probeUrl}/run`, {
+      let response;
+      try {response = await fetchImpl(`${probeUrl}/run`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-lifespace-probe-token": probeToken,
+          "x-lifespace-probe-request-id": probeRequestId,
         },
         body: JSON.stringify({ path, method, credentialMode, ...(body === undefined ? {} : { body }) }),
-      });
+      });} catch(error){throw fail("runner_fetch_failed",attempt,null,error);}
 
-      const text = await response.text();
+      let text;
+      try {text=await response.text();}catch(error){throw fail("runner_response_read_failed",attempt,response,error);}
       let payload;
       try {
         payload = text ? JSON.parse(text) : null;
@@ -44,31 +58,36 @@ export function createApacProbeRequestAdapter({
           await sleepImpl(routeDelayMs);
           continue;
         }
-        throw new Error(`APAC probe returned non-JSON ${response.status} after ${attempt} attempt(s): ${text.slice(0, 500)}`);
+        fail("non_json",attempt,response);
+        throw new Error(`APAC probe returned non-JSON ${response.status} after ${attempt} attempt(s)`);
       }
 
       if (!response.ok) {
-        throw new Error(`APAC probe failed ${response.status}: ${JSON.stringify(payload)}`);
+        const known=["core_fetch_failed","core_response_read_failed","core_returned_non_json","probe_internal_error","probe_not_configured","not_found","benchmark_request_not_allowed","benchmark_credential_mode_not_allowed"];
+        fail("probe_http_error",attempt,response,null,{probeError:known.includes(payload?.error)?payload.error:null,coreCorrelationId:safeUuid(payload?.correlationId)});
+        throw new Error(`APAC probe failed ${response.status}`);
       }
-      if (!payload || !Number.isInteger(payload.status) || typeof payload.elapsedMs !== "number") {
-        throw new Error(`APAC probe returned an invalid benchmark result: ${JSON.stringify(payload)}`);
+      if (!payload || !Number.isInteger(payload.status) || safeMs(payload.elapsedMs)===null) {
+        throw fail("invalid_benchmark_result",attempt,response);
       }
       if (payload.credentialMode !== credentialMode) {
-        throw new Error(`APAC probe credential mode mismatch: expected ${credentialMode}, got ${JSON.stringify(payload.credentialMode)}`);
+        fail("credential_mode_mismatch",attempt,response);
+        throw new Error(`APAC probe credential mode mismatch: expected ${credentialMode}`);
       }
       // Diagnostic only: runner-to-probe timing is deliberately excluded from the gate.
       const clientToProbeMs = performance.now() - start;
-      const route = `${method.toUpperCase()} ${new URL(path, 'https://core-staging.aisr.online').pathname}`
-        .replace(/spc_[a-zA-Z0-9]+/gu, 'spc_*')
-        .replace(/rec_[a-zA-Z0-9]+/gu, 'rec_*');
       observations.push({
         route,
         coreHeadersMs: payload.elapsedMs,
-        coreRequestId: typeof payload.coreRequestId === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/iu.test(payload.coreRequestId)
-          ? payload.coreRequestId : null,
-        coreBodyMs: typeof payload.coreResponseBodyMs === 'number' ? payload.coreResponseBodyMs : null,
+        coreRequestId: safeUuid(payload.coreRequestId),
+        probeRequestId,
+        coreBodyMs: safeMs(payload.coreResponseBodyMs),
         runnerToProbeMs: clientToProbeMs,
-        probeIngressColo: payload.probeIngressColo ?? null,
+        probeIngressColo: safeColo(payload.probeIngressColo),
+        probePlacement: safePlacement(payload.probePlacement),
+        corePlacement: safePlacement(payload.corePlacement),
+        coreRay: safeRay(payload.coreRay),
+        runnerResponsePlacement: safePlacement(response.headers.get("cf-placement")),
       });
       return payload;
     }
@@ -77,5 +96,6 @@ export function createApacProbeRequestAdapter({
   };
   // All returned data is route-patterned and numeric, never bearer/request payload.
   request.diagnostics = () => observations.map((sample) => ({ ...sample }));
+  request.failures = () => failures.map(sample => ({ ...sample }));
   return request;
 }
