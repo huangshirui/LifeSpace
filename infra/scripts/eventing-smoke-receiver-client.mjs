@@ -31,6 +31,30 @@ export function receiverClient({ secret=process.env.EVENTING_SMOKE_CONTROL_SECRE
 if (process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) {
   // Bounded preflight; no platform credentials, no receiver deploy or domain change.
   const client=receiverClient();
-  await client.ready();
-  console.log(JSON.stringify({eventingReceiver:HOST,protocol:PROTOCOL,ready:true}));
+  if (process.argv.includes("--self-test")) {
+    // Only the independent receiver deployment waits for DNS/TLS convergence.
+    // Core's normal deployment never provisions or retries receiver creation.
+    let last;
+    for (let i=0;i<30;i++) {
+      try {await client.ready();last=undefined;break;} catch(error) {last=error;}
+      if (i<29) await new Promise(resolve=>setTimeout(resolve,3000));
+    }
+    if (last) throw last;
+    const signingSecret=randomBytes(32).toString("hex");
+    mask(signingSecret);
+    const fixture={signingSecret,spaceId:"spc_receiver_selftest",endpointId:"whk_receiver_selftest",subscriptionId:"sub_receiver_selftest",subscriberServicePrincipalId:"svc_receiver_selftest"};
+    try {
+      await client.create(fixture);
+      const body=JSON.stringify({id:"test_receiver_selftest",type:"endpoint.test",endpointId:fixture.endpointId,spaceId:fixture.spaceId,subscriberServicePrincipalId:fixture.subscriberServicePrincipalId,occurredAt:new Date().toISOString()});
+      const timestamp=String(Math.floor(Date.now()/1000));
+      const signature="v1="+createHmac("sha256",signingSecret).update(timestamp+"."+body).digest("hex");
+      const headers={"content-type":"application/json","x-lifespace-timestamp":timestamp,"x-lifespace-test":"true","x-lifespace-webhook-endpoint-id":fixture.endpointId};
+      const send=sig=>fetch(client.url,{method:"POST",headers:{...headers,"x-lifespace-signature":sig},body,signal:AbortSignal.timeout(10000)});
+      if ((await send("v1="+"0".repeat(64))).status!==401) throw Error("Receiver invalid HMAC self-test failed");
+      if ((await send(signature)).status!==204) throw Error("Receiver signed HTTPS self-test failed");
+      const receipt=await client.receipts();
+      if (receipt.testCount!==1||receipt.receipts.length!==0) throw Error("Receiver self-test receipt mismatch");
+    } finally {await client.remove();}
+  } else await client.ready();
+  console.log(JSON.stringify({eventingReceiver:HOST,protocol:PROTOCOL,ready:true,selfTest:process.argv.includes("--self-test")}));
 }

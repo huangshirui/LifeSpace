@@ -18,7 +18,7 @@ function equal(a,b) {
 }
 export async function mac(secret, text) {
   const key = await crypto.subtle.importKey("raw",encoder.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
-  return hex(await crypto.subtle.sign("HMAC",key,encoder.encode(text)));
+  return hex(new Uint8Array(await crypto.subtle.sign("HMAC",key,encoder.encode(text))));
 }
 function exact(value, keys) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -61,13 +61,10 @@ export default {
       action="/webhook";
     }
     // DO has no public route. Never forward CI control credential or path MAC.
-    const headers=new Headers(request.headers);
-    headers.delete("authorization");
+    const forwarded=new Request("https://session.invalid"+action,request);
+    forwarded.headers.delete("authorization");
     const stub=env.SESSIONS.get(env.SESSIONS.idFromName(id));
-    return stub.fetch(new Request("https://session.invalid"+action,{
-      method:request.method,headers,
-      ...(["PUT","POST"].includes(request.method)?{body:request.body}:{}),
-    }));
+    return stub.fetch(forwarded);
   },
 };
 
@@ -126,7 +123,7 @@ export class EventingSmokeSession {
       if (!exact(payload,["id","type","endpointId","spaceId","subscriberServicePrincipalId","occurredAt"])
         || payload.type!=="endpoint.test" || !reference(payload.id)
         || payload.endpointId!==state.endpointId || payload.subscriberServicePrincipalId!==state.subscriberServicePrincipalId
-        || !Number.isFinite(Date.parse(payload.occurredAt))) return bad(400,"test_payload");
+        || typeof payload.occurredAt!=="string" || !Number.isFinite(Date.parse(payload.occurredAt))) return bad(400,"test_payload");
       if (state.testCount>=20) return bad(409,"receipt_limit");
       state.testCount++;
     } else {
@@ -134,7 +131,7 @@ export class EventingSmokeSession {
       if (!exact(payload,["id","type","spaceId","modelKey","recordId","recordVersion","changeId","occurredAt"])
         || payload.type!=="record.created" || payload.modelKey!=="event" || !reference(payload.id)||!reference(payload.recordId)
         || !Number.isInteger(payload.recordVersion)||payload.recordVersion<1
-        || !reference(payload.changeId)||!payload.changeId.startsWith("chg_") || !Number.isFinite(Date.parse(payload.occurredAt))
+        || !reference(payload.changeId)||!payload.changeId.startsWith("chg_") || typeof payload.occurredAt!=="string" || !Number.isFinite(Date.parse(payload.occurredAt))
         || request.headers.get("x-lifespace-event-id")!==payload.id || !reference(deliveryId)
         || request.headers.get("x-lifespace-subscription-id")!==state.subscriptionId) return bad(400,"event_payload");
       const receipt={deliveryId,eventId:payload.id,recordId:payload.recordId,recordVersion:payload.recordVersion,changeId:payload.changeId};

@@ -1,0 +1,71 @@
+name: Deploy LifeSpace staging Eventing receiver
+
+# Independent, owner-only provisioning. Never dispatch canonical platform deploys.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type DEPLOY_STAGING_EVENTING_RECEIVER"
+        required: true
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+concurrency:
+  group: lifespace-staging-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 12
+    steps:
+      - name: Require explicit owner receiver deployment on main
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_ACTOR" = huangshirui
+          test "$GITHUB_TRIGGERING_ACTOR" = huangshirui
+          test "$GITHUB_REF_NAME" = main
+          test "$CONFIRMATION" = DEPLOY_STAGING_EVENTING_RECEIVER
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify merged PR and exact candidate provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node infra/scripts/verify-release-candidate.mjs staging
+      - uses: pnpm/action-setup@v4.4.0
+        with:
+          version: 10.13.1
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate receiver locally
+        run: node --test infra/scripts/eventing-smoke-receiver.test.mjs
+      - name: Verify fixed hostname ownership and receiver credential before mutation
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EVENTING_SMOKE_CONTROL_SECRET: ${{ secrets.EVENTING_SMOKE_CONTROL_SECRET }}
+        run: node infra/scripts/check-eventing-smoke-receiver-domain.mjs
+      - name: Deploy independent staging receiver
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EVENTING_SMOKE_CONTROL_SECRET: ${{ secrets.EVENTING_SMOKE_CONTROL_SECRET }}
+        run: |
+          set -euo pipefail
+          pnpm --dir apps/core exec wrangler deploy --config ../../infra/eventing-smoke-receiver/wrangler.jsonc --keep-vars
+          printf '%s' "$EVENTING_SMOKE_CONTROL_SECRET" | pnpm --dir apps/core exec wrangler secret put EVENTING_SMOKE_CONTROL_SECRET --config ../../infra/eventing-smoke-receiver/wrangler.jsonc >/dev/null
+      - name: Verify receiver public HTTPS, deny HMAC and actual receipt
+        env:
+          EVENTING_SMOKE_CONTROL_SECRET: ${{ secrets.EVENTING_SMOKE_CONTROL_SECRET }}
+        run: node infra/scripts/eventing-smoke-receiver-client.mjs --self-test

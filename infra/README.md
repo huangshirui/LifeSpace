@@ -62,3 +62,5 @@ Normal staging and production releases use Core-first -> Identity ordering so a 
 - `verify-production-model-admin.mjs`: uses the protected GitHub production `lsp_svc_*` bearer (existing Service Principal, `models:manage`) to verify live Core↔Identity introspection, reconcile required model semantics when safe and prove the active immutable `mct_*` matches the current Registry snapshot. No per-release Bootstrap Application creation or direct Identity D1 cleanup.
 
 Detailed operator rules are documented in `infra/staging/README.md` and `infra/production/README.md`. Historical migration evidence remains available through Git history and release artifacts rather than current runbooks.
+
+The independent Staging Eventing receiver (`infra/eventing-smoke-receiver/`) is provisioned only by the owner-dispatched `staging-eventing-receiver-deploy.yml` workflow; normal Platform Staging uses its authenticated preflight and isolated expiring test sessions. See `infra/staging/README.md`. It is not a LifeSpace Runtime service.

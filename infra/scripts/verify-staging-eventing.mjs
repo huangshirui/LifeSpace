@@ -55,7 +55,8 @@ async function poll(label, action, predicate, { attempts = 50, delayMs = 3000 } 
     }
     if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  const detail = last?.response ? `HTTP ${last.response.status}` : "no response";
+  const code = last?.error?.cause?.code ?? last?.error?.name;
+  const detail = last?.response ? `HTTP ${last.response.status}` : `no response (${/^[A-Za-z0-9_]{1,60}$/u.test(code??"")?code:"unknown"})`;
   throw new Error(`${label} did not converge: ${detail}`);
 }
 
@@ -246,10 +247,11 @@ try {
   );
   const delivery = deliveryPoll.payload.data.items.find((item) => item.recordId === eventId && item.modelKey === "event" && item.eventType === "record.created");
 
-  const receipt = (await receiver.receipts()).receipts.find(item =>
+  const received = await receiver.receipts();
+  const receipt = received.receipts.find(item =>
     item.deliveryId===delivery.id && item.eventId===delivery.eventId && item.recordId===eventId
     && item.recordVersion===eventVersion && item.changeId===delivery.changeId);
-  if (!receipt) throw Error("Real delivery 204 has no matching receiver receipt");
+  if (!receipt || received.receipts.length!==1 || delivery.recordVersion!==eventVersion) throw Error("Real delivery 204 has no unique matching receiver receipt");
 
   const revoked = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/grants/${encodeURIComponent(grantId)}`, {
     method: "DELETE",
