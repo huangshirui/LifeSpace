@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https://auth-staging.aisr.online https://auth.aisr.online; object-src 'none'; base-uri 'none'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https://auth-staging.aisr.online https://auth.aisr.online https://core-staging.aisr.online https://core.aisr.online; object-src 'none'; base-uri 'none'; form-action 'self'">
 <title>账户中心</title>
 <link rel="stylesheet" href="/center.css">
 <script type="module" src="/center.js"></script>
@@ -170,6 +170,23 @@
     </div>
   </main>
 </div>
+<dialog id="space-operation-dialog" aria-labelledby="space-operation-title">
+  <h2 id="space-operation-title">空间管理</h2><p id="space-operation-context"></p>
+  <form id="space-operation-form">
+    <div class="space-settings-fields">
+      <label id="space-operation-role-field" hidden>角色<select id="space-operation-role"><option value="viewer">查看者</option><option value="editor">编辑者</option><option value="admin">管理员</option></select></label>
+      <div id="space-operation-invite-fields" class="space-settings-fields" hidden>
+        <label>有效分钟数（1–43200）<input id="space-operation-minutes" type="number" min="1" max="43200" step="1"></label>
+        <label>可使用次数（1–100）<input id="space-operation-uses" type="number" min="1" max="100" step="1"></label>
+      </div>
+      <label id="space-operation-avatar-field" hidden>选择头像<input id="space-operation-file" type="file" accept="image/jpeg,image/png,image/webp"></label>
+    </div>
+    <p id="space-operation-warning"></p>
+    <div id="space-operation-result" class="space-settings-fields" hidden><label>邀请码（仅显示一次）<input id="space-operation-code" type="text" readonly autocomplete="off"></label></div>
+    <p id="space-operation-error" class="dialog-error" role="alert" hidden></p>
+    <div class="dialog-actions"><button id="space-operation-cancel" type="button" class="button">取消</button><button id="space-operation-save" type="submit" class="button primary">保存</button></div>
+  </form>
+</dialog>
 <dialog id="space-settings-dialog" aria-labelledby="space-settings-title">
   <h2 id="space-settings-title">空间设置</h2>
   <p id="space-settings-context"></p>

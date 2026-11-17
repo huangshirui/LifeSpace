@@ -1,3 +1,7 @@
+## 2026-11-17 · Account Space management 扩展（candidate v0.8.0，尚未部署）
+
+Account adds explicit member role/removal, manager invitation list/create/revoke and version-bound avatar upload using current User credentials and fixed Core routes. Member list adds membership version; invitation list projects only prefixes and nonsecret metadata, create alone returns one-time invite token. Existing Core role/lifecycle semantics remain unchanged, including Owner immutability, no version on member removal, and logical close. No new scope, database or platform contract. Four Space subpages and same-origin deep links are Experience, not authority. HomeMew is unchanged pending Account acceptance.
+
 ## 2026-11-17 · Account 通用空间管理（候选 v0.7.0，尚未部署）
 
 Account BFF adds three explicit same-origin, current-user and CSRF-protected Space operations: update (Core PATCH with version), close (existing owner-only logical close with version), leave (existing non-owner membership exit). Account validates exact confirmation Space ID and bounded input; all durable authorization and lifecycle semantics remain in Core. No scope, Identity/Core contract, persistent state or deployment change. Account becomes the generic self-service experience, not a required proxy for application-specific business workflows. HomeMew retains existing management until Account is mature and equivalent on supported clients. Further members/invites/avatar/subpage work remains #514.

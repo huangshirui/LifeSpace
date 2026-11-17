@@ -13,7 +13,8 @@ const avatarUrl="https://auth-staging.example.test/assets/users/"+USER+"/avatar"
 function setup({spaceRole="owner",settingsStatus=200}={}){
   const requests=[];
   let displayName="Test User",email="old@example.test",version=2,linked=true,ceiling=null;
-  let spaceVersion=3,spaceName="My Space",spaceTimezone="Asia/Shanghai",active=true;
+  let spaceVersion=3,spaceName="My Space",spaceTimezone="Asia/Shanghai",active=true,memberVersion=1,memberRole="editor",memberActive=true,inviteRevoked=false;
+  const inviteId="inv_"+"f".repeat(32),inviteToken="LS-ABCD-EFGH-JKLM-NPQR";
   const env={
     ENVIRONMENT:"staging",ACCOUNT_CSRF_SECRET:"a-local-test-secret-with-at-least-thirty-two-characters",
     IDENTITY_APPLICATION_CREDENTIAL:"lsa_test_private",
@@ -71,6 +72,37 @@ function setup({spaceRole="owner",settingsStatus=200}={}){
       if(path===memberPath+"/task"&&req.method==="DELETE"){ceiling=null;return new Response(null,{status:204});}
       if(path.includes("/members/usr_denied/model-access"))return Response.json({error:{code:"FORBIDDEN"}},{status:403});
       const settingsPath="/api/v1/spaces/"+SPACE;
+      const member=settingsPath+"/members/usr_child";
+      if(path===member&&req.method==="PATCH"){
+        const input=await req.json();
+        if(!["owner","admin"].includes(spaceRole))return new Response(null,{status:403});
+        if(input.version!==memberVersion)return new Response(null,{status:409});
+        memberRole=input.role;memberVersion++;
+        return Response.json({data:{userId:"usr_child",role:memberRole,version:memberVersion,secret:"must-not-leak"}});
+      }
+      if(path===member&&req.method==="DELETE"){
+        if(!["owner","admin"].includes(spaceRole))return new Response(null,{status:403});
+        memberActive=false;return new Response(null,{status:204});
+      }
+      if(path===settingsPath+"/members"&&req.method==="GET")return Response.json({data:memberActive?[{userId:"usr_child",role:memberRole,version:memberVersion,displayName:"Child"}]:[]});
+      const invite={id:inviteId,role:"editor",status:inviteRevoked?"revoked":"active",maxUses:1,usedCount:0,createdAt:"2026-11-17T00:00:00Z",expiresAt:"2026-11-18T00:00:00Z",tokenPrefix:"LS-ABCD",token:inviteToken,secret:"must-not-leak"};
+      if(path===settingsPath+"/invites"){
+        if(!["owner","admin"].includes(spaceRole))return new Response(null,{status:403});
+        if(req.method==="GET")return Response.json({data:[invite]});
+        assert.deepEqual(await req.json(),{role:"editor",expiresInMinutes:1440,maxUses:1});
+        return Response.json({data:invite},{status:201});
+      }
+      if(path===settingsPath+"/invites/"+inviteId+"/revoke"){
+        if(!["owner","admin"].includes(spaceRole))return new Response(null,{status:403});
+        inviteRevoked=true;return new Response(null,{status:204});
+      }
+      if(path===settingsPath+"/avatar"&&req.method==="PUT"){
+        if(!["owner","admin"].includes(spaceRole))return new Response(null,{status:403});
+        const form=await req.formData();assert.deepEqual([...form.keys()].sort(),["file","version"]);
+        assert.equal(form.get("file").type,"image/png");
+        if(Number(form.get("version"))!==spaceVersion)return new Response(null,{status:409});
+        return Response.json({data:{version:++spaceVersion,avatarUrl:"https://core-staging.example.test/assets/spaces/"+SPACE+"/avatar"}});
+      }
       if(path===settingsPath&&req.method==="PATCH"){
         const input=await req.json();
         assert.deepEqual(Object.keys(input).sort(),["name","timezone","version"]);
@@ -267,4 +299,47 @@ test("Core retains non-owner close denial, manager edit and non-owner leave; fai
   const fault=setup({settingsStatus:500}),f=await fault.auth();
   assert.equal((await fault.post(base+"/close",close,f)).status,503);
   assert.equal((await (await fault.request("/api/account/spaces")).json()).data.length,1);
+});
+
+test("Space member and invitation mutations preserve exact targets, current authority and one-time token projection",async()=>{
+  const t=setup(),a=await t.auth(),base="/api/account/spaces/"+SPACE;
+  const member=base+"/members/usr_child",inviteId="inv_"+"f".repeat(32);
+  const role={intent:"change-member-role",confirmSpaceId:SPACE,confirmUserId:"usr_child",role:"viewer",version:1};
+  const create={intent:"create-space-invite",confirmSpaceId:SPACE,role:"editor",expiresInMinutes:1440,maxUses:1};
+  const revoke={intent:"revoke-space-invite",confirmSpaceId:SPACE,confirmInviteId:inviteId};
+  const count=()=>t.requests.filter(x=>x.who==="core").length,before=count();
+  assert.equal((await t.post(member+"/role",{...role,role:"owner"},a)).status,400);
+  assert.equal((await t.post(member+"/role",{...role,confirmUserId:USER},a)).status,400);
+  assert.equal((await t.post(base+"/invites/create",{...create,maxUses:101},a)).status,400);
+  assert.equal((await t.post(base+"/invites/"+inviteId+"/revoke",{...revoke,confirmInviteId:"inv_other"},a)).status,400);
+  assert.equal((await t.post(member+"/role",role,{...a,csrf:"wrong"})).status,403);
+  assert.equal(count(),before);
+  const updated=await t.post(member+"/role",role,a);
+  assert.deepEqual((await updated.json()).data,{userId:"usr_child",role:"viewer",version:2});
+  assert.equal((await t.post(member+"/role",role,a)).status,409);
+  const listed=await t.request(base+"/members");assert.equal((await listed.json()).data[0].version,2);
+  const made=await t.post(base+"/invites/create",create,a);assert.equal(made.status,201);
+  const madeBody=await made.json();assert.equal(madeBody.data.token,"LS-ABCD-EFGH-JKLM-NPQR");assert.ok(!JSON.stringify(madeBody).includes("must-not-leak"));
+  const invitations=await (await t.request(base+"/invites")).json();assert.equal(invitations.data[0].tokenPrefix,"LS-ABCD");assert.ok(!JSON.stringify(invitations).includes(madeBody.data.token));
+  assert.equal((await t.post(base+"/invites/"+inviteId+"/revoke",revoke,a)).status,200);
+  assert.equal((await (await t.request(base+"/invites")).json()).data[0].status,"revoked");
+  assert.equal((await t.post(member+"/remove",{intent:"remove-member",confirmSpaceId:SPACE,confirmUserId:"usr_child"},a)).status,200);
+  assert.deepEqual((await (await t.request(base+"/members")).json()).data,[]);
+  const viewer=setup({spaceRole:"viewer"}),v=await viewer.auth();
+  assert.equal((await viewer.request(base+"/invites")).status,403);
+  assert.equal((await viewer.post(base+"/invites/create",create,v)).status,403);
+  assert.equal((await viewer.post(member+"/role",role,v)).status,403);
+});
+test("Space avatar uses exact target, current version and existing User authority",async()=>{
+  const t=setup(),a=await t.auth(),base="/api/account/spaces/"+SPACE+"/avatar";
+  async function upload(target=SPACE,version=3,csrf=a.csrf,type="image/png"){
+    const body=new FormData();body.set("confirmSpaceId",target);body.set("version",String(version));
+    body.set("file",new File(["123"],"avatar.png",{type}));
+    return t.request(base,{method:"POST",headers:{origin:ORIGIN,"sec-fetch-site":"same-origin","x-lifespace-csrf":csrf,cookie:a.cookie},body});
+  }
+  assert.equal((await upload(created)).status,400);
+  assert.equal((await upload(SPACE,3,"bad")).status,403);
+  assert.equal((await upload(SPACE,3,a.csrf,"text/plain")).status,422);
+  const good=await upload();assert.equal(good.status,200);assert.equal((await good.json()).data.version,4);
+  assert.equal((await upload()).status,409);
 });

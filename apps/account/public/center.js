@@ -1,6 +1,8 @@
 const $ = id => document.getElementById(id);
 const PANELS = new Set(["account","spaces","connections","audit"]);
 const TABS = new Set(["oauth","delegations","external"]);
+const SPACE_TABS = {overview:"概览",members:"成员",invites:"邀请",settings:"设置"};
+let spaceTab="overview";
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
 const opNames = {query:"查询",get:"查看",create:"新增",update:"修改",delete:"删除"};
 const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false,emailVersion:null,emailValue:null,invite:null,spaceNames:new Map(),nameCandidates:[],referenceLoaded:false,busyAction:false};
@@ -82,7 +84,9 @@ async function loadAccount() {
 }
 function currentPage() {
   const parts=location.hash.replace(/^#/u,"").split("/");
-  return {view:PANELS.has(parts[0])?parts[0]:"account",tab:TABS.has(parts[1])?parts[1]:"oauth"};
+  return {view:PANELS.has(parts[0])?parts[0]:"account",tab:TABS.has(parts[1])?parts[1]:"oauth",
+    spaceId:parts[0]==="spaces"&&/^spc_[A-Za-z0-9_-]{3,128}$/u.test(parts[1]||"")?parts[1]:null,
+    spaceTab:Object.hasOwn(SPACE_TABS,parts[2])?parts[2]:"overview"};
 }
 function closeMenu() {
   $("sidebar").classList.remove("open");
@@ -100,7 +104,14 @@ function navigate() {
   const names={account:"账号与安全",spaces:"我的空间",connections:"连接与授权",audit:"活动与审计"};
   document.title="账户中心";
   closeMenu();
-  if(view==="spaces" && state.user && !state.spacesLoaded)void loadSpaces();
+  if(view==="spaces" && state.user){
+    const page=currentPage();
+    if(!state.spacesLoaded)void loadSpaces();
+    else if(page.spaceId&&state.spaces.some(item=>item.id===page.spaceId)
+      &&(state.space!==page.spaceId||spaceTab!==page.spaceTab)){
+      state.space=page.spaceId;spaceTab=page.spaceTab;renderSpaces();void loadSpaceDetail(state.space);
+    }
+  }
   if(view==="audit" && state.csrf && !state.auditLoaded)void loadAudit(true);
 }
 function selectTab(tab,updateHash=true) {
@@ -124,11 +135,37 @@ function renderSpaces() {
     const initial=el("span","space-initial",space.name.slice(0,1));
     const name=el("span");name.append(el("strong","",space.name),el("small","",roles[space.role]||space.role));
     button.append(initial,name);
-    button.addEventListener("click",()=>{state.space=space.id;renderSpaces();void loadSpaceDetail(space.id);});
+    button.addEventListener("click",()=>selectSpacePage(space.id,"overview"));
     target.append(button);
   }
 }
 let spacesRevision=0, spaceDetailRevision=0;
+function spaceHash(id,tab){return "#spaces/"+encodeURIComponent(id)+"/"+tab;}
+function selectSpacePage(id,tab){
+  if(state.busyAction||!state.spaces.some(item=>item.id===id))return;
+  if(state.space===id&&spaceTab===tab)return;
+  state.space=id;spaceTab=tab;window.history.replaceState(null,"",spaceHash(id,tab));
+  renderSpaces();void loadSpaceDetail(id);
+}
+function spaceAvatarNode(info){
+  const target=el("span","space-detail-avatar",info.name.slice(0,1));
+  if(typeof info.avatarUrl==="string"){
+    try{
+      const url=new URL(info.avatarUrl);
+      if(["https://core.aisr.online","https://core-staging.aisr.online"].includes(url.origin)
+        &&url.pathname==="/assets/spaces/"+encodeURIComponent(info.id)+"/avatar"&&!url.search&&!url.hash){
+        const img=el("img");img.alt="";img.src=url.href+"?v="+info.version;
+        img.addEventListener("error",()=>target.replaceChildren(document.createTextNode(info.name.slice(0,1))));
+        target.replaceChildren(img);
+      }
+    }catch{}
+  }
+  return target;
+}
+function actionButton(text,fn,style="button compact"){
+  const button=el("button",style,text);button.type="button";button.addEventListener("click",fn);return button;
+}
+function spaceManager(info){return ["owner","admin"].includes(info.access);}
 async function loadSpaces() {
   const revision=++spacesRevision;
   $("space-list").replaceChildren(el("p","placeholder","正在读取当前用户的空间…"));
@@ -139,8 +176,12 @@ async function loadSpaces() {
     state.spaces=list;
     state.spacesLoaded=true;
     state.spaceNames=new Map(list.map(space=>[space.id,space.name]));
-    if(state.space && !list.some(item=>item.id===state.space))state.space=null;
-    if(!state.space && list.length)state.space=list[0].id;
+    const page=currentPage();
+    if(!state.space&&page.spaceId&&list.some(item=>item.id===page.spaceId)){state.space=page.spaceId;spaceTab=page.spaceTab;}
+    if(state.space && !list.some(item=>item.id===state.space)){state.space=null;spaceTab="overview";}
+    if(!state.space && list.length){state.space=list[0].id;spaceTab="overview";}
+    if(state.space&&page.view==="spaces")window.history.replaceState(null,"",spaceHash(state.space,spaceTab));
+    else if(page.view==="spaces")window.history.replaceState(null,"","#spaces");
     renderSpaces();
     if(state.space) await loadSpaceDetail(state.space);
     else {spaceDetailRevision++;$("space-detail-label").textContent="";$("space-detail").replaceChildren(el("p","placeholder","当前没有可查看的空间。"));}
@@ -159,49 +200,82 @@ async function loadSpaceDetail(id) {
   try {
     const info=await api("/api/account/spaces/"+encodeURIComponent(id));
     if(!current())return;
-    const space=state.spaces.find(item=>item.id===id);
-    $("space-detail-label").textContent=roles[space?.role]||"当前成员";
-    target.replaceChildren(el("h3","space-detail-title",info.name),
-      detailRow("时区",info.timezone),
-      detailRow("我的角色",roles[info.access]||"已授权访问"));
-    const settings=el("div","space-settings-actions");
-    if(["owner","admin"].includes(info.access)){
-      const button=el("button","button compact","编辑空间");button.type="button";
-      button.addEventListener("click",()=>openSpaceSettings(info,"update"));settings.append(button);
+    $("space-detail-label").textContent=roles[info.access]||"当前成员";
+    const header=el("div","space-detail-head");header.append(spaceAvatarNode(info),el("h3","space-detail-title",info.name));
+    const tabs=el("nav","space-section-tabs");tabs.setAttribute("aria-label","空间管理");
+    for(const [tab,title] of Object.entries(SPACE_TABS)){
+      if(tab==="invites"&&!spaceManager(info))continue;
+      const button=actionButton(title,()=>selectSpacePage(id,tab),"space-section-tab");
+      button.setAttribute("aria-current",tab===spaceTab?"page":"false");tabs.append(button);
     }
-    if(["owner","admin","editor","viewer"].includes(info.access)){
-      const action=info.access==="owner"?"close":"leave";
-      const button=el("button","button compact",action==="close"?"注销空间":"退出空间");button.type="button";
-      button.addEventListener("click",()=>openSpaceSettings(info,action));settings.append(button);
+    target.replaceChildren(header,tabs);
+    const content=el("div","space-section-content");target.append(content);
+    if(spaceTab==="settings"){
+      content.append(detailRow("空间名称",info.name),detailRow("时区",info.timezone),detailRow("我的角色",roles[info.access]||"已授权访问"));
+      const settings=el("div","space-settings-actions");
+      if(["owner","admin"].includes(info.access)){
+        const button=el("button","button compact","编辑空间");button.type="button";
+        button.addEventListener("click",()=>openSpaceSettings(info,"update"));settings.append(button);
+        settings.append(actionButton("更换空间头像",()=>openSpaceOperation(info,"avatar")));
+      }
+      if(["owner","admin","editor","viewer"].includes(info.access)){
+        const action=info.access==="owner"?"close":"leave";
+        settings.append(actionButton(action==="close"?"注销空间":"退出空间",()=>openSpaceSettings(info,action)));
+      }
+      if(settings.children.length)content.append(settings);
+      return;
     }
-    if(settings.children.length)target.append(settings);
-    const divider=el("hr","section-divider");target.append(divider,el("h2","","成员"));
-    const listing=el("div","member-list");target.append(listing);
-    try {
+    if(spaceTab==="invites"){
+      if(!spaceManager(info)){content.append(el("p","placeholder","当前角色不能管理邀请。"));return;}
+      content.append(actionButton("创建邀请",()=>openSpaceOperation(info,"invite-create"),"button primary compact"));
+      const listing=el("div","member-list");content.append(listing);
+      try{
+        const invites=await api("/api/account/spaces/"+encodeURIComponent(id)+"/invites");
+        if(!current())return;
+        if(!Array.isArray(invites))throw Error("邀请列表响应异常");
+        if(!invites.length)listing.append(el("p","placeholder","还没有邀请。"));
+        for(const invite of invites){
+          const status={active:"有效",expired:"已过期",exhausted:"已用完",revoked:"已撤销"}[invite.status]||"未知";
+          const row=el("div","member-row"),detail=el("span");
+          detail.append(el("strong","",invite.tokenPrefix+"… · "+roles[invite.role]),
+            el("p","note-mini","到期："+formatTime(invite.expiresAt)+" · 已用 "+invite.usedCount+"/"+invite.maxUses));
+          const actions=el("div","member-actions");actions.append(el("span","role",status));
+          if(invite.status==="active")actions.append(actionButton("撤销",()=>openSpaceOperation(info,"invite-revoke",invite)));
+          row.append(detail,actions);listing.append(row);
+        }
+      }catch(e){if(current())listing.append(el("p","placeholder","无法读取邀请："+msg(e)));}
+      return;
+    }
+    const overview=spaceTab==="overview";
+    if(overview){
+      content.append(detailRow("时区",info.timezone),detailRow("我的角色",roles[info.access]||"已授权访问"));
+      const tech=el("details","technical-details");tech.append(el("summary","","空间标识"),detailRow("Space ID",info.id));content.append(tech);
+    }
+    const listing=el("div","member-list");content.append(listing);
+    listing.append(el("p","placeholder","正在读取成员…"));
+    try{
       const members=await api("/api/account/spaces/"+encodeURIComponent(id)+"/members");
       if(!current())return;
       if(!Array.isArray(members))throw new Error("成员列表格式异常");
-      if(!members.length) listing.append(el("p","placeholder","暂无可读取的成员。"));
-      for(const member of members) {
-        const row=el("div","member-row");
-        const detail=el("span");detail.append(el("strong","",member.displayName));
-        const actions=el("div","member-actions");
-        actions.append(el("span","role",roles[member.role]||member.role));
+      listing.replaceChildren();
+      if(overview){listing.append(detailRow("成员",String(members.length)+" 人"));return;}
+      if(!members.length)listing.append(el("p","placeholder","暂无可读取的成员。"));
+      for(const member of members){
+        const row=el("div","member-row"),detail=el("span");detail.append(el("strong","",member.displayName));
+        const actions=el("div","member-actions");actions.append(el("span","role",roles[member.role]||member.role));
+        if(member.userId!==state.user?.id&&member.role!=="owner"&&spaceManager(info)){
+          actions.append(actionButton("调整角色",()=>openSpaceOperation(info,"member-role",member)));
+          actions.append(actionButton("移除",()=>openSpaceOperation(info,"member-remove",member)));
+        }
         if(member.userId!==state.user?.id&&member.role!=="owner"
           &&(info.access==="owner"||(info.access==="admin"&&["editor","viewer"].includes(member.role)))){
           const button=el("button","button compact","模型权限");button.type="button";
           button.addEventListener("click",()=>void openMemberAccess(id,info.name,member));
           actions.append(button);
         }
-        row.append(detail,actions);
-        listing.append(row);
+        row.append(detail,actions);listing.append(row);
       }
-      const tech=el("details","technical-details");
-      tech.append(el("summary","","空间标识"),detailRow("Space ID",info.id));
-      target.append(tech);
-    } catch(e) {
-      if(current())listing.append(el("p","placeholder","无法读取成员："+msg(e)));
-    }
+    }catch(e){if(current())listing.replaceChildren(el("p","placeholder","无法读取成员："+msg(e)));}
   } catch(e) {
     if(current())target.replaceChildren(el("p","placeholder","无法读取空间详情："+msg(e)));
   }
@@ -251,7 +325,7 @@ function openSpaceSettings(info,action){
       state.externalLoaded=false;state.referenceLoaded=false;
       if(!edit){
         state.spaces=state.spaces.filter(space=>space.id!==info.id);
-        if(state.space===info.id){state.space=null;spaceDetailRevision++;$("space-detail-label").textContent="";$("space-detail").replaceChildren(el("p","placeholder","正在刷新空间…"));}
+        if(state.space===info.id){state.space=null;spaceTab="overview";spaceDetailRevision++;$("space-detail-label").textContent="";$("space-detail").replaceChildren(el("p","placeholder","正在刷新空间…"));}
         renderSpaces();
       }
       await loadSpaces();
@@ -259,6 +333,64 @@ function openSpaceSettings(info,action){
     }catch(e){
       error.textContent=msg(e)+"；请刷新空间信息后再操作。";error.hidden=false;
     }finally{state.busyAction=false;save.disabled=false;cancel.disabled=false;}
+  };
+  dialog.showModal();
+}
+// Generic Space management uses a dedicated modal and fixed operation-specific paths.
+function openSpaceOperation(info,action,item=null){
+  if(state.busyAction||!state.csrf||state.space!==info.id)return;
+  const dialog=$("space-operation-dialog"),form=$("space-operation-form");
+  const save=$("space-operation-save"),cancel=$("space-operation-cancel");
+  const role=$("space-operation-role"),minutes=$("space-operation-minutes"),uses=$("space-operation-uses"),file=$("space-operation-file");
+  const error=$("space-operation-error"),result=$("space-operation-result"),code=$("space-operation-code");
+  const roleEdit=action==="member-role",invite=action==="invite-create",avatar=action==="avatar";
+  const destructive=action==="member-remove"||action==="invite-revoke";
+  const titles={"member-role":"调整成员角色","member-remove":"移除成员","invite-create":"创建邀请","invite-revoke":"撤销邀请",avatar:"更换空间头像"};
+  $("space-operation-title").textContent=titles[action];
+  $("space-operation-context").textContent="空间："+info.name+(item?.displayName?" · "+item.displayName:item?.tokenPrefix?" · "+item.tokenPrefix+"…":"");
+  $("space-operation-role-field").hidden=!(roleEdit||invite);role.required=roleEdit||invite;role.value=roleEdit?item.role:"editor";
+  $("space-operation-invite-fields").hidden=!invite;minutes.required=invite;uses.required=invite;minutes.value="1440";uses.value="1";
+  $("space-operation-avatar-field").hidden=!avatar;file.required=avatar;file.value="";
+  $("space-operation-warning").textContent=action==="member-remove"?"移除后，该成员及对应的空间人物将被停用。"
+    :action==="invite-revoke"?"撤销后，该邀请码不可用于加入。已经加入的成员不受影响。"
+    :roleEdit?"角色会改变成员基础访问能力，实际数据访问仍由 LifeSpace 权限判定。"
+    :invite?"邀请码仅在创建成功时显示一次，请仅分享给受邀者。":"仅支持 JPG、PNG、WebP，最大 5 MB。";
+  result.hidden=true;code.value="";error.hidden=true;save.hidden=false;
+  save.textContent=destructive?"确认":invite?"创建":"保存";save.className="button "+(destructive?"danger":"primary");
+  cancel.textContent="取消";
+  const close=()=>{if(!state.busyAction){code.value="";dialog.close();}};
+  cancel.onclick=close;
+  dialog.oncancel=event=>{if(state.busyAction)event.preventDefault();else code.value="";};
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if(state.busyAction||state.space!==info.id||save.hidden)return;
+    const base="/api/account/spaces/"+encodeURIComponent(info.id);
+    const common={confirmSpaceId:info.id};
+    state.busyAction=true;save.disabled=true;cancel.disabled=true;error.hidden=true;
+    try{
+      if(avatar){
+        const selected=file.files?.[0];if(!selected)throw Error("请选择头像");
+        const body=new FormData();body.set("file",selected);body.set("version",String(info.version));body.set("confirmSpaceId",info.id);
+        await api(base+"/avatar",{method:"POST",headers:{"x-lifespace-csrf":state.csrf},body});
+      }else if(invite){
+        const created=await post(base+"/invites/create",{...common,intent:"create-space-invite",role:role.value,expiresInMinutes:Number(minutes.value),maxUses:Number(uses.value)});
+        code.value=created.token;result.hidden=false;save.hidden=true;cancel.textContent="完成";
+        $("space-operation-role-field").hidden=true;role.required=false;
+        $("space-operation-invite-fields").hidden=true;minutes.required=false;uses.required=false;
+        $("space-operation-warning").textContent="请现在复制邀请码，关闭后无法再次查看完整邀请码。";
+        await loadSpaceDetail(info.id);
+        return;
+      }else if(action==="invite-revoke"){
+        await post(base+"/invites/"+encodeURIComponent(item.id)+"/revoke",{...common,intent:"revoke-space-invite",confirmInviteId:item.id});
+      }else{
+        await post(base+"/members/"+encodeURIComponent(item.userId)+(roleEdit?"/role":"/remove"),{
+          ...common,confirmUserId:item.userId,intent:roleEdit?"change-member-role":"remove-member",
+          ...(roleEdit?{role:role.value,version:item.version}:{}),
+        });
+      }
+      dialog.close();await loadSpaceDetail(info.id);notice("space-action-status",titles[action]+"成功。");
+    }catch(e){error.textContent=msg(e)+"；请刷新后核对。";error.hidden=false;}
+    finally{state.busyAction=false;save.disabled=false;cancel.disabled=false;}
   };
   dialog.showModal();
 }
@@ -797,7 +929,7 @@ function bindForms(){
       });
       $("space-create-form").hidden=true;
       $("space-name-input").value="";
-      state.space=result.id;
+      state.space=result.id;spaceTab="overview";
       await loadSpaces();
       notice("space-action-status","空间「"+result.name+"」已创建。");
     }catch(e){notice("space-action-status","创建失败："+msg(e),true);}
@@ -839,7 +971,7 @@ function bindForms(){
       if(result.spaceId!==accepted.spaceId)throw Error("加入的空间与邀请预览不一致，请重新检查");
       $("space-invite-form").hidden=true;$("space-invite-input").value="";
       $("space-invite-preview").hidden=true;$("space-join-confirm").hidden=true;
-      state.invite=null;state.space=result.spaceId;
+      state.invite=null;state.space=result.spaceId;spaceTab="overview";
       await loadSpaces();
       notice("space-action-status","已加入空间。");
     }catch(e){notice("space-action-status","加入失败："+msg(e),true);}

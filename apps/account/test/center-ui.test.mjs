@@ -91,3 +91,16 @@ test("Space settings use a separate dialog, explicit target and optimistic versi
   assert.ok(js.includes('state.spaces=state.spaces.filter'));
   assert.ok(js.includes('revision!==spacesRevision'));
 });
+
+test("Space management has four real subpages and dedicated operation dialogs",()=>{
+  assert.ok(js.includes('const SPACE_TABS = {overview:"概览",members:"成员",invites:"邀请",settings:"设置"}'));
+  assert.ok(js.includes('if(spaceTab==="invites")'));
+  assert.ok(js.includes('if(spaceTab==="settings")'));
+  assert.match(html,/id="space-operation-dialog"/u);
+  assert.match(html,/id="space-operation-code" type="text" readonly/u);
+  assert.ok(js.includes('code.value=""'));
+  assert.ok(js.includes('confirmUserId:item.userId'));
+  assert.ok(js.includes('version:item.version'));
+  assert.ok(js.includes('confirmInviteId:item.id'));
+  assert.ok(js.includes('spaceHash(id,tab)'));
+});
