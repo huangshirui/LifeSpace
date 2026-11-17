@@ -75,6 +75,11 @@ test("standalone APAC staging diagnostics is owner-dispatched and cannot substit
 test("staging-only Singapore placement experiment cannot promote to a Smart Placement production candidate",()=>{
   const smart={mode:"smart"},target={region:"aws:ap-southeast-1"},live={mode:"targeted",region:"aws:ap-southeast-1"};
   assert.equal(assertPlacement({staging:target,production:smart,live}).productionParity,false);
+  // Cloudflare's script/version settings API supports all three region shapes.
+  assert.equal(assertPlacement({staging:target,production:smart,live:target}).productionParity,false);
+  assert.equal(assertPlacement({staging:target,production:smart,live:{mode:"targeted",target:[target]}}).productionParity,false);
+  assert.throws(()=>assertPlacement({staging:target,production:smart,live:{mode:"targeted",target:[{hostname:"example.com"}]}}),/Unknown or unsupported/u);
+  assert.throws(()=>assertPlacement({staging:target,production:smart,live:{region:"aws:us-east-1"}}),/Unknown or unsupported/u);
   assert.throws(()=>assertPlacement({staging:target,production:smart,live,requireProductionParity:true}),/restore parity/u);
   assert.throws(()=>assertPlacement({staging:target,production:smart,live:smart}),/differs from candidate/u);
   assert.equal(assertPlacement({staging:smart,production:smart,live:smart,requireProductionParity:true}).productionParity,true);

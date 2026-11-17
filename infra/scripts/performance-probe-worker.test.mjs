@@ -125,6 +125,8 @@ test("probe captures only validated placement metadata, preserving ingress as a 
   request.headers.set("cf-placement","remote-SIN");
   const response=await handleProbeRequest(request,env,async()=>new Response('{"data":[]}',{headers:{"cf-placement":"remote-SIN","cf-ray":"a5bef8dec811ce94-SIN"}}));
   const result=await response.json();assert.equal(result.probePlacement,"remote-SIN");assert.equal(result.corePlacement,"remote-SIN");assert.equal(result.probeIngressColo,null);
-  const malformed=await handleProbeRequest(request,env,async()=>new Response('{"data":[]}',{headers:{"cf-placement":"secret invalid value"}}));
+  const malformedRequest=probeRequest({method:"GET",path:"/api/v1/spaces/spc_test/models/task/records"});
+  const malformed=await handleProbeRequest(malformedRequest,env,async()=>new Response('{"data":[]}',{headers:{"cf-placement":"secret invalid value"}}));
+  assert.equal(malformed.status,200);
   assert.equal((await malformed.json()).corePlacement,null);
 });
