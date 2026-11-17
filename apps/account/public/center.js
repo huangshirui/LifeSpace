@@ -335,41 +335,59 @@ async function loadAudit(reset=false) {
     message.hidden=false;message.textContent="读取授权活动失败："+msg(e);
   }finally{state.auditBusy=false;}
 }
-async function loadExternal(reset=false) {
+// Automatic tab/hash navigation shares one in-flight request. Explicit refresh
+// and Space selection always recheck current authority and supersede older work.
+let externalRevision=0;
+let externalLoad=null;
+function loadExternal(reset=false,force=false) {
+  if(reset&&!force&&externalLoad)return externalLoad;
+  const revision=++externalRevision;
+  state.externalLoaded=false;
+  const current=()=>revision===externalRevision;
+  externalLoad=readExternal(reset,current).finally(()=>{
+    if(current())externalLoad=null;
+  });
+  return externalLoad;
+}
+async function readExternal(reset,current) {
   const select=$("external-space"),target=$("external-items"),message=$("external-message");
+  target.replaceChildren();message.hidden=false;
+  message.textContent="正在读取数据连接…";
   if(reset){
+    const previous=select.value;
     select.replaceChildren(el("option","","读取空间中…"));
     select.disabled=true;
     try {
       // A Space manager is still rechecked by Core for each actual list read.
       const spaces=await api("/api/account/spaces");
+      if(!current())return;
       if(!Array.isArray(spaces))throw new Error("空间列表格式异常");
       const candidates=spaces.filter(item=>["owner","admin"].includes(item.role));
       select.replaceChildren();
       for(const space of candidates){
         const option=el("option","",space.name);option.value=space.id;select.append(option);
       }
+      if(candidates.some(space=>space.id===previous))select.value=previous;
       select.disabled=candidates.length===0;
       if(!candidates.length){
-        target.replaceChildren();message.hidden=false;
+        message.hidden=false;
         message.textContent="当前账户没有可管理的 Space，因此不能读取外部数据源配置。";
         state.externalLoaded=true;
         return;
       }
     } catch(e) {
+      if(!current())return;
       message.hidden=false;message.textContent="无法读取空间："+msg(e);
-      target.replaceChildren();
       return;
     }
   }
   if(!select.value)return;
-  target.replaceChildren();message.hidden=false;
-  message.textContent="正在读取数据连接…";
   const selected=select.value;
   try{
     const data=await api("/api/account/spaces/"+encodeURIComponent(selected)+"/external-connections");
-    if(select.value!==selected)return;
+    if(!current()||select.value!==selected)return;
     if(!Array.isArray(data.items))throw new Error("数据源列表格式异常");
+    const cards=[];
     for(const item of data.items){
       const article=el("article","delegation-item"),head=el("div","delegation-head");
       const details=el("div");
@@ -383,12 +401,14 @@ async function loadExternal(reset=false) {
         ["Provider",item.providerKey],["创建时间",formatTime(item.createdAt)]]){
         dl.append(el("dt","",name),el("dd","",value));
       }
-      more.append(dl);article.append(head,chips,more);target.append(article);
+      more.append(dl);article.append(head,chips,more);cards.push(article);
     }
-    message.hidden=data.items.length>0;
+    target.replaceChildren(...cards);
+    message.hidden=cards.length>0;
     if(!message.hidden)message.textContent="当前 Space 尚未配置外部数据源。";
     state.externalLoaded=true;
   }catch(e){
+    if(!current()||select.value!==selected)return;
     message.hidden=false;message.textContent="无法读取外部数据源："+msg(e);
   }
 }
@@ -776,7 +796,7 @@ $("retry").addEventListener("click",init);
 $("refresh-spaces").addEventListener("click",loadSpaces);
 $("refresh-delegations").addEventListener("click",()=>loadDelegations(true));
 $("refresh-oauth").addEventListener("click",()=>loadOauth(true));
-$("refresh-external").addEventListener("click",()=>loadExternal(true));
+$("refresh-external").addEventListener("click",()=>loadExternal(true,true));
 $("refresh-audit").addEventListener("click",()=>loadAudit(true));
 $("more-audit").addEventListener("click",()=>loadAudit(false));
 $("external-space").addEventListener("change",()=>loadExternal(false));
