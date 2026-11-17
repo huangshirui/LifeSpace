@@ -144,3 +144,7 @@ A Webhook Endpoint can send a signed `endpoint.test` payload without reading any
 LifeSpace owns event creation, outbox state, endpoint transport/signing, subscriber binding, subscription filters, matching, queueing, retry state and delivery logs.
 
 Application Web/BFF layers own the user-facing configuration flow. A normal product UI should generally present one callback configuration for an external system and then allow the user to select the models/events delivered through it. The platform does not force applications to expose one Webhook URL or signing secret per model.
+
+### Endpoint delivery history storage execution
+
+The latest 50 deliveries are selected across **all** filters attached to an authorized Endpoint, including disabled and soft-deleted subscriptions. Schema 82 adds a non-partial `(endpoint_id,id)` index; the existing active-only unique and matching indexes do not cover historical filters. The query drives the existing subscription-delivery index from that Endpoint's filters, then joins the event outbox by primary key, retaining global `created_at DESC,id DESC` ordering and existing ownership checks. Unrelated Endpoint histories must not be scanned. This does not yet bound reads to 50 for an individual Endpoint with arbitrarily large own history; do not add per-delivery write amplification without measured need. No response, dispatch, retry, signing or authorization change. Apply the additive migration before the Worker; previous SQL remains compatible.
