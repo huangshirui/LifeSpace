@@ -70,7 +70,7 @@ async function expectStatus(label, result, expectedStatus, expectedCode = null) 
 let sessionAttempted = false;
 
 let managerBearer = "";
-let subscriberPrincipalId = "";
+let subscriberServicePrincipalId = "";
 let grantId = "";
 let grantActive = false;
 let endpointId = "";
@@ -121,8 +121,8 @@ try {
     },
   });
   const principalData = await expectStatus("staging Eventing subscriber principal", principal, 201);
-  subscriberPrincipalId = principalData?.id ?? "";
-  if (!subscriberPrincipalId) throw new Error("Staging Eventing subscriber principal ID was not returned");
+  subscriberServicePrincipalId = principalData?.id ?? "";
+  if (!subscriberServicePrincipalId) throw new Error("Staging Eventing subscriber principal ID was not returned");
 
   await receiver.ready();
   const webhookUrl = receiver.url;
@@ -131,7 +131,7 @@ try {
     bearer: managerBearer,
     body: {
       spaceId,
-      subscriberServicePrincipalId: subscriberPrincipalId,
+      subscriberServicePrincipalId,
       name: `Staging Eventing ${suffix}`.slice(0, 80),
       webhookUrl,
     },
@@ -144,7 +144,7 @@ try {
   }
   mask(signingSecret);
 
-  const listedEndpoints = await request(coreBase, `/api/v1/webhook-endpoints?spaceId=${encodeURIComponent(spaceId)}&subscriberServicePrincipalId=${encodeURIComponent(subscriberPrincipalId)}`, {
+  const listedEndpoints = await request(coreBase, `/api/v1/webhook-endpoints?spaceId=${encodeURIComponent(spaceId)}&subscriberServicePrincipalId=${encodeURIComponent(subscriberServicePrincipalId)}`, {
     bearer: managerBearer,
   });
   const endpointListData = await expectStatus("staging Eventing Webhook Endpoint list", listedEndpoints, 200);
@@ -170,7 +170,7 @@ try {
     bearer: managerBearer,
     body: {
       granteeType: "service",
-      granteeId: subscriberPrincipalId,
+      granteeId: subscriberServicePrincipalId,
       resourceType: "model",
       resourceId: "event",
       permission: "read",
@@ -284,7 +284,7 @@ try {
     ok: true,
     receiver: "persistent-staging-https",
     receiverSession: receiver.sessionId,
-    subscriberServicePrincipalId: subscriberPrincipalId,
+    subscriberServicePrincipalId,
     endpointId,
     subscriptionId,
     endpointOwnsTransportAndSigning: true,
@@ -334,9 +334,9 @@ try {
       if (![204, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status}`);
     });
   }
-  if (subscriberPrincipalId) {
+  if (subscriberServicePrincipalId) {
     await cleanup("subscriber principal disable", async () => {
-      const result = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(subscriberPrincipalId)}`, {
+      const result = await request(identityBase, `/api/v1/service-principals/${encodeURIComponent(subscriberServicePrincipalId)}`, {
         method: "PATCH",
         bearer: applicationSecret,
         body: { status: "disabled" },

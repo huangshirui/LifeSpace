@@ -144,3 +144,101 @@ test("self-test reports sanitized HTTP and CF-Ray, never retries a failed signed
     assert.equal(f.objects.get(f.client.sessionId).data.size,0);
   }
 });
+
+
+// Execute the actual top-level verifier (not a reimplemented sequence). Only
+// platform HTTP is simulated; the real receiver client, HMAC and Worker/DO
+// session logic run in-process. All network destinations must match fixtures.
+test("full staging Eventing verifier wires returned subscriber, Endpoint, Grant and signed delivery receipt through cleanup",async()=>{
+  const f=fixture();
+  const env={
+    LIFESPACE_IDENTITY_STAGING_URL:"https://auth-staging.aisr.online",
+    LIFESPACE_CORE_STAGING_URL:"https://core-staging.aisr.online",
+    LIFESPACE_STAGING_SMOKE_APPLICATION_ID:"app_fixture",
+    LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET:"fixture_application_secret",
+    LIFESPACE_STAGING_SMOKE_USER_ID:"usr_fixture",
+    LIFESPACE_STAGING_SPACE_ID:input.spaceId,
+    LIFESPACE_STAGING_PERSON_ID:"per_fixture",
+    EVENTING_SMOKE_CONTROL_SECRET:control,
+  };
+  const saved=Object.fromEntries(Object.keys(env).map(k=>[k,process.env[k]]));
+  const originalFetch=globalThis.fetch;
+  let endpointUrl,grant=false,subscription=false,eventCreated=false,endpoint=false,principal=false,grantDenials=0,testSends=0,deliverySends=0,sessionRegistrations=0;
+  const data=(value,status=200)=>Response.json({data:value},{status});
+  const denied=()=>{grantDenials++;return Response.json({error:{code:"EVENT_SUBSCRIBER_ACCESS_DENIED"}},{status:403});};
+  const empty=()=>new Response(null,{status:204});
+  const token="fixture_user_bearer";
+  const signed=async(payload,isTest)=>{
+    const body=JSON.stringify(payload);
+    const timestamp=String(Math.floor(Date.now()/1000));
+    return f.fetcher(endpointUrl,{method:"POST",headers:{
+      "content-type":"application/json","x-lifespace-timestamp":timestamp,
+      "x-lifespace-signature":"v1="+createHmac("sha256",signing).update(timestamp+"."+body).digest("hex"),
+      "x-lifespace-webhook-endpoint-id":input.endpointId,
+      ...(isTest?{"x-lifespace-test":"true"}:{"x-lifespace-event-id":payload.id,"x-lifespace-delivery-id":"dlv_fixture","x-lifespace-subscription-id":input.subscriptionId}),
+    },body});
+  };
+  Object.assign(process.env,env);
+  globalThis.fetch=async(url,init={})=>{
+    const u=new URL(url),method=init.method??"GET",path=u.pathname;
+    const body=init.body===undefined?undefined:JSON.parse(init.body);
+    const auth=new Headers(init.headers).get("authorization");
+    if(u.hostname===HOST){
+      if(method==="PUT"&&path.startsWith("/control/sessions/")){
+        sessionRegistrations++;
+        assert.deepEqual(body,input);
+      }
+      return f.fetcher(url,init);
+    }
+    if(u.hostname==="auth-staging.aisr.online"){
+      assert.equal(auth,"Bearer "+env.LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET);
+      if(method==="GET"&&path==="/internal/v1/applications/self")return data({id:env.LIFESPACE_STAGING_SMOKE_APPLICATION_ID,trustedBackend:true,status:"active",allowedScopes:["spaces:manage","grants:manage","resources:read","resources:write"]});
+      if(method==="POST"&&path==="/internal/v1/tokens"){assert.equal(body.subjectId,env.LIFESPACE_STAGING_SMOKE_USER_ID);return data({accessToken:token});}
+      if(method==="POST"&&path==="/api/v1/service-principals"){principal=true;return data({id:input.subscriberServicePrincipalId},201);}
+      if(method==="PATCH"&&path==="/api/v1/service-principals/"+input.subscriberServicePrincipalId){assert.equal(body.status,"disabled");principal=false;return data({status:"disabled"});}
+      throw Error("unexpected Identity fixture route");
+    }
+    assert.equal(u.hostname,"core-staging.aisr.online");
+    assert.equal(auth,"Bearer "+token);
+    const base="/api/v1/webhook-endpoints",ep=base+"/"+input.endpointId,sub="/api/v1/event-subscriptions",subPath=sub+"/"+input.subscriptionId,space="/api/v1/spaces/"+input.spaceId,gr=space+"/grants",records=space+"/models/event/records";
+    if(method==="POST"&&path===base){
+      assert.equal(body.subscriberServicePrincipalId,input.subscriberServicePrincipalId);assert.equal(body.spaceId,input.spaceId);
+      endpointUrl=body.webhookUrl;assert.equal(new URL(endpointUrl).hostname,HOST);endpoint=true;
+      return data({id:input.endpointId,signingSecret:signing},201);
+    }
+    if(method==="GET"&&path===base)return data({items:[{id:input.endpointId,signingConfigured:true}]});
+    if(method==="POST"&&path===sub){assert.equal(body.endpointId,input.endpointId);if(!grant)return denied();subscription=true;return data({id:input.subscriptionId,endpointId:input.endpointId,modelKey:"event"},201);}
+    if(method==="POST"&&path===gr){assert.equal(body.granteeId,input.subscriberServicePrincipalId);grant=true;return data({id:"grt_fixture"},201);}
+    if(method==="GET"&&path===sub)return data({items:[{id:input.subscriptionId,endpointId:input.endpointId,modelKey:"event"}]});
+    if(method==="POST"&&path===ep+"/test"){
+      assert.equal(endpoint,true);assert.equal(grant,testSends===0);
+      const response=await signed(endpointTest(),true);testSends++;
+      return data({ok:response.ok,statusCode:response.status});
+    }
+    if(method==="POST"&&path===records){assert.ok(grant&&subscription);eventCreated=true;return data({id:"rec_fixture",version:1},201);}
+    if(method==="GET"&&path===ep+"/deliveries"){
+      assert.ok(eventCreated&&grant);const response=await signed(event(),false);deliverySends++;
+      assert.equal(response.status,204);
+      return data({items:[{id:"dlv_fixture",eventId:"evt_fixture",recordId:"rec_fixture",recordVersion:1,changeId:"chg_fixture",modelKey:"event",eventType:"record.created",status:"succeeded",attemptCount:1,lastStatusCode:204}]});
+    }
+    if(method==="DELETE"&&path===gr+"/grt_fixture"){grant=false;return empty();}
+    if(method==="PATCH"&&path===subPath){assert.equal(grant,false);return denied();}
+    if(method==="DELETE"&&path===subPath){subscription=false;return empty();}
+    if(method==="DELETE"&&path===ep){endpoint=false;return empty();}
+    if(method==="DELETE"&&path===records+"/rec_fixture"){assert.equal(body.version,1);eventCreated=false;return empty();}
+    throw Error("unexpected Core fixture route "+method);
+  };
+  try {
+    await import("./verify-staging-eventing.mjs?full-verifier-fixture");
+    assert.equal(sessionRegistrations,1);
+    assert.equal(grantDenials,2);
+    assert.equal(testSends,2);
+    assert.equal(deliverySends,1);
+    assert.equal(f.objects.size,1);
+    for(const obj of f.objects.values()){assert.equal(obj.data.size,0);assert.equal(obj.storage.alarm,null);}
+    assert.deepEqual({grant,subscription,eventCreated,endpoint,principal},{grant:false,subscription:false,eventCreated:false,endpoint:false,principal:false});
+  } finally {
+    globalThis.fetch=originalFetch;
+    for(const [key,value] of Object.entries(saved)){if(value===undefined)delete process.env[key];else process.env[key]=value;}
+  }
+});
