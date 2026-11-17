@@ -697,6 +697,105 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(await b.DB.prepare("SELECT id FROM oauth_clients WHERE id=?").bind(retained).first()).not.toBeNull();
   });
 
+  it("bounds Client cleanup and FK probes independently of historical OAuth tokens", async () => {
+    const t = await setup();
+    const db = t.b.DB;
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const old = new Date(Date.now() - 8 * 86400000).toISOString();
+    const now = new Date().toISOString();
+    const expired = new Date(Date.now() - 2 * 3600000).toISOString();
+    const future = new Date(Date.now() + 600000).toISOString();
+    const makeClient = (id:string, status="active", created=old) => db.prepare(
+      "INSERT INTO oauth_clients(id,display_name,redirect_uris,status,created_at) VALUES(?,?,?,?,?)"
+    ).bind(id,"Synthetic history",JSON.stringify([t.redirect]),status,created);
+    const empty = `ocli_budget_empty_${suffix}`;
+    const requestOnly = `ocli_budget_request_${suffix}`;
+    const authOnly = `ocli_budget_auth_${suffix}`;
+    const codeOnly = `ocli_budget_code_${suffix}`;
+    const accessOnly = `ocli_budget_access_${suffix}`;
+    const refreshOnly = `ocli_budget_refresh_${suffix}`;
+    const disabled = `ocli_budget_disabled_${suffix}`;
+    const fresh = `ocli_budget_fresh_${suffix}`;
+    const staticClient = `static_budget_${suffix}`;
+    const cimdUnused = `https://example.test/cimd/${suffix}`;
+    const protectedIds=[requestOnly,authOnly,codeOnly,accessOnly,refreshOnly,disabled,fresh,staticClient];
+    await db.batch([
+      ...[empty,requestOnly,authOnly,codeOnly,accessOnly,refreshOnly,staticClient,cimdUnused].map(id=>makeClient(id)),
+      makeClient(disabled,"disabled"),makeClient(fresh,"active",now),
+    ]);
+    const pending = await t.authorize();
+    expect(pending.status).toBe(302);
+    const requestId = new URL(pending.headers.get("location")!).searchParams.get("request_id")!;
+    const approved = await t.approve(requestId,t.b.OAUTH_CORE_APPROVER_SECRET);
+    expect(approved.status).toBe(200);
+    const {authorization_id:authId}=await approved.json() as {authorization_id:string};
+    const makeRequest=(id:string,client:string)=>db.prepare(`INSERT INTO oauth_authorization_requests(
+      id,client_id,redirect_uri,state,resource,scopes,code_challenge,status,expires_at,created_at
+    ) VALUES(?,?,?,?,?,?,?,'pending',?,?)`).bind(id,client,t.redirect,"testState"+"x".repeat(36),t.resource,JSON.stringify(["resources:read"]),"a".repeat(43),future,now);
+    const authRequest=`oar_budget_auth_${suffix}`;
+    // Independent child references are permitted by the existing FK schema.
+    // Exercise each guard separately even for historical inconsistent Client
+    // links. The cleanup must never delete any still-referenced Client.
+    await db.batch([
+      makeRequest(`oar_budget_request_${suffix}`,requestOnly),
+      makeRequest(authRequest,t.clientId),
+      db.prepare(`INSERT INTO oauth_authorizations(
+        id,request_id,client_id,user_id,application_id,space_id,agent_id,allow_user_authorization,resource,scopes,status,created_at,revoked_at
+      ) VALUES(?,?,?,?,?,?,?,0,?,?,'revoked',?,?)`).bind(`oau_budget_${suffix}`,authRequest,authOnly,t.userId,t.target.appId,"spc_oauth_test",t.agentId,t.resource,JSON.stringify(["resources:read"]),old,now),
+      db.prepare(`INSERT INTO oauth_authorization_codes(code_hash,authorization_id,client_id,redirect_uri,code_challenge,expires_at,consumed_at)
+        VALUES(?,?,?,?,?,?,?)`).bind(`code_budget_${suffix}`,authId,codeOnly,t.redirect,"a".repeat(43),expired,now),
+      db.prepare(`INSERT INTO oauth_access_tokens(token_hash,authorization_id,client_id,resource,scopes,expires_at,revoked_at)
+        VALUES(?,?,?,?,?,?,?)`).bind(`access_budget_${suffix}`,authId,accessOnly,t.resource,JSON.stringify(["resources:read"]),expired,now),
+      db.prepare(`INSERT INTO oauth_refresh_tokens(token_hash,authorization_id,client_id,family_id,expires_at,consumed_at,revoked_at)
+        VALUES(?,?,?,?,?,?,?)`).bind(`refresh_budget_${suffix}`,authId,refreshOnly,`family_budget_${suffix}`,expired,now,now),
+      db.prepare("INSERT INTO oauth_cimd_metadata_cache(client_id,redirect_uris,policy_revision,fresh_until_ms) VALUES(?,?,1,0)")
+        .bind(cimdUnused,JSON.stringify([t.redirect])),
+    ]);
+    for(let offset=0;offset<240;offset+=20) {
+      const statements:D1PreparedStatement[]=[];
+      for(let i=offset;i<offset+20;i++) statements.push(
+        db.prepare(`INSERT INTO oauth_access_tokens(token_hash,authorization_id,client_id,resource,scopes,expires_at,revoked_at)
+          VALUES(?,?,?,?,?,?,?)`).bind(`access_history_${suffix}_${i}`,authId,t.clientId,t.resource,JSON.stringify(["resources:read"]),expired,now),
+        db.prepare(`INSERT INTO oauth_refresh_tokens(token_hash,authorization_id,client_id,family_id,expires_at,consumed_at,revoked_at)
+          VALUES(?,?,?,?,?,?,?)`).bind(`refresh_history_${suffix}_${i}`,authId,t.clientId,`family_history_${suffix}`,expired,now,now),
+      );
+      await db.batch(statements);
+    }
+    const childTables=[["oauth_authorization_requests","oauth_requests_by_client"],["oauth_authorizations","oauth_authorizations_by_client"],["oauth_authorization_codes","oauth_codes_by_client"],["oauth_access_tokens","oauth_access_by_client"],["oauth_refresh_tokens","oauth_refresh_by_client"]];
+    // Exact staging-verifier guard shape, including SQLite's FK checks on DELETE.
+    const cleanupSql="DELETE FROM oauth_clients WHERE id=? AND id LIKE 'ocli_%' "
+      + childTables.map(([table])=>"AND NOT EXISTS (SELECT 1 FROM "+table+" x WHERE x.client_id=?)").join(" ");
+    const plan=await db.prepare("EXPLAIN QUERY PLAN "+cleanupSql).bind(...Array(6).fill(empty)).all<{detail:string}>();
+    const details=plan.results.map(row=>row.detail).join("\n");
+    for(const [table,index] of childTables){
+      expect(details).toContain(index);
+      expect(details).not.toContain("SCAN "+table);
+    }
+    expect(details).not.toMatch(/SCAN x(?: |$)/u);
+    const removed=await db.prepare(cleanupSql).bind(...Array(6).fill(empty)).run();
+    expect(removed.meta.changes).toBe(1);
+    expect(removed.meta.rows_read).toBeLessThanOrEqual(30);
+    for(const client of protectedIds.slice(0,5)){
+      const result=await db.prepare(cleanupSql).bind(...Array(6).fill(client)).run();
+      expect(result.meta.changes).toBe(0);
+      expect(result.meta.rows_read).toBeLessThanOrEqual(30);
+      // Even absent the explicit NOT EXISTS guards, FK enforcement denies deletion.
+      await expect(db.prepare("DELETE FROM oauth_clients WHERE id=?").bind(client).run()).rejects.toThrow();
+    }
+    // Real registration runs the unchanged bounded orphan collector.
+    const registered=await t.request("/oauth/register",{
+      method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({redirect_uris:["https://another-client.example.com/callback"]}),
+    });
+    expect(registered.status).toBe(201);
+    for(const client of protectedIds) expect(await db.prepare("SELECT id FROM oauth_clients WHERE id=?").bind(client).first()).not.toBeNull();
+    expect(await db.prepare("SELECT id FROM oauth_clients WHERE id=?").bind(cimdUnused).first()).toBeNull();
+    expect(await db.prepare("SELECT client_id FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(cimdUnused).first()).toBeNull();
+    expect(await db.prepare("SELECT COUNT(*) n FROM oauth_access_tokens WHERE client_id=?").bind(t.clientId).first<{n:number}>()).toMatchObject({n:240});
+    expect(await db.prepare("SELECT COUNT(*) n FROM oauth_refresh_tokens WHERE client_id=?").bind(t.clientId).first<{n:number}>()).toMatchObject({n:240});
+    expect(await db.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'").first()).toMatchObject({value:"20"});
+  });
+
   it("requires private Core authentication and bounded Agent IDs for active binding resolution", async () => {
     const t = await setup();
     const url = "/oauth/core/agent-candidates";
