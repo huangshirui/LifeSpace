@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { executeStagingD1Sql } from "./staging-d1-retry.mjs";
 import process from "node:process";
 import { closeCreatedSmokeSpace } from "./staging-smoke-space-lifecycle.mjs";
 
@@ -29,12 +29,10 @@ function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-function runCoreSql(sql) {
-  execFileSync(
-    "pnpm",
-    ["exec", "wrangler", "d1", "execute", "DB", "--remote", "--env", "staging", "--command", sql],
-    { cwd: CORE_DIR, env: process.env, stdio: "inherit" },
-  );
+async function runCoreSql(sql) {
+  // Exact run-scoped idempotent DELETE; retry only the existing 7429 classifier.
+  const entries = await executeStagingD1Sql({ cwd: CORE_DIR, sql, attempts: 3, delayMs: 10000 });
+  if (!entries.length || entries.some(entry => entry?.success !== true)) throw Error("Staging smoke Model Access cleanup did not return success");
 }
 
 async function bootstrapRequest(path, { method = "GET", body } = {}) {
@@ -127,7 +125,7 @@ if (applicationSecret && principalId) {
 }
 
 try {
-  runCoreSql(`DELETE FROM application_model_access WHERE application_id=${sqlString(applicationId)}`);
+  await runCoreSql(`DELETE FROM application_model_access WHERE application_id=${sqlString(applicationId)}`);
 } catch (error) {
   warnings.push(`Application×Model access cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
 }

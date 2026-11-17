@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { decodeSqlRows, orphanEnvelopeSql, verifySchemaInventory, verifyTypedEnvelopes } from "./verify-staging-db.mjs";
+import { readFileSync } from "node:fs";
+import { decodeSqlRows, orphanEnvelopeSql, verifySchemaInventory, verifyTypedEnvelopes, runStagingVerificationSql } from "./verify-staging-db.mjs";
 
 const models = ["task","wish","day_record","event","person_group"];
 function oldSql(model) {
@@ -29,14 +30,14 @@ function fixture() {
   };
   return {db,row,query:sql=>db.prepare(sql).all()};
 }
-test("anti-join preserves complete bounded diagnostics for all five models, including deleted and wrong-Space envelopes", () => {
+test("anti-join preserves complete bounded diagnostics for all five models, including deleted and wrong-Space envelopes", async () => {
   const {db,row,query}=fixture();
   try {
     for (const model of models) {
       row(model,model+"-good");
       row(model,model+"-deleted-good","a","2026-02-01");
     }
-    assert.doesNotThrow(()=>verifyTypedEnvelopes(query));
+    await verifyTypedEnvelopes(query);
     for (const model of models) {
       row(model,model+"-missing","a",null,null);
       row(model,model+"-wrong-space","a",null,"b");
@@ -48,11 +49,11 @@ test("anti-join preserves complete bounded diagnostics for all five models, incl
       assert.ok(actual.some(x=>x.id===model+"-wrong-space"));
       assert.ok(actual.some(x=>x.id===model+"-deleted-missing"));
     }
-    assert.throws(()=>verifyTypedEnvelopes(query),/task resources without typed rows/u);
+    await assert.rejects(()=>verifyTypedEnvelopes(query),/task resources without typed rows/u);
     assert.throws(()=>orphanEnvelopeSql("unknown"),/Unsupported proving model/u);
   } finally {db.close();}
 });
-test("one sqlite_master scan retains required table, trigger type and retired table checks", () => {
+test("one sqlite_master scan retains required table, trigger type and retired table checks", async () => {
   const db=new DatabaseSync(":memory:");
   try {
     const tables=["resource_records","resource_relations","mdl_task","mdl_wish","mdl_day_record","mdl_event","mdl_person_group","mdl_anniversary","mdl_activity","mdl_goal","mdl_person_profile","mdl_habit","temporal_occurrences","model_definitions","application_model_access","model_contract_revisions","model_contract_state","model_definition_drafts","space_person_names","space_person_changes","space_person_change_delegations"];
@@ -61,15 +62,15 @@ test("one sqlite_master scan retains required table, trigger type and retired ta
     for(const trigger of triggers)db.exec(`CREATE TRIGGER ${trigger} AFTER INSERT ON resource_records BEGIN SELECT 1; END;`);
     let calls=0;
     const run=sql=>{calls++;return db.prepare(sql).all();};
-    verifySchemaInventory(run);
+    await verifySchemaInventory(run);
     assert.equal(calls,1);
     db.exec("DROP TRIGGER trg_space_person_change_validate; CREATE TABLE trg_space_person_change_validate(id TEXT);");
-    assert.throws(()=>verifySchemaInventory(run),/Required trigger trg_space_person_change_validate is missing/u);
+    await assert.rejects(()=>verifySchemaInventory(run),/Required trigger trg_space_person_change_validate is missing/u);
     db.exec("DROP TABLE trg_space_person_change_validate; CREATE TRIGGER trg_space_person_change_validate AFTER INSERT ON resource_records BEGIN SELECT 1; END;");
     db.exec("CREATE TABLE tasks(id TEXT);");
-    assert.throws(()=>verifySchemaInventory(run),/Retired table tasks still exists/u);
+    await assert.rejects(()=>verifySchemaInventory(run),/Retired table tasks still exists/u);
     db.exec("DROP TABLE tasks; DROP TABLE mdl_task;");
-    assert.throws(()=>verifySchemaInventory(run),/Required platform table mdl_task is missing/u);
+    await assert.rejects(()=>verifySchemaInventory(run),/Required platform table mdl_task is missing/u);
   } finally {db.close();}
 });
 test("missing or failed Wrangler output cannot pass an empty orphan check", () => {
@@ -78,4 +79,29 @@ test("missing or failed Wrangler output cannot pass an empty orphan check", () =
   assert.throws(()=>decodeSqlRows('[]'),/did not return a staging D1 result array/u);
   assert.throws(()=>decodeSqlRows('{"success":true}'),/did not return a staging D1 result array/u);
   assert.throws(()=>decodeSqlRows('[{"results":[]},{"success":false}]'),/Staging D1 query failed/u);
+});
+
+test("staging verifier recovers the exact observed 7429 account-load error without changing SQL or accepting malformed results", async () => {
+  let calls=0; const waits=[];
+  const sql="SELECT name FROM pragma_table_info('mdl_activity')";
+  const result=await runStagingVerificationSql(sql,{
+    exec(command,args) {
+      calls++;assert.equal(command,"pnpm");assert.deepEqual(args.slice(-4),["--env","staging","--json","--command="+sql]);
+      if(calls<3){const error=Error("wrangler failed");error.stdout='{"error":{"code":7429,"text":"Your account is generating too much load on D1 DBs. Please back off and try again later."}}';throw error;}
+      return JSON.stringify([{success:true,results:[{name:"record_id"}]}]);
+    }, sleep:async ms=>waits.push(ms),
+  });
+  assert.deepEqual(result,[{name:"record_id"}]);assert.equal(calls,3);assert.deepEqual(waits,[10000,20000]);
+  calls=0;
+  await assert.rejects(()=>runStagingVerificationSql(sql,{exec(){calls++;return JSON.stringify([{success:true}]);},sleep:async()=>{throw Error("must not retry");}}),/did not return a staging D1 result array/u);
+  assert.equal(calls,1);
+});
+test("canonical staging cleanup uses the shared bounded retry for exact run-scoped DELETE and cannot mask failure",()=>{
+  const cleanup=readFileSync(new URL("./cleanup-staging-smoke.mjs",import.meta.url),"utf8");
+  const workflow=readFileSync(new URL("../../.github/workflows/staging-deploy.yml",import.meta.url),"utf8");
+  assert.match(cleanup,/await executeStagingD1Sql\(\{ cwd: CORE_DIR, sql, attempts: 3, delayMs: 10000 \}\)/u);
+  assert.match(cleanup,/await runCoreSql\(`DELETE FROM application_model_access WHERE application_id=\$\{sqlString\(applicationId\)\}`\)/u);
+  assert.match(cleanup,/entries\.some\(entry => entry\?\.success !== true\)/u);
+  const step=workflow.slice(workflow.indexOf("- name: Cleanup ephemeral staging authority"),workflow.indexOf("- name: Summarize staging deployment"));
+  assert.match(step,/always\(\)/u);assert.doesNotMatch(step,/continue-on-error/u);
 });

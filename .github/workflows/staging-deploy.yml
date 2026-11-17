@@ -290,7 +290,6 @@ jobs:
 
       - name: Cleanup ephemeral staging authority
         if: ${{ always() }}
-        continue-on-error: true
         run: node infra/scripts/cleanup-staging-smoke.mjs
 
       - name: Summarize staging deployment
