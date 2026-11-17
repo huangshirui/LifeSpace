@@ -355,7 +355,9 @@ async function readExternal(reset,current) {
   message.textContent="正在读取数据连接…";
   if(reset){
     const previous=select.value;
-    select.replaceChildren(el("option","","读取空间中…"));
+    // Retain the previous selection during a refresh, even if another refresh
+    // starts before the Space-list response returns.
+    if(!previous)select.replaceChildren(el("option","","读取空间中…"));
     select.disabled=true;
     try {
       // A Space manager is still rechecked by Core for each actual list read.

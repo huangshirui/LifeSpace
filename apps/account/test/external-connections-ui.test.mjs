@@ -81,7 +81,8 @@ test("explicit refresh is a fresh read, preserves valid selection and ignores st
   assert.equal(t.title(),"B refreshed");assert.equal(t.cards().length,1);
   const stale=refresh();const latest=refresh();
   t.requests[6].ok(spaces);await flush();
-  t.requests[7].ok({items:[connection("latest")]});await latest;
+  assert.match(t.requests[7].url,/spc_b\/external-connections$/u);
+  t.requests[7].ok({items:[connection("latest","spc_b")]});await latest;
   t.requests[5].fail();await stale;
   assert.equal(t.cards().length,1);assert.equal(t.title(),"latest");
   assert.equal(t.element("external-message").hidden,true);
