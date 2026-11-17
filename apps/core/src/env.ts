@@ -102,10 +102,13 @@ export type AuthorityD1Timing = {
   regions: string[];
   colos: string[];
 };
+export type RuntimeD1Phase = "record_batch" | "query_page" | "query_temporal_streams" | "query_relations";
+export type RuntimeD1Observer = (phase: RuntimeD1Phase, sample: AuthorityD1Timing) => void;
 export type RequestPerformanceTiming = {
   startedAt: number;
   phases: Record<string, number>;
   authorityD1?: AuthorityD1Timing[];
+  runtimeD1?: (AuthorityD1Timing & { phase: RuntimeD1Phase })[];
 };
 
 export type Variables = {

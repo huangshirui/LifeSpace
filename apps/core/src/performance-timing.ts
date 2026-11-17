@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { AuthorityD1Timing, Bindings, Variables } from "./env";
+import type { AuthorityD1Timing, Bindings, RuntimeD1Observer, Variables } from "./env";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 
@@ -46,6 +46,15 @@ export function authorityD1Observer(context: Context<AppEnv>): ((sample: Authori
   };
 }
 
+export function runtimeD1Observer(context: Context<AppEnv>): RuntimeD1Observer | undefined {
+  const timing = context.get("performanceTiming");
+  if (!timing) return undefined;
+  return (phase, sample) => {
+    const list = timing.runtimeD1 ??= [];
+    if (list.length < 8) list.push({ phase, ...sample });
+  };
+}
+
 export function logPerformanceTiming(context: Context<AppEnv>): void {
   const timing = context.get("performanceTiming");
   if (!timing) return;
@@ -60,5 +69,6 @@ export function logPerformanceTiming(context: Context<AppEnv>): void {
     cfPlacement: context.req.header("cf-placement") ?? undefined,
     phases: timing.phases,
     ...(timing.authorityD1?.length ? { authorityD1: timing.authorityD1 } : {}),
+    ...(timing.runtimeD1?.length ? { runtimeD1: timing.runtimeD1 } : {}),
   }));
 }

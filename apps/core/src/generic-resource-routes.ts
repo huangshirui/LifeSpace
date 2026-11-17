@@ -22,7 +22,7 @@ import { isTemporalSpecialQuery, queryTemporalResources } from "./temporal-query
 import { loadSpaceTemporalContext, type SpaceTemporalContext } from "./temporal-capability";
 import { ApiError, success } from "./http";
 import { consumeSingleUseRead, requireModelAccess } from "./model-authorization";
-import { authorityD1Observer, measurePerformancePhase } from "./performance-timing";
+import { authorityD1Observer, measurePerformancePhase, runtimeD1Observer } from "./performance-timing";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
 import { requireModelPolicy } from "./policy";
 import { loadResourceAudits, requireResourceAudit, type ResourceAudit } from "./resource-audit";
@@ -180,6 +180,7 @@ export function registerGenericResourceRoutes(app: App): void {
                 resolved,
                 translateGenericGetQuery(resolved, params),
                 access.policyIdentity.principalPersonId,
+                runtimeD1Observer(context),
               ),
     );
     const response = await measurePerformancePhase(
@@ -218,6 +219,7 @@ export function registerGenericResourceRoutes(app: App): void {
         resolved,
         input,
         access.policyIdentity.principalPersonId,
+        runtimeD1Observer(context),
       ),
     );
     const response = await measurePerformancePhase(
@@ -281,7 +283,7 @@ export function registerGenericResourceRoutes(app: App): void {
     const resource = await measurePerformancePhase(
       context,
       "runtime.record_read",
-      () => getGenericResource(context.env, spaceId, resolved, recordId),
+      () => getGenericResource(context.env, spaceId, resolved, recordId, runtimeD1Observer(context)),
     );
     if (!resource) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
     await measurePerformancePhase(

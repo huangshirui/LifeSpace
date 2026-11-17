@@ -1,5 +1,6 @@
 import { canonicalQuerySemanticDescriptor } from "./canonical-query-contract";
-import type { Bindings, Principal } from "./env";
+import type { Bindings, Principal, RuntimeD1Observer } from "./env";
+import { measureD1Results } from "./d1-batch";
 import { normalizeCanonicalFieldValue, type GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition } from "./model-definition";
@@ -1151,6 +1152,7 @@ async function queryTemporalSortedResources(
   signature: string,
   baseWhere: string[],
   baseArgs: unknown[],
+  observe?: RuntimeD1Observer,
 ): Promise<CanonicalQueryResult> {
   const temporal = parsed.sorts.find((sort) => sort.temporal)?.temporal;
   if (!temporal) throw new ApiError("INVALID_QUERY", "Temporal sort context is missing", 400);
@@ -1203,7 +1205,8 @@ async function queryTemporalSortedResources(
       .bind(...args);
   });
 
-  const results = await env.DB.batch<QueryRow>(statements);
+  const results = await measureD1Results(statements.length, () => env.DB.batch<QueryRow>(statements),
+    observe ? sample => observe("query_temporal_streams", sample) : undefined);
   const directions = temporalSortDirections(parsed.sorts);
   const candidates = variants.flatMap((variant, index) =>
     results[index]!.results.map((row) => ({
@@ -1234,7 +1237,7 @@ async function queryTemporalSortedResources(
       id: candidate.row.id,
     };
   }
-  const items = await hydrateTypedResourceRows(env, model, page.map((candidate) => candidate.row));
+  const items = await hydrateTypedResourceRows(env, model, page.map((candidate) => candidate.row), observe);
   return {
     items,
     nextCursor: candidates.length > parsed.limit
@@ -1256,6 +1259,7 @@ export async function queryCanonicalResources(
   model: PublishedModel,
   input: unknown,
   principalPersonId?: string | null,
+  observe?: RuntimeD1Observer,
 ): Promise<CanonicalQueryResult> {
   const parsed = parseInput(model, input);
   const signature = stableJson(parsed.query);
@@ -1274,7 +1278,7 @@ export async function queryCanonicalResources(
   }
 
   if (parsed.sorts.some((sort) => sort.temporal)) {
-    return queryTemporalSortedResources(env, spaceId, model, parsed, signature, where, args);
+    return queryTemporalSortedResources(env, spaceId, model, parsed, signature, where, args, observe);
   }
 
   const cursor = parsed.cursor ? decodeCursor(parsed.cursor) : null;
@@ -1302,10 +1306,12 @@ export async function queryCanonicalResources(
   if (args.length > MAX_QUERY_BINDINGS) {
     throw new ApiError("INVALID_QUERY", "Canonical Query exceeds the execution complexity budget", 400);
   }
-  const rows = await env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,${resourceAuditSelectColumns("r")}${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}\n    FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id\n    ${resourceAuditJoins("r")}\n    WHERE ${where.join(" AND ")} ORDER BY ${order.join(",")} LIMIT ?`)
-    .bind(...args).all<QueryRow>();
+  const statement = env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,${resourceAuditSelectColumns("r")}${scalarSelect ? `,${scalarSelect}` : ""},${sortSelect}\n    FROM resource_records r JOIN ${typedTableSql(model)} m ON m.record_id=r.id AND m.space_id=r.space_id\n    ${resourceAuditJoins("r")}\n    WHERE ${where.join(" AND ")} ORDER BY ${order.join(",")} LIMIT ?`)
+    .bind(...args);
+  const rows = await measureD1Results(1, () => statement.all<QueryRow>(),
+    observe ? sample => observe("query_page", sample) : undefined);
   const page = rows.results.slice(0, parsed.limit);
-  const items = await hydrateTypedResourceRows(env, model, page);
+  const items = await hydrateTypedResourceRows(env, model, page, observe);
   const last = page.at(-1);
   const nextCursor = rows.results.length > parsed.limit && last
     ? encodeCursor({
