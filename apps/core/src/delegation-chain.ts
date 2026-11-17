@@ -46,6 +46,10 @@ export function delegationChainStatement(
     throw new Error("Delegation chain query requires at least one leaf");
   }
   const placeholders = delegationIds.map(() => "?").join(",");
+  // Drive both recursion and projection from the bounded chain, not from the
+  // complete Delegation history. SQLite may otherwise scan d in id order to
+  // avoid sorting and probe every scope before joining the tiny chain.
+  // CROSS JOIN fixes loop order; ON predicates and UNION deduplication remain.
   return env.DB.prepare(`
     WITH RECURSIVE chain(delegation_id) AS (
       SELECT d.id
@@ -54,8 +58,8 @@ export function delegationChainStatement(
       UNION
       SELECT p.id
       FROM chain c
-      JOIN delegations d ON d.id=c.delegation_id
-      JOIN delegations p ON p.id=d.parent_delegation_id
+      CROSS JOIN delegations d ON d.id=c.delegation_id
+      CROSS JOIN delegations p ON p.id=d.parent_delegation_id
       WHERE p.remaining_redelegation_depth > d.remaining_redelegation_depth
         AND p.remaining_redelegation_depth <= 3
     )
@@ -81,8 +85,8 @@ export function delegationChainStatement(
       ds.max_access AS delegation_max_access,
       CASE WHEN d.id IN (${placeholders}) THEN 1 ELSE 0 END AS selected_leaf
     FROM chain c
-    JOIN delegations d ON d.id=c.delegation_id
-    JOIN delegation_scopes ds ON ds.delegation_id=d.id
+    CROSS JOIN delegations d ON d.id=c.delegation_id
+    CROSS JOIN delegation_scopes ds ON ds.delegation_id=d.id
     ORDER BY d.id
   `).bind(...delegationIds, ...delegationIds);
 }

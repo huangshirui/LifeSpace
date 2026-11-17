@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Bindings, Principal } from "../src/env";
 import { requireModelAccessMany } from "../src/model-authorization";
 import { getRuntimeModel } from "../src/model-registry";
+import { delegationChainStatement, groupDelegationChainRows, validateStructuralDelegationChain, type DelegationChainRow } from "../src/delegation-chain";
 
 type TestEnv = { DB: D1Database };
 type Counter = {
@@ -352,4 +353,82 @@ describe("Authority v3 structural performance", () => {
     // was resolved once per leaf even though Worker<->D1 RTT stayed constant.
     expect(counter.resultRows).toEqual([[1, 21]]);
   });
+
+  it("bounds chain reads independently of unrelated historical Delegations and rechecks ancestors", async () => {
+    const db = (env as unknown as TestEnv).DB;
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const userId = `usr_v3_budget_${suffix}`;
+    const agentId = `agt_v3_budget_${suffix}`;
+    const issuerId = `agt_v3_issuer_${suffix}`;
+    const spaceId = `spc_v3_budget_${suffix}`;
+    const applicationId = `app_v3_budget_${suffix}`;
+    await seed(userId, agentId, spaceId, applicationId);
+    const now = new Date().toISOString();
+    // Unrelated root rows and their scopes must not enter a selected chain.
+    for (let offset = 0; offset < 240; offset += 20) {
+      const statements: D1PreparedStatement[] = [];
+      for (let i = offset; i < offset + 20; i += 1) {
+        const id = `dlg_v3_history_${suffix}_${i}`;
+        statements.push(
+          db.prepare(`INSERT INTO delegations(
+            id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
+            created_by_type,created_by_id,created_at,remaining_redelegation_depth
+          ) VALUES(?,'user',?,'agent',?,?,?,'user',?,?,0)`)
+            .bind(id,userId,agentId,applicationId,spaceId,userId,now),
+          db.prepare(`INSERT INTO delegation_scopes(
+            delegation_id,target_type,target_id,target_model_key,max_access
+          ) VALUES(?,'model','task','task','write')`).bind(id),
+        );
+      }
+      await db.batch(statements);
+    }
+    const rootId = `dlg_v3_budget_root_${suffix}`;
+    await insertDelegation(db, {
+      id:rootId, principalId:userId, actorId:issuerId, applicationId, spaceId,
+      createdByType:"user", createdById:userId, parentId:null, remainingDepth:1,
+    });
+    const leafIds = Array.from({length:20}, (_, i) => `dlg_v3_budget_leaf_${suffix}_${i}`);
+    for (const id of leafIds) await insertDelegation(db, {
+      id, principalId:userId, actorId:agentId, applicationId, spaceId,
+      createdByType:"agent", createdById:issuerId, parentId:rootId, remainingDepth:0,
+    });
+    const principal: Principal = {
+      type:"user", id:userId, clientId:applicationId, scopes:["resources:read","resources:write"],
+      tokenId:`tok_v3_budget_${suffix}`, actor:{type:"agent",id:agentId}, purpose:"agent_execution",
+    };
+    const counter: Counter = {roundTrips:0,batchSizes:[],preparedSql:[],resultRows:[]};
+    const bindings = {DB:countedDatabase(db,counter)} as Bindings;
+    const single = await delegationChainStatement(bindings,[leafIds[0]!]).all<DelegationChainRow>();
+    expect(single.results).toHaveLength(2);
+    expect(single.meta.rows_read).toBeLessThanOrEqual(24);
+    expect(validateStructuralDelegationChain(principal,spaceId,leafIds[0]!,single.results).map(row=>row.delegation_id))
+      .toEqual([rootId,leafIds[0]]);
+    const sql = counter.preparedSql[0]!;
+    const plan = await db.prepare("EXPLAIN QUERY PLAN "+sql)
+      .bind(leafIds[0],leafIds[0]).all<{detail:string}>();
+    const details = plan.results.map(row=>row.detail).join("\n");
+    expect(details).toMatch(/SEARCH d USING (?:COVERING )?INDEX/u);
+    expect(details).toMatch(/SEARCH ds USING (?:COVERING )?INDEX/u);
+    expect(details).not.toMatch(/SCAN (?:d|ds)(?: |$)/u);
+    const legacy = await db.prepare(sql.replaceAll("CROSS JOIN","JOIN"))
+      .bind(leafIds[0],leafIds[0]).all<DelegationChainRow>();
+    expect(single.results).toEqual(legacy.results);
+    const multi = await delegationChainStatement(bindings,leafIds).all<DelegationChainRow>();
+    expect(multi.results).toHaveLength(21);
+    expect(multi.meta.rows_read).toBeLessThanOrEqual(200);
+    const groups = groupDelegationChainRows(multi.results);
+    expect(groups.size).toBe(20);
+    expect([...groups.values()].every(rows=>rows.length===2&&rows[1]?.delegation_id===rootId)).toBe(true);
+    const absent = await delegationChainStatement(bindings,[`dlg_missing_${suffix}`]).all<DelegationChainRow>();
+    expect(absent.results).toEqual([]);
+    expect(absent.meta.rows_read).toBeLessThanOrEqual(5);
+    await db.prepare("UPDATE delegations SET revoked_at=? WHERE id=?").bind(now,rootId).run();
+    const revoked = await delegationChainStatement(bindings,[leafIds[0]!]).all<DelegationChainRow>();
+    expect(revoked.results).toHaveLength(2);
+    expect(()=>validateStructuralDelegationChain(principal,spaceId,leafIds[0]!,revoked.results)).toThrow(/revoked, expired, consumed/u);
+    await db.prepare("UPDATE delegations SET revoked_at=NULL,max_uses=1,consumed_at=? WHERE id=?").bind(now,rootId).run();
+    const consumed = await delegationChainStatement(bindings,[leafIds[0]!]).all<DelegationChainRow>();
+    expect(()=>validateStructuralDelegationChain(principal,spaceId,leafIds[0]!,consumed.results)).toThrow(/revoked, expired, consumed/u);
+  });
+
 });
