@@ -4,7 +4,7 @@ import { parseRecurrenceRule } from "./recurrence-rule";
 import { parseFileRefList } from "./file-ref";
 import { optionalRecordIcon, stripPresentation, validateIconFile, RECORD_ICON_FIELD, type RecordIcon } from "./record-icon";
 import { validateRecurrenceData } from "./recurrence-definition";
-import type { Bindings, Principal } from "./env";
+import type { Bindings, Principal, RuntimeD1Observer } from "./env";
 import { chunkD1Values } from "./d1-batch";
 import { ApiError } from "./http";
 import { applyModelDefaults } from "./model-defaults";
@@ -1091,10 +1091,11 @@ export async function getGenericResource(
   spaceId: string,
   modelOrKey: PublishedModel | string,
   recordId: string,
+  observe?: RuntimeD1Observer,
 ): Promise<GenericResource | null> {
   const model = await resolveModel(env, modelOrKey);
   if (!model) return null;
-  return getTypedResource(env, spaceId, model, recordId);
+  return getTypedResource(env, spaceId, model, recordId, observe);
 }
 
 export async function updateGenericResource(

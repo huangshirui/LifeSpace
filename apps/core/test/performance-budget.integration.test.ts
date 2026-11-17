@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { sign } from "hono/jwt";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
 import type { Bindings, Principal } from "../src/env";
 import { createGenericResource } from "../src/generic-resource";
@@ -156,7 +156,7 @@ async function fixture() {
   const bearer = await accessToken(keyPair.privateKey, userId);
   const counter: Counter = { roundTrips: 0, maxBindings: 0, batchSizes: [] };
   const DB = countedDatabase(database, counter);
-  const bindings = { DB, IDENTITY_PUBLIC_KEY: keyPair.publicKey, ENVIRONMENT: "test" };
+  const bindings = { DB, IDENTITY_PUBLIC_KEY: keyPair.publicKey, ENVIRONMENT: "test", PERFORMANCE_DIAGNOSTICS: "0" };
 
   // Prime the isolate-local Registry snapshot on the same wrapped binding, then
   // reset the counter so the assertions below measure the hot path only.
@@ -177,6 +177,7 @@ async function fixture() {
     DB,
     counter,
     request,
+    setDiagnostics(enabled: boolean) { bindings.PERFORMANCE_DIAGNOSTICS = enabled ? "1" : "0"; },
     privateKey: keyPair.privateKey,
     userId,
     spaceId,
@@ -272,6 +273,49 @@ describe("Core D1 round-trip budgets", () => {
       200,
       2,
     );
+
+    // Diagnostics must not change result shape, query count, or authorization.
+    const diagnosticPaths = [
+      { path: `/api/v1/spaces/${f.spaceId}/models/task/records/${target.id}`, budget: 2, phases: ["record_batch"], statements: [2] },
+      { path: `/api/v1/spaces/${f.spaceId}/models/task/records?limit=10`, budget: 3, phases: ["query_page", "query_relations"], statements: [1, 1] },
+    ];
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      for (const entry of diagnosticPaths) {
+        f.setDiagnostics(false);
+        const baseline = await measured(f.counter, () => f.request(entry.path), 200, entry.budget);
+        const trips = f.counter.roundTrips;
+        expect(log.mock.calls.some(([message]) => typeof message === "string" && message.includes("LifeSpace performance timing"))).toBe(false);
+        log.mockClear();
+        f.setDiagnostics(true);
+        const observed = await measured(f.counter, () => f.request(entry.path), 200, entry.budget);
+        expect(f.counter.roundTrips).toBe(trips);
+        expect(await observed.json()).toEqual(await baseline.json());
+        const event = log.mock.calls.flatMap(([message]) => {
+          try { return [JSON.parse(String(message))]; } catch { return []; }
+        }).find(event => event.message === "LifeSpace performance timing");
+        expect(event?.authorityD1).toHaveLength(1);
+        expect(event?.runtimeD1.map((entry: {phase: string}) => entry.phase)).toEqual(entry.phases);
+        expect(event?.runtimeD1.map((entry: {statements: number}) => entry.statements)).toEqual(entry.statements);
+        for (const sample of event.runtimeD1) {
+          expect(sample.success).toBe(true);
+          expect(sample.wallMs).toBeGreaterThanOrEqual(0);
+          expect(sample.rowsRead).toBeGreaterThanOrEqual(0);
+          expect(Object.keys(sample).sort()).toEqual(["colos","phase","regions","reportedDurationMs","rowsRead","sqlDurationMs","statements","success","wallMs"]);
+        }
+        log.mockClear();
+      }
+      const denied = await f.request(diagnosticPaths[0].path, {}, "invalid");
+      expect(denied.status).toBe(401);
+      const event = log.mock.calls.flatMap(([message]) => {
+        try { return [JSON.parse(String(message))]; } catch { return []; }
+      }).find(event => event.message === "LifeSpace performance timing");
+      expect(event).toBeDefined();
+      expect(event.runtimeD1).toBeUndefined();
+    } finally {
+      f.setDiagnostics(false);
+      log.mockRestore();
+    }
 
     const eventTarget = f.eventRecords[0];
     await measured(

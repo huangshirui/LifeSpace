@@ -1,4 +1,5 @@
 import type { Permission, SpaceRole } from "./authorization";
+import { measureD1Results } from "./d1-batch";
 import {
   delegationChainStatement,
   delegationCurrent,
@@ -452,34 +453,7 @@ export async function readAuthorityBatch(
   statements: D1PreparedStatement[],
   observe?: (sample: AuthorityD1Timing) => void,
 ): Promise<D1Result<Record<string, unknown>>[]> {
-  if (!observe) return env.DB.batch<Record<string, unknown>>(statements);
-  const start = performance.now();
-  let results: D1Result<Record<string, unknown>>[] | null = null;
-  try {
-    results = await env.DB.batch<Record<string, unknown>>(statements);
-    return results;
-  } finally {
-    const wallMs = Math.round((performance.now() - start) * 10) / 10;
-    const metadata = (results ?? []).map(result => result.meta as unknown as {
-      duration?: number; timings?: { sql_duration_ms?: number }; rows_read?: number;
-      served_by_region?: string; served_by_colo?: string;
-    });
-    const sum = (values: (number | undefined)[]) =>
-      values.length === statements.length && values.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
-        ? Math.round(values.reduce<number>((total, value) => total + (value ?? 0), 0) * 10) / 10
-        : null;
-    const labels = (values: (string | undefined)[]) => [...new Set(values.filter(
-      (value): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{1,40}$/u.test(value),
-    ))].slice(0, 8);
-    observe({
-      wallMs, statements: statements.length, success: results !== null && results.every(result => result.success),
-      sqlDurationMs: sum(metadata.map(value => value.timings?.sql_duration_ms)),
-      reportedDurationMs: sum(metadata.map(value => value.duration)),
-      rowsRead: sum(metadata.map(value => value.rows_read)),
-      regions: labels(metadata.map(value => value.served_by_region)),
-      colos: labels(metadata.map(value => value.served_by_colo)),
-    });
-  }
+  return measureD1Results(statements.length, () => env.DB.batch<Record<string, unknown>>(statements), observe);
 }
 
 async function evaluateModelAccessManyResolved(

@@ -2,8 +2,8 @@ import { parseEntityRef } from "./entity-ref";
 import { parseRecurrenceRule } from "./recurrence-rule";
 import { parseFileRefList } from "./file-ref";
 import { decodeStoredRecordIcon, type RecordIcon } from "./record-icon";
-import type { Bindings } from "./env";
-import { allD1Batched, chunkD1Values } from "./d1-batch";
+import type { Bindings, RuntimeD1Observer } from "./env";
+import { allD1Batched, chunkD1Values, measureD1Results } from "./d1-batch";
 import { ApiError } from "./http";
 import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition } from "./model-definition";
 import type { PublishedModel } from "./model-registry";
@@ -623,13 +623,15 @@ async function hydrateRelations(
   env: Bindings,
   model: PublishedModel,
   resources: TypedStoredResource[],
+  observe?: RuntimeD1Observer,
 ): Promise<void> {
   const relationFields = physicalPlanFor(model).relationFields;
   if (!resources.length || !relationFields.length) return;
 
   const ids = [...new Set(resources.map((resource) => resource.id))];
   const statements = chunkD1Values(ids).map((chunk) => relationReadStatement(env, chunk));
-  const rows = await allD1Batched<RelationRow>(env.DB, statements);
+  const rows = await allD1Batched<RelationRow>(env.DB, statements,
+    observe ? sample => observe("query_relations", sample) : undefined);
   applyRelationRows(model, resources, rows);
 }
 
@@ -637,9 +639,10 @@ export async function hydrateTypedResourceRows(
   env: Bindings,
   model: PublishedModel,
   rows: TypedResourceRow[],
+  observe?: RuntimeD1Observer,
 ): Promise<TypedStoredResource[]> {
   const resources = resourcesFromRows(model, rows);
-  await hydrateRelations(env, model, resources);
+  await hydrateRelations(env, model, resources, observe);
   return resources;
 }
 
@@ -648,6 +651,7 @@ export async function getTypedResource(
   spaceId: string,
   model: PublishedModel,
   recordId: string,
+  observe?: RuntimeD1Observer,
 ): Promise<TypedStoredResource | null> {
   const scalarSelect = typedSelectColumns(model);
   const recordStatement = env.DB.prepare(`SELECT r.id,r.space_id,r.model_key,r.model_version,r.version,r.created_at,r.updated_at,
@@ -663,7 +667,9 @@ export async function getTypedResource(
     return resourcesFromRows(model, [row])[0] ?? null;
   }
 
-  const results = await env.DB.batch([recordStatement, relationReadStatement(env, [recordId])]);
+  const statements = [recordStatement, relationReadStatement(env, [recordId])];
+  const results = await measureD1Results(statements.length, () => env.DB.batch(statements),
+    observe ? sample => observe("record_batch", sample) : undefined);
   const row = (results[0]?.results as TypedResourceRow[] | undefined)?.[0] ?? null;
   if (!row) return null;
   const resources = resourcesFromRows(model, [row]);
