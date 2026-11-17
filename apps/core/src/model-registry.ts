@@ -36,7 +36,7 @@ export type RuntimeModelDescriptor = PublishedModel & {
   };
 };
 
-type ModelRow = {
+export type ModelRow = {
   id: string;
   model_key: string;
   version: number;
@@ -245,10 +245,20 @@ async function getLatestModel(env: Bindings, key: string): Promise<PublishedMode
   return row ? rowToPublished(row) : null;
 }
 
+// Discovery needs current published metadata (not the ordinary hot-path
+// descriptor TTL). Reuse its exact query/validation in the current-state batch.
+export function preparePublishedModelList(env: Bindings): D1PreparedStatement {
+  return env.DB.prepare(`SELECT id,model_key,version,state,definition_json,schema_hash,compatibility,published_at
+    FROM model_definitions WHERE state='published' ORDER BY model_key ASC`);
+}
+
+export function decodePublishedModelList(rows: readonly ModelRow[]): PublishedModel[] {
+  return rows.map(rowToPublished);
+}
+
 export async function listPublishedModels(env: Bindings): Promise<PublishedModel[]> {
-  const rows = await env.DB.prepare(`SELECT id,model_key,version,state,definition_json,schema_hash,compatibility,published_at
-    FROM model_definitions WHERE state='published' ORDER BY model_key ASC`).all<ModelRow>();
-  return rows.results.map(rowToPublished);
+  const rows = await preparePublishedModelList(env).all<ModelRow>();
+  return decodePublishedModelList(rows.results);
 }
 
 export async function getModelRegistryRevision(env: Bindings): Promise<number> {

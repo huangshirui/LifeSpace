@@ -229,9 +229,9 @@ describe("#165 M3-S2 compact inventory performance", () => {
     const perSpacePayload = await perSpace.json() as {data:{models:Array<{key:string}>}};
     expect(perSpacePayload.data.models.some(m=>m.key==="task")).toBe(false);
     // Direct User, warm registry, configured Provider but no local bindings:
-    // one current-state batch, 3 authority statements plus at most one catalog.
+    // one current-state batch, 3 authority statements, fresh Registry and at most one External catalog.
     expect(counter.roundTrips).toBe(1);
-    expect(counter.statements).toBeLessThanOrEqual(4);
+    expect(counter.statements).toBeLessThanOrEqual(5);
 
     const target = restrictedSpaces[1];
     await database.batch([
@@ -252,7 +252,7 @@ describe("#165 M3-S2 compact inventory performance", () => {
     const grantPayload = await grantOnly.json() as {data:{models:Array<{key:string;access:string[]}>}};
     expect(grantPayload.data.models.map(m=>({key:m.key,access:m.access}))).toEqual([{key:"task",access:["read"]}]);
     expect(counter.roundTrips).toBe(1);
-    expect(counter.statements).toBeLessThanOrEqual(4);
+    expect(counter.statements).toBeLessThanOrEqual(5);
     await database.prepare("DELETE FROM model_access_ceilings WHERE space_id=? AND entity_id=? AND model_key='task'")
       .bind(target,scenario.userId).run();
     const restored = await request(`/api/v1/spaces/${target}/_discovery`);

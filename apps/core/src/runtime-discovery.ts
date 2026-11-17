@@ -13,7 +13,7 @@ import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import type { ModelAccess } from "./model-definition";
 import { modelAccessWithinCeiling, type ModelAccessCeiling } from "./model-access-ceiling";
-import { listPublishedModels, type PublishedModel } from "./model-registry";
+import { decodePublishedModelList, listPublishedModels, preparePublishedModelList, type ModelRow, type PublishedModel } from "./model-registry";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { referenceLabelSemantic } from "./reference-label";
 import { relationDiscoveryMetadata } from "./relation-targets";
@@ -504,6 +504,9 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     // The External catalog is metadata, not Provider records or authority.
     // Fetch it in the same current-state batch; the External projection below
     // still performs its own authoritative evaluation for every bound model.
+    // Keep the Registry fresh rather than switching Discovery to a TTL cache.
+    const modelIndex = statements.length;
+    statements.push(preparePublishedModelList(context.env));
     const externalStatement = prepareExternalModelList(context.env, [spaceId]);
     const externalIndex = externalStatement ? statements.length : -1;
     if (externalStatement) statements.push(externalStatement);
@@ -521,8 +524,8 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     for (const row of spaceRows) {
       if (row.model_key && row.max_access) ceilingsByModel.set(row.model_key, row.max_access);
     }
-    const models = await measurePerformancePhase(context, "runtime.discovery_model_resolution", () =>
-      listPublishedModels(context.env));
+    const models = await measurePerformancePhase(context, "runtime.discovery_model_resolution", async () =>
+      decodePublishedModelList((results[modelIndex].results ?? []) as unknown as ModelRow[]));
     const delegatedByModel = new Map<string, ModelAccess>();
     if (delegatedAgent) {
       for (const row of (results[delegationIndex].results ?? []) as DelegationAccessRow[]) {
