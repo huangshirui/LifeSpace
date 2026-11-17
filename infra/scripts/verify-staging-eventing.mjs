@@ -277,7 +277,8 @@ try {
     throw new Error("Webhook Endpoint transport/signature test should remain independent from model Data Grant state");
   }
 
-  if ((await receiver.receipts()).testCount!==2) throw Error("Signed post-revocation test receipt missing");
+  const finalReceipts=await receiver.receipts();
+  if (finalReceipts.testCount!==2 || finalReceipts.receipts.length!==1) throw Error("Signed post-revocation test receipt mismatch");
 
   verification = {
     ok: true,

@@ -64,7 +64,15 @@ export default {
     const forwarded=new Request("https://session.invalid"+action,request);
     forwarded.headers.delete("authorization");
     const stub=env.SESSIONS.get(env.SESSIONS.idFromName(id));
-    return stub.fetch(forwarded);
+    try {
+      const response=await stub.fetch(forwarded);
+      // No raw URL, route capability, headers, payload or credential in logs.
+      console.log(JSON.stringify({message:"Eventing smoke receiver",sessionId:id,operation:control?request.method:"webhook",status:response.status}));
+      return response;
+    } catch {
+      console.warn(JSON.stringify({message:"Eventing smoke receiver",sessionId:id,operation:control?request.method:"webhook",status:503,reason:"session_binding_failed"}));
+      return bad(503,"session_binding_failed");
+    }
   },
 };
 
@@ -101,7 +109,7 @@ export class EventingSmokeSession {
       let input;
       try {input=JSON.parse(await rawBody(request));} catch {return bad(400,"input");}
       if (!exact(input,["signingSecret","spaceId","endpointId","subscriptionId","subscriberServicePrincipalId"])
-        || !secretPattern.test(input.signingSecret??"")
+        || typeof input.signingSecret!=="string" || !secretPattern.test(input.signingSecret)
         || !["spaceId","endpointId","subscriptionId","subscriberServicePrincipalId"].every(k=>reference(input[k]))) return bad(400,"input");
       state={...input,expiresAt:Date.now()+TTL_MS,testCount:0,receipts:[]};
       // Set alarm before persisting a secret; no unbounded session lifetime.
@@ -116,6 +124,7 @@ export class EventingSmokeSession {
     let body;
     try {body=await rawBody(request);} catch {return bad(400,"body");}
     if (!equal(request.headers.get("x-lifespace-signature"),"v1="+await mac(state.signingSecret,timestamp+"."+body))) return bad(401,"signature");
+    if (state.expiresAt<=Date.now()) {await this.storage.deleteAll();await this.storage.deleteAlarm();return bad(404,"session_missing");}
     let payload;
     try {payload=JSON.parse(body);} catch {return bad(400,"body");}
     if (request.headers.get("x-lifespace-webhook-endpoint-id")!==state.endpointId || payload?.spaceId!==state.spaceId) return bad(400,"session_mismatch");
