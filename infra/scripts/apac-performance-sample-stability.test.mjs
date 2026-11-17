@@ -8,6 +8,7 @@ import {
   USER_MUTATION_TARGETS,
   SERVICE_MUTATION_TARGETS,
 } from "./performance-release-targets.mjs";
+import {assertPlacement} from "./verify-staging-core-placement.mjs";
 import { summarize as summarizeUser } from "./staging-canonical-performance-benchmark.mjs";
 import { summarize as summarizeService } from "./staging-service-performance-benchmark.mjs";
 
@@ -69,4 +70,26 @@ test("standalone APAC staging diagnostics is owner-dispatched and cannot substit
   assert.doesNotMatch(workflow, /^    deploy:/mu);
   assert.doesNotMatch(workflow, /environment: production/u);
   assert.doesNotMatch(workflow, /workflow_run:|repository_dispatch:|(^|\n)  push:|(^|\n)  pull_request:/u);
+});
+
+test("staging-only Singapore placement experiment cannot promote to a Smart Placement production candidate",()=>{
+  const smart={mode:"smart"},target={region:"aws:ap-southeast-1"},live={mode:"targeted",region:"aws:ap-southeast-1"};
+  assert.equal(assertPlacement({staging:target,production:smart,live}).productionParity,false);
+  // Cloudflare's script/version settings API supports all three region shapes.
+  assert.equal(assertPlacement({staging:target,production:smart,live:target}).productionParity,false);
+  assert.equal(assertPlacement({staging:target,production:smart,live:{mode:"targeted",target:[target]}}).productionParity,false);
+  assert.throws(()=>assertPlacement({staging:target,production:smart,live:{mode:"targeted",target:[{hostname:"example.com"}]}}),/Unknown or unsupported/u);
+  assert.throws(()=>assertPlacement({staging:target,production:smart,live:{region:"aws:us-east-1"}}),/Unknown or unsupported/u);
+  assert.throws(()=>assertPlacement({staging:target,production:smart,live,requireProductionParity:true}),/restore parity/u);
+  assert.throws(()=>assertPlacement({staging:target,production:smart,live:smart}),/differs from candidate/u);
+  assert.equal(assertPlacement({staging:smart,production:smart,live:smart,requireProductionParity:true}).productionParity,true);
+  const workflow=readFileSync(new URL("../../.github/workflows/production-deploy.yml",import.meta.url),"utf8");
+  assert.match(workflow,/verify-staging-core-placement\.mjs --require-production-parity/u);
+  assert.ok(workflow.indexOf("verify-staging-core-placement.mjs --require-production-parity")<workflow.indexOf("run: node infra/scripts/verify-staging-apac-performance.mjs"));
+});
+test("APAC runner emits completed observations on failure without changing gate sampling",()=>{
+  const verifier=readFileSync(new URL("./verify-staging-apac-performance.mjs",import.meta.url),"utf8");
+  assert.match(verifier,/finally\s*\{[\s\S]*APAC_REQUEST_EVIDENCE/u);
+  assert.match(verifier,/APAC_CHECKPOINT:"user_initial_complete"/u);
+  assert.match(verifier,/await runCeilingApacAcceptance\(process.env, memberAdapter\)/u);
 });

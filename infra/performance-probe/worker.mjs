@@ -1,3 +1,4 @@
+import {safePlacement,safeColo,safeUuid,safeRay,safeRoute,safeTransportCode} from "./diagnostic-fields.mjs";
 const CORE_BASE_URL = "https://core-staging.aisr.online";
 
 function json(data, status = 200) {
@@ -86,6 +87,14 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
   if (!bearer) return json({ error: "probe_not_configured" }, 503);
 
   const correlationId = crypto.randomUUID();
+  const probeRequestId = safeUuid(request.headers.get("x-lifespace-probe-request-id"));
+  const route = safeRoute(path, method);
+  const placement = {probePlacement: safePlacement(request.headers.get("cf-placement")), probeIngressColo: safeColo(request.cf?.colo)};
+  const evidence = (stage, fields = {}) => {
+    const entry = {message:"LifeSpace APAC probe evidence",stage,probeRequestId,correlationId,credentialMode,route,...placement,...fields};
+    console.log(JSON.stringify(entry));
+    return entry;
+  };
   const started = performance.now();
   let response;
   try {
@@ -98,31 +107,23 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
       },
       ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
     });
-  } catch {
-    return json({
-      error: "core_fetch_failed",
-      message: "Core request failed",
-      method,
-      path,
-    }, 502);
+  } catch (error) {
+    const detail=evidence("core_fetch_failed",{transportCode:safeTransportCode(error)});
+    return json({error:"core_fetch_failed",correlationId:detail.correlationId,route,transportCode:detail.transportCode},502);
   }
 
   // Preserve the existing release-gate metric: upstream fetch until response headers.
   // The response-body phase is diagnostic only and must not change P50/P90 gates.
   const elapsedMs = performance.now() - started;
+  const corePlacement = safePlacement(response.headers?.get("cf-placement"));
+  const coreRay = safeRay(response.headers?.get("cf-ray"));
   const bodyStarted = performance.now();
   let text;
   try {
     text = await response.text();
-  } catch {
-    return json({
-      error: "core_response_read_failed",
-      message: "Core response could not be read",
-      upstreamStatus: response.status,
-      elapsedMs,
-      method,
-      path,
-    }, 502);
+  } catch (error) {
+    const detail=evidence("core_response_read_failed",{upstreamStatus:response.status,elapsedMs,corePlacement,coreRay,transportCode:safeTransportCode(error)});
+    return json({error:"core_response_read_failed",correlationId,route,upstreamStatus:response.status,elapsedMs,transportCode:detail.transportCode},502);
   }
 
   const coreResponseBodyMs = performance.now() - bodyStarted;
@@ -131,15 +132,15 @@ export async function handleProbeRequest(request, env, fetchImpl = fetch) {
     try {
       payload = JSON.parse(text);
     } catch {
-      return json({ error: "core_returned_non_json", status: response.status, elapsedMs, method, path }, 502);
+      evidence("core_returned_non_json",{upstreamStatus:response.status,elapsedMs,corePlacement,coreRay});
+      return json({error:"core_returned_non_json",correlationId,route,status:response.status,elapsedMs},502);
     }
   }
 
+  const coreRequestId = response.headers.get("x-request-id") === correlationId ? correlationId : null;
+  evidence("completed",{coreRequestId,upstreamStatus:response.status,elapsedMs,coreResponseBodyMs,corePlacement,coreRay});
   return json({ status: response.status, payload, elapsedMs, credentialMode,
-    coreRequestId: response.headers.get("x-request-id") === correlationId ? correlationId : null,
-    coreResponseBodyMs,
-    // Incoming colo is NOT proof of Workers runtime placement (including Smart Placement).
-    probeIngressColo: request.cf?.colo ?? null,
+    coreRequestId, coreResponseBodyMs, ...placement, corePlacement, coreRay,
   });
 }
 

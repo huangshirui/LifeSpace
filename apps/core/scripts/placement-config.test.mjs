@@ -4,8 +4,8 @@ import test from "node:test";
 
 const config = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
 
-test("deployed Core environments use Smart Placement", () => {
-  assert.deepEqual(config.env?.staging?.placement, { mode: "smart" });
+test("Core staging uses the Singapore experiment hint while production retains Smart Placement", () => {
+  assert.deepEqual(config.env?.staging?.placement, { region: "aws:ap-southeast-1" });
   assert.deepEqual(config.env?.production?.placement, { mode: "smart" });
 });
 
