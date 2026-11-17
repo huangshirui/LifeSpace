@@ -81,7 +81,7 @@ function setup({ avatarUrl = "https://auth-staging.example.test/assets/users/" +
       }]}});
     }
     if(path==="/api/v1/spaces/"+SPACE+"/members")return Response.json({data:[{
-      userId:USER,displayName:"User test",role:"owner",
+      userId:USER,displayName:"User test",role:"owner",version:1,
     }]});
     return Response.json({error:{code:"SPACE_NOT_FOUND"}},{status:404});
   }};
@@ -129,7 +129,7 @@ test("Account Center reads only verified user profile, declared mailbox and own 
   assert.equal((await detail.json()).data.version,2);
   const members=await t.request("/api/account/spaces/"+SPACE+"/members");
   assert.equal(members.status,200);
-  assert.deepEqual((await members.json()).data,[{userId:USER,displayName:"User test",role:"owner"}]);
+  assert.deepEqual((await members.json()).data,[{userId:USER,displayName:"User test",role:"owner",version:1}]);
   for(const entry of t.calls.filter(entry=>entry.service==="core")){
     assert.equal(entry.auth,"Bearer "+t.token);
     assert.ok(!entry.path.includes(USER));

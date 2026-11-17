@@ -79,3 +79,35 @@ test("Member model permission editing is a dedicated, lazy-loaded dialog using C
   assert.match(js,/\$\("member-access-list"\)\.hidden=true/u);
   assert.match(css,/#member-access-dialog\{width:min\(740px/u);
 });
+
+test("Space settings use a separate dialog, explicit target and optimistic version",()=>{
+  assert.match(html,/id="space-settings-dialog"/u);
+  assert.match(html,/id="space-settings-confirm-name"/u);
+  assert.ok(js.includes('["owner","admin"].includes(info.access)'));
+  assert.ok(js.includes('info.access==="owner"?"close":"leave"'));
+  assert.ok(js.includes('confirmation.value!==info.name'));
+  assert.ok(js.includes('confirmSpaceId:info.id'));
+  assert.ok(js.includes('version:info.version'));
+  assert.ok(js.includes('state.spaces=state.spaces.filter'));
+  assert.ok(js.includes('revision!==spacesRevision'));
+});
+
+test("Space management has four real subpages and dedicated operation dialogs",()=>{
+  assert.ok(js.includes('const SPACE_TABS = {overview:"概览",members:"成员",invites:"邀请",settings:"设置"}'));
+  assert.ok(js.includes('if(spaceTab==="invites")'));
+  assert.ok(js.includes('if(spaceTab==="settings")'));
+  assert.match(html,/id="space-operation-dialog"/u);
+  assert.match(html,/id="space-operation-code" type="text" readonly/u);
+  assert.ok(js.includes('code.value=""'));
+  assert.ok(js.includes('confirmUserId:item.userId'));
+  assert.ok(js.includes('version:item.version'));
+  assert.ok(js.includes('confirmInviteId:item.id'));
+  assert.ok(js.includes('spaceHash(id,tab)'));
+});
+
+test("Create and join use dedicated dialogs, not inline forms",()=>{
+  assert.match(html,/<dialog id="space-create-dialog"[^>]*><form id="space-create-form">/u);
+  assert.match(html,/<dialog id="space-join-dialog"[^>]*><form id="space-invite-form">/u);
+  assert.ok(js.includes('$("space-create-dialog").showModal()'));
+  assert.ok(js.includes('$("space-join-dialog").showModal()'));
+});

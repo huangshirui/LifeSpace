@@ -482,7 +482,7 @@
     {
       "id": "account-consent-bff",
       "source": "apps/account/openapi.json",
-      "operationSetSha256": "sha256:f96bc6d2af3858c4814c7cda1851dfc4f73e90b956557ed1d05b529e1021d26c",
+      "operationSetSha256": "sha256:c4b2e4ffe5d34e3af1ad4ca0487cc8eb063ae31788211098dc4ab6f2f3c7e3dc",
       "groups": [
         {
           "id": "account-oauth-consent",
@@ -537,6 +537,20 @@
           "visibility": "internal",
           "operationPattern": "^GET /api/account/spaces/\\{spaceId\\}/members/\\{userId\\}/model-access$|^POST /api/account/spaces/\\{spaceId\\}/members/\\{userId\\}/model-access/\\{modelKey\\}$",
           "commitment": "Current Account User only, explicit target and CSRF; Core owns unified model ceiling authorization."
+        },
+        {
+          "id": "account-space-settings",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /api/account/spaces/\\{spaceId\\}/(update|close|leave)$",
+          "commitment": "Explicit same-origin CSRF-bound current-user Space settings and lifecycle operations; Core retains all authority, optimistic version and logical close semantics."
+        },
+        {
+          "id": "account-space-member-invite-avatar",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^GET /api/account/spaces/\\{spaceId\\}/invites$|^POST /api/account/spaces/\\{spaceId\\}/(?:members/\\{userId\\}/(?:role|remove)|invites/(?:create|\\{inviteId\\}/revoke)|avatar)$",
+          "commitment": "Current-user Space management with explicit targets, Core-owned lifecycle and authority, version where Core supports it, one-time invitation plaintext and constrained avatar upload."
         }
       ]
     }

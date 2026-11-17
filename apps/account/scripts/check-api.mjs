@@ -6,7 +6,7 @@ const expect = ["/api/account/authorizations",
   "/api/account/profile", "/api/account/profile/avatar", "/api/account/spaces",
   "/api/account/spaces/create", "/api/account/spaces/invite-preview", "/api/account/spaces/join",
   "/api/account/spaces/{spaceId}", "/api/account/spaces/{spaceId}/members", "/api/account/spaces/{spaceId}/external-connections", "/api/session", "/api/oauth/request", "/api/oauth/choices", "/api/oauth/capabilities", "/api/oauth/confirm"];
-if (api.openapi !== "3.1.0" || api.info.version !== "0.6.0") throw new Error("Account BFF contract mismatch");
+if (api.openapi !== "3.1.0" || api.info.version !== "0.8.0") throw new Error("Account BFF contract mismatch");
 for (const path of expect) if (!api.paths[path]) throw new Error("Missing Account route " + path);
 const ceilingPath="/api/account/spaces/{spaceId}/members/{userId}/model-access";
 const ceiling=api.paths[ceilingPath+"/{modelKey}"]?.post;
@@ -54,4 +54,21 @@ for(const path of ["/api/account/profile","/api/account/login-email/change",
 const avatar=api.paths["/api/account/profile/avatar"]?.post;
 if(!avatar?.requestBody?.content?.["multipart/form-data"] || !avatar.responses?.["403"])
   throw new Error("Avatar upload contract is missing its validation/CSRF boundary");
+for(const action of ["update","close","leave"]){
+  const post=api.paths["/api/account/spaces/{spaceId}/"+action]?.post;
+  const schema=post?.requestBody?.content?.["application/json"]?.schema;
+  if(schema?.additionalProperties!==false||schema.properties?.intent?.const!==action+"-space"
+    ||!schema.required?.includes("confirmSpaceId")||!post.responses?.["403"]
+    ||(action!=="leave"&&!schema.required?.includes("version")))
+    throw new Error("Missing bounded Space settings contract: "+action);
+}
+const spacePath="/api/account/spaces/{spaceId}";
+for(const [suffix,intent] of [["/members/{userId}/role","change-member-role"],["/members/{userId}/remove","remove-member"],["/invites/create","create-space-invite"],["/invites/{inviteId}/revoke","revoke-space-invite"]]){
+  const operation=api.paths[spacePath+suffix]?.post;
+  const schema=operation?.requestBody?.content?.["application/json"]?.schema;
+  if(schema?.additionalProperties!==false||schema.properties?.intent?.const!==intent||!schema.required?.includes("confirmSpaceId")||!operation.responses?.["403"])
+    throw Error("Missing bounded management contract "+suffix);
+}
+if(!api.paths[spacePath+"/invites"]?.get||!api.paths[spacePath+"/avatar"]?.post?.requestBody?.content?.["multipart/form-data"])
+  throw Error("Missing invitation list or Space avatar contract");
 console.log("Account Center, OAuth Consent and User Delegation contracts passed");
