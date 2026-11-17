@@ -143,6 +143,18 @@ async function requireSubscriberModelGrant(env: Bindings, spaceId: string, subsc
   }
 }
 
+// Caller must resolve the current owned Endpoint before querying its history.
+// Retain disabled and soft-deleted subscription history; never add an active-only
+// filter. Drive lookups from the endpoint's subscriptions instead of all deliveries.
+export function webhookDeliveryHistoryStatement(db: D1Database, endpointId: string): D1PreparedStatement {
+  return db.prepare(`SELECT d.id,d.event_id,d.status,d.attempt_count,d.queued_at,d.delivered_at,d.last_status_code,d.last_error,d.created_at,
+        e.event_type,e.model_key,e.record_id,e.record_version,e.change_id,e.occurred_at
+      FROM event_subscriptions s
+      CROSS JOIN webhook_deliveries d ON d.subscription_id=s.id
+      CROSS JOIN domain_event_outbox e ON e.id=d.event_id
+      WHERE s.endpoint_id=? ORDER BY d.created_at DESC,d.id DESC LIMIT 50`).bind(endpointId);
+}
+
 async function ownedEndpoint(env: Bindings, principal: Principal, endpointId: string): Promise<EndpointRow> {
   const row = await env.DB.prepare(`SELECT id,application_id,space_id,subscriber_service_principal_id,name,webhook_url,enabled,created_at,updated_at
     FROM webhook_endpoints WHERE id=? AND application_id=? AND deleted_at IS NULL`)
@@ -272,13 +284,7 @@ export function registerEventSubscriptionRoutes(app: App): void {
     const principal = context.get("principal");
     requireUser(principal);
     const current = await ownedEndpoint(context.env, principal, context.req.param("endpointId"));
-    const rows = await context.env.DB.prepare(`SELECT d.id,d.event_id,d.status,d.attempt_count,d.queued_at,d.delivered_at,d.last_status_code,d.last_error,d.created_at,
-        e.event_type,e.model_key,e.record_id,e.record_version,e.change_id,e.occurred_at
-      FROM webhook_deliveries d
-      JOIN event_subscriptions s ON s.id=d.subscription_id
-      JOIN domain_event_outbox e ON e.id=d.event_id
-      WHERE s.endpoint_id=? ORDER BY d.created_at DESC,d.id DESC LIMIT 50`)
-      .bind(current.id).all<Record<string, unknown>>();
+    const rows = await webhookDeliveryHistoryStatement(context.env.DB, current.id).all<Record<string, unknown>>();
     return context.json(success({ items: rows.results.map((row) => ({
       id: row.id,
       eventId: row.event_id,
