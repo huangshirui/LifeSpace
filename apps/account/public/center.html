@@ -170,6 +170,20 @@
     </div>
   </main>
 </div>
+<dialog id="space-settings-dialog" aria-labelledby="space-settings-title">
+  <h2 id="space-settings-title">空间设置</h2>
+  <p id="space-settings-context"></p>
+  <form id="space-settings-form">
+    <div id="space-settings-fields" class="space-settings-fields" hidden>
+      <label>空间名称<input id="space-settings-name" type="text" maxlength="100"></label>
+      <label>时区（IANA，例如 Asia/Shanghai）<input id="space-settings-timezone" type="text" maxlength="100"></label>
+    </div>
+    <p id="space-settings-warning" hidden></p>
+    <label id="space-settings-confirm-field" hidden>输入空间名称<input id="space-settings-confirm-name" type="text" maxlength="160" autocomplete="off"></label>
+    <p id="space-settings-error" class="dialog-error" role="alert" hidden></p>
+    <div class="dialog-actions"><button id="space-settings-cancel" type="button" class="button">取消</button><button id="space-settings-save" type="submit" class="button primary">保存</button></div>
+  </form>
+</dialog>
 <dialog id="member-access-dialog" aria-labelledby="member-access-title">
   <h2 id="member-access-title">成员模型权限</h2>
   <p id="member-access-context"></p>

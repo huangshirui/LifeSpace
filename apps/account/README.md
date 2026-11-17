@@ -68,3 +68,7 @@ The Account `/delegation?request_id=arq_*` page offers the user (not the OAuth A
 ## Account Center first-load optimization (candidate 0.5.0)
 
 The Account Center requests `GET /api/session?include=login-email` once. Account verifies the same original Access assertion via Identity, then loads active-user profile and declared login mailbox concurrently with the same request-local user credential. Profile remains mandatory; mailbox failure projects null and disables editing until refreshed. Default `/api/session` and isolated OAuth/Delegation pages retain their original behavior. The standalone mailbox endpoint remains available. No persistent session/authority cache, new scope, Identity/Core route change or cross-service data access. Initial profile/email transport: two browser requests and five Identity binding calls become one browser request and three binding calls, in two sequential stages. Actual page latency requires Staging verification.
+
+## 2026-11-17 · 通用空间设置与生命周期（candidate 0.7.0，未部署）
+
+用户确认 Account 是通用账户与 Space 用户自助管理入口；上层应用只负责产品特有体验，保留现有 HomeMew 通用管理直至 Account 成熟且等价验收。Core/Identity 继续拥有 API、数据和权限权威。第一切片在空间详情打开独立编辑/退出/注销弹窗，调用固定同源 POST 路径 update/close/leave，当前 User Token 转发 Core PATCH/POST；严格 Origin、Fetch Metadata、CSRF、intent 和确认 Space ID，更新与关闭带原始 version。Owner 注销为既有 Core 逻辑关闭，不是永久删除或可恢复归档；非 Owner 退出由 Core 判定。无新增 Scope、Core/Identity 路由、DB、迁移或 HomeMew 修改。成员/邀请/头像和完整子页继续 #514，待 Staging/Production 实测。

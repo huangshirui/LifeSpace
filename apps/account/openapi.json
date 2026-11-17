@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LifeSpace Account Center and OAuth Consent BFF",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Same-origin Cloudflare Access user BFF for Identity-owned profile and OAuth, Core-owned Space/invite and Delegation; user-bound CSRF mutations. No Account database, cross-service D1 access or privileged admin credential."
   },
   "paths": {
@@ -1176,6 +1176,241 @@
           },
           "503": {
             "description": "Upstream unavailable"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}/update": {
+      "post": {
+        "summary": "Update current Space metadata with optimistic version, Core manager authorization",
+        "security": [],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "confirmSpaceId",
+                  "version",
+                  "name",
+                  "timezone"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "update-space"
+                  },
+                  "confirmSpaceId": {
+                    "type": "string",
+                    "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Confirmed mutation result, no credential material"
+          },
+          "400": {
+            "description": "Invalid input or mismatched confirmation target"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Origin/CSRF, scope or Core authority denied"
+          },
+          "404": {
+            "description": "Space or current membership not found"
+          },
+          "409": {
+            "description": "Version conflict or lifecycle/role conflict"
+          },
+          "422": {
+            "description": "Validation failure"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable; operation outcome may require refresh"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}/close": {
+      "post": {
+        "summary": "Logically close the exact Space; current Owner only, no physical purge",
+        "security": [],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "confirmSpaceId",
+                  "version"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "close-space"
+                  },
+                  "confirmSpaceId": {
+                    "type": "string",
+                    "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Confirmed mutation result, no credential material"
+          },
+          "400": {
+            "description": "Invalid input or mismatched confirmation target"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Origin/CSRF, scope or Core authority denied"
+          },
+          "404": {
+            "description": "Space or current membership not found"
+          },
+          "409": {
+            "description": "Version conflict or lifecycle/role conflict"
+          },
+          "422": {
+            "description": "Validation failure"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable; operation outcome may require refresh"
+          }
+        }
+      }
+    },
+    "/api/account/spaces/{spaceId}/leave": {
+      "post": {
+        "summary": "Leave the exact Space as the authenticated non-owner member",
+        "security": [],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "intent",
+                  "confirmSpaceId"
+                ],
+                "properties": {
+                  "intent": {
+                    "type": "string",
+                    "const": "leave-space"
+                  },
+                  "confirmSpaceId": {
+                    "type": "string",
+                    "pattern": "^spc_[A-Za-z0-9_-]{3,128}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Confirmed mutation result, no credential material"
+          },
+          "400": {
+            "description": "Invalid input or mismatched confirmation target"
+          },
+          "401": {
+            "description": "Access session missing"
+          },
+          "403": {
+            "description": "Origin/CSRF, scope or Core authority denied"
+          },
+          "404": {
+            "description": "Space or current membership not found"
+          },
+          "409": {
+            "description": "Version conflict or lifecycle/role conflict"
+          },
+          "422": {
+            "description": "Validation failure"
+          },
+          "502": {
+            "description": "Invalid upstream response"
+          },
+          "503": {
+            "description": "Upstream unavailable; operation outcome may require refresh"
           }
         }
       }

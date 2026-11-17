@@ -128,10 +128,13 @@ function renderSpaces() {
     target.append(button);
   }
 }
+let spacesRevision=0, spaceDetailRevision=0;
 async function loadSpaces() {
+  const revision=++spacesRevision;
   $("space-list").replaceChildren(el("p","placeholder","正在读取当前用户的空间…"));
   try {
     const list=await api("/api/account/spaces");
+    if(revision!==spacesRevision)return;
     if(!Array.isArray(list))throw new Error("空间列表格式异常");
     state.spaces=list;
     state.spacesLoaded=true;
@@ -140,30 +143,43 @@ async function loadSpaces() {
     if(!state.space && list.length)state.space=list[0].id;
     renderSpaces();
     if(state.space) await loadSpaceDetail(state.space);
-    else $("space-detail").replaceChildren(el("p","placeholder","当前没有可查看的空间。"));
+    else {spaceDetailRevision++;$("space-detail-label").textContent="";$("space-detail").replaceChildren(el("p","placeholder","当前没有可查看的空间。"));}
   } catch(e) {
-    $("space-list").replaceChildren(el("p","placeholder","读取失败："+msg(e)));
+    if(revision===spacesRevision)$("space-list").replaceChildren(el("p","placeholder","读取失败："+msg(e)));
   }
 }
 function detailRow(title,value) {
   const row=el("div","detail-row");row.append(el("span","",title),el("span","",value));return row;
 }
 async function loadSpaceDetail(id) {
+  const revision=++spaceDetailRevision;
+  const current=()=>state.space===id&&spaceDetailRevision===revision;
   const target=$("space-detail");
   target.replaceChildren(el("p","placeholder","正在验证 Space 权限…"));
   try {
     const info=await api("/api/account/spaces/"+encodeURIComponent(id));
-    if(state.space!==id)return;
+    if(!current())return;
     const space=state.spaces.find(item=>item.id===id);
     $("space-detail-label").textContent=roles[space?.role]||"当前成员";
     target.replaceChildren(el("h3","space-detail-title",info.name),
       detailRow("时区",info.timezone),
-      detailRow("我的角色",roles[space?.role]||"已授权访问"));
+      detailRow("我的角色",roles[info.access]||"已授权访问"));
+    const settings=el("div","space-settings-actions");
+    if(["owner","admin"].includes(info.access)){
+      const button=el("button","button compact","编辑空间");button.type="button";
+      button.addEventListener("click",()=>openSpaceSettings(info,"update"));settings.append(button);
+    }
+    if(["owner","admin","editor","viewer"].includes(info.access)){
+      const action=info.access==="owner"?"close":"leave";
+      const button=el("button","button compact",action==="close"?"注销空间":"退出空间");button.type="button";
+      button.addEventListener("click",()=>openSpaceSettings(info,action));settings.append(button);
+    }
+    if(settings.children.length)target.append(settings);
     const divider=el("hr","section-divider");target.append(divider,el("h2","","成员"));
     const listing=el("div","member-list");target.append(listing);
     try {
       const members=await api("/api/account/spaces/"+encodeURIComponent(id)+"/members");
-      if(state.space!==id)return;
+      if(!current())return;
       if(!Array.isArray(members))throw new Error("成员列表格式异常");
       if(!members.length) listing.append(el("p","placeholder","暂无可读取的成员。"));
       for(const member of members) {
@@ -184,11 +200,67 @@ async function loadSpaceDetail(id) {
       tech.append(el("summary","","空间标识"),detailRow("Space ID",info.id));
       target.append(tech);
     } catch(e) {
-      if(state.space===id)listing.append(el("p","placeholder","无法读取成员："+msg(e)));
+      if(current())listing.append(el("p","placeholder","无法读取成员："+msg(e)));
     }
   } catch(e) {
-    if(state.space===id)target.replaceChildren(el("p","placeholder","无法读取空间详情："+msg(e)));
+    if(current())target.replaceChildren(el("p","placeholder","无法读取空间详情："+msg(e)));
   }
+}
+// Space settings are a dedicated modal; the current Core response, not a cached
+// role or name, supplies the displayed target and optimistic version.
+function openSpaceSettings(info,action){
+  if(state.busyAction||!state.csrf||state.space!==info.id)return;
+  const dialog=$("space-settings-dialog"),form=$("space-settings-form");
+  const edit=action==="update",closing=action==="close";
+  const title=edit?"编辑空间":closing?"注销空间":"退出空间";
+  const save=$("space-settings-save"),cancel=$("space-settings-cancel");
+  const confirmation=$("space-settings-confirm-name");
+  $("space-settings-title").textContent=title;
+  $("space-settings-context").textContent="空间："+info.name;
+  $("space-settings-fields").hidden=!edit;
+  $("space-settings-name").value=info.name;
+  $("space-settings-timezone").value=info.timezone;
+  $("space-settings-name").required=edit;
+  $("space-settings-timezone").required=edit;
+  $("space-settings-confirm-field").hidden=!closing;
+  confirmation.required=closing;confirmation.value="";
+  $("space-settings-warning").hidden=edit;
+  $("space-settings-warning").textContent=closing
+    ?"注销将关闭整个空间，所有成员失去访问权限，相关授权与连接将停用。该操作不是退出或永久删除，当前无自助恢复能力。请输入空间名称以确认。"
+    :"退出后将失去该空间的成员权限，其他成员及空间本身不受影响。";
+  $("space-settings-error").hidden=true;
+  save.textContent=edit?"保存":closing?"确认注销":"确认退出";
+  save.className="button "+(edit?"primary":"danger");
+  cancel.onclick=()=>{if(!state.busyAction)dialog.close();};
+  dialog.oncancel=event=>{if(state.busyAction)event.preventDefault();};
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if(state.busyAction||state.space!==info.id)return;
+    const error=$("space-settings-error");
+    if(closing&&confirmation.value!==info.name){
+      error.textContent="空间名称不一致，请输入完整名称。";error.hidden=false;return;
+    }
+    const payload={intent:action+"-space",confirmSpaceId:info.id,
+      ...(action==="leave"?{}:{version:info.version}),
+      ...(edit?{name:$("space-settings-name").value.trim(),timezone:$("space-settings-timezone").value.trim()}:{}),
+    };
+    state.busyAction=true;save.disabled=true;cancel.disabled=true;error.hidden=true;
+    try{
+      await post("/api/account/spaces/"+encodeURIComponent(info.id)+"/"+action,payload);
+      dialog.close();
+      state.externalLoaded=false;state.referenceLoaded=false;
+      if(!edit){
+        state.spaces=state.spaces.filter(space=>space.id!==info.id);
+        if(state.space===info.id){state.space=null;spaceDetailRevision++;$("space-detail-label").textContent="";$("space-detail").replaceChildren(el("p","placeholder","正在刷新空间…"));}
+        renderSpaces();
+      }
+      await loadSpaces();
+      notice("space-action-status",title+"成功。");
+    }catch(e){
+      error.textContent=msg(e)+"；请刷新空间信息后再操作。";error.hidden=false;
+    }finally{state.busyAction=false;save.disabled=false;cancel.disabled=false;}
+  };
+  dialog.showModal();
 }
 // Member Model Access Ceiling: render only the Core Space-side projection.
 // The member list is read-only; each authority change has a dedicated editor.

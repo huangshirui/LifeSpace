@@ -10,9 +10,10 @@ const ORIGIN="https://account-staging.example.test";
 const token="short-lived-account-user-only";
 const avatarUrl="https://auth-staging.example.test/assets/users/"+USER+"/avatar";
 
-function setup(){
+function setup({spaceRole="owner",settingsStatus=200}={}){
   const requests=[];
   let displayName="Test User",email="old@example.test",version=2,linked=true,ceiling=null;
+  let spaceVersion=3,spaceName="My Space",spaceTimezone="Asia/Shanghai",active=true;
   const env={
     ENVIRONMENT:"staging",ACCOUNT_CSRF_SECRET:"a-local-test-secret-with-at-least-thirty-two-characters",
     IDENTITY_APPLICATION_CREDENTIAL:"lsa_test_private",
@@ -69,8 +70,31 @@ function setup(){
       }
       if(path===memberPath+"/task"&&req.method==="DELETE"){ceiling=null;return new Response(null,{status:204});}
       if(path.includes("/members/usr_denied/model-access"))return Response.json({error:{code:"FORBIDDEN"}},{status:403});
+      const settingsPath="/api/v1/spaces/"+SPACE;
+      if(path===settingsPath&&req.method==="PATCH"){
+        const input=await req.json();
+        assert.deepEqual(Object.keys(input).sort(),["name","timezone","version"]);
+        if(settingsStatus!==200)return Response.json({error:{code:"SYNTHETIC",secret:"must-not-leak"}},{status:settingsStatus});
+        if(!["owner","admin"].includes(spaceRole))return new Response(null,{status:403});
+        if(input.version!==spaceVersion)return new Response(null,{status:409});
+        spaceVersion++;spaceName=input.name;spaceTimezone=input.timezone;
+        return Response.json({data:{id:SPACE,name:spaceName,timezone:spaceTimezone,version:spaceVersion,secret:"must-not-leak"}});
+      }
+      if(path===settingsPath+"/close"&&req.method==="POST"){
+        const input=await req.json();assert.deepEqual(Object.keys(input),["version"]);
+        if(settingsStatus!==200)return new Response(null,{status:settingsStatus});
+        if(spaceRole!=="owner")return new Response(null,{status:403});
+        if(input.version!==spaceVersion)return new Response(null,{status:409});
+        active=false;return new Response(null,{status:204});
+      }
+      if(path===settingsPath+"/leave"&&req.method==="POST"){
+        assert.deepEqual(await req.json(),{});
+        if(settingsStatus!==200)return new Response(null,{status:settingsStatus});
+        if(spaceRole==="owner")return new Response(null,{status:409});
+        active=false;return new Response(null,{status:204});
+      }
       if(path==="/api/v1/me/spaces")
-        return Response.json({data:[{id:SPACE,name:"My Space",timezone:"Asia/Shanghai",role:"owner"}]});
+        return Response.json({data:active?[{id:SPACE,name:spaceName,timezone:spaceTimezone,role:spaceRole}]:[]});
       if(path==="/api/v1/spaces" && req.method==="POST"){
         const input=await req.json();
         assert.deepEqual(input,{name:"Project",timezone:"Asia/Shanghai",ownerDisplayName:"Test User"});
@@ -201,4 +225,46 @@ test("Member model ceilings use only current User authority with target confirma
   assert.equal((await (await t.request(base)).json()).data.models[0].ceiling,null);
   assert.equal((await t.request(base.replace("usr_child","usr_denied"))).status,403);
   assert.ok(t.requests.filter(x=>x.who==="core").every(x=>!x.path.includes("platform-admin")));
+});
+
+test("Space settings are explicit current-user operations; no Core request for invalid origin, CSRF, method or target",async()=>{
+  const t=setup(),a=await t.auth(),base="/api/account/spaces/"+SPACE;
+  const update={intent:"update-space",confirmSpaceId:SPACE,name:"Renamed",timezone:"UTC",version:3};
+  const close={intent:"close-space",confirmSpaceId:SPACE,version:4};
+  const count=()=>t.requests.filter(x=>x.who==="core").length;
+  const before=count();
+  assert.equal((await t.request(base+"/close")).status,405);
+  assert.equal((await t.post(base+"/close",close,{...a,csrf:"wrong"})).status,403);
+  assert.equal((await t.post(base+"/close",close,a,{origin:"https://evil.test"})).status,403);
+  assert.equal((await t.post(base+"/close",{...close,confirmSpaceId:created},a)).status,400);
+  assert.equal((await t.post(base+"/close",{...close,version:0},a)).status,400);
+  assert.equal((await t.post(base+"/close",{...close,actorUserId:USER},a)).status,400);
+  assert.equal((await t.post(base+"/update?x=1",update,a)).status,400);
+  assert.equal(count(),before);
+  const saved=await t.post(base+"/update",update,a);
+  assert.equal(saved.status,200);
+  assert.deepEqual((await saved.json()).data,{id:SPACE,name:"Renamed",timezone:"UTC",version:4});
+  assert.equal((await t.post(base+"/update",update,a)).status,409);
+  assert.equal((await t.post(base+"/close",{...close,version:3},a)).status,409);
+  assert.equal((await t.post(base+"/leave",{intent:"leave-space",confirmSpaceId:SPACE},a)).status,409);
+  assert.equal((await t.post(base+"/close",close,a)).status,200);
+  assert.deepEqual((await (await t.request("/api/account/spaces")).json()).data,[]);
+  assert.ok(t.requests.some(x=>x.who==="core"&&x.method==="PATCH"&&x.path==="/api/v1/spaces/"+SPACE));
+  assert.ok(t.requests.filter(x=>x.who==="core").every(x=>!x.path.includes("platform-admin")));
+});
+test("Core retains non-owner close denial, manager edit and non-owner leave; failures are not reported as success",async()=>{
+  const base="/api/account/spaces/"+SPACE;
+  const update={intent:"update-space",confirmSpaceId:SPACE,name:"Renamed",timezone:"UTC",version:3};
+  const close={intent:"close-space",confirmSpaceId:SPACE,version:3};
+  const leave={intent:"leave-space",confirmSpaceId:SPACE};
+  const viewer=setup({spaceRole:"viewer"}),v=await viewer.auth();
+  assert.equal((await viewer.post(base+"/update",update,v)).status,403);
+  assert.equal((await viewer.post(base+"/close",close,v)).status,403);
+  assert.equal((await viewer.post(base+"/leave",leave,v)).status,200);
+  const admin=setup({spaceRole:"admin"}),a=await admin.auth();
+  assert.equal((await admin.post(base+"/close",close,a)).status,403);
+  assert.equal((await admin.post(base+"/update",update,a)).status,200);
+  const fault=setup({settingsStatus:500}),f=await fault.auth();
+  assert.equal((await fault.post(base+"/close",close,f)).status,503);
+  assert.equal((await (await fault.request("/api/account/spaces")).json()).data.length,1);
 });

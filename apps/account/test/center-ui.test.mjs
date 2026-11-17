@@ -79,3 +79,15 @@ test("Member model permission editing is a dedicated, lazy-loaded dialog using C
   assert.match(js,/\$\("member-access-list"\)\.hidden=true/u);
   assert.match(css,/#member-access-dialog\{width:min\(740px/u);
 });
+
+test("Space settings use a separate dialog, explicit target and optimistic version",()=>{
+  assert.match(html,/id="space-settings-dialog"/u);
+  assert.match(html,/id="space-settings-confirm-name"/u);
+  assert.ok(js.includes('["owner","admin"].includes(info.access)'));
+  assert.ok(js.includes('info.access==="owner"?"close":"leave"'));
+  assert.ok(js.includes('confirmation.value!==info.name'));
+  assert.ok(js.includes('confirmSpaceId:info.id'));
+  assert.ok(js.includes('version:info.version'));
+  assert.ok(js.includes('state.spaces=state.spaces.filter'));
+  assert.ok(js.includes('revision!==spacesRevision'));
+});

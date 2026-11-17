@@ -15,6 +15,7 @@ const APPLICATION = /^app_[A-Za-z0-9_-]{3,128}$/u;
 const JSON_TYPE = "application/json; charset=utf-8";
 const ACCOUNT_EXTERNAL = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})\/external-connections$/u;
 const ACCOUNT_AUTHORIZATION = /^\/api\/account\/authorizations\/(oaz_[A-Za-z0-9_-]{16,128})(?:\/(revoke))?$/u;
+const ACCOUNT_SPACE_SETTINGS = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})\/(update|close|leave)$/u;
 const ACCOUNT_SPACE_DETAIL = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,128})(?:\/(members))?$/u;
 const SPACE_ROLES = new Set(["owner","admin","editor","viewer"]);
 const ACCOUNT_MODEL_ACCESS = /^\/api\/account\/spaces\/(spc_[A-Za-z0-9_-]{3,124})\/members\/(usr_[A-Za-z0-9_-]{3,124})\/model-access(?:\/([a-z][a-z0-9_]{1,62}))?$/u;
@@ -270,9 +271,11 @@ export async function accountFetch(req, env) {
       "/api/account/spaces/invite-preview","/api/account/spaces/join"].includes(path)
     && path !== "/api/account/authorizations" && !ACCOUNT_AUTHORIZATION.test(path)
     && !ACCOUNT_SPACE_DETAIL.test(path) && !ACCOUNT_EXTERNAL.test(path) && !ACCOUNT_MODEL_ACCESS.test(path)
+    && !ACCOUNT_SPACE_SETTINGS.test(path)
     && path !== "/api/oauth/confirm" && path !== "/api/oauth/deny") return fail(404, "NOT_FOUND", "接口不存在");
   const memberModelAccess = ACCOUNT_MODEL_ACCESS.exec(path);
-  const mutation = Boolean(memberModelAccess?.[3]) || ["/api/account/profile","/api/account/profile/avatar",
+  const spaceSettings = ACCOUNT_SPACE_SETTINGS.exec(path);
+  const mutation = Boolean(spaceSettings || memberModelAccess?.[3]) || ["/api/account/profile","/api/account/profile/avatar",
     "/api/account/login-email/change","/api/account/spaces/create",
     "/api/account/spaces/invite-preview","/api/account/spaces/join"].includes(path);
   if ((path === "/api/oauth/confirm" || path === "/api/oauth/deny"
@@ -597,6 +600,46 @@ export async function accountFetch(req, env) {
   if (raw.length > 2048) return fail(413, "REQUEST_TOO_LARGE", "授权内容过大");
   let input;
   try { input = JSON.parse(raw); } catch { return fail(400, "INVALID_REQUEST", "授权内容无效"); }
+  if (spaceSettings) {
+    const [, spaceId, action] = spaceSettings;
+    const expectedKeys = action === "update" ? "confirmSpaceId,intent,name,timezone,version"
+      : action === "close" ? "confirmSpaceId,intent,version" : "confirmSpaceId,intent";
+    if (url.search || !isObject(input) || Object.keys(input).sort().join(",") !== expectedKeys
+      || input.intent !== action + "-space" || input.confirmSpaceId !== spaceId
+      || (action !== "leave" && (!Number.isSafeInteger(input.version) || input.version < 1))
+      || (action === "update" && (!safeText(input.name,100) || !input.name.trim()
+        || !safeText(input.timezone,100) || !input.timezone.trim()))) {
+      return fail(400,"INVALID_REQUEST","请确认具体空间及有效的操作参数");
+    }
+    const target = "/api/v1/spaces/" + encodedPath(spaceId);
+    const payload = action === "update"
+      ? {name:input.name.trim(),timezone:input.timezone.trim(),version:input.version}
+      : action === "close" ? {version:input.version} : {};
+    let upstream;
+    try {
+      upstream = await service(env,"CORE",target + (action === "update" ? "" : "/" + action),{
+        method:action === "update" ? "PATCH" : "POST",
+        headers:{authorization:"Bearer "+linked.token,"content-type":JSON_TYPE},
+        body:JSON.stringify(payload),
+      });
+    } catch {
+      return fail(503,"CORE_UNAVAILABLE","空间操作结果暂时无法确认，请刷新空间列表");
+    }
+    if (upstream.status !== (action === "update" ? 200 : 204)) {
+      return fail([400,403,404,409,422].includes(upstream.status)?upstream.status:503,
+        "SPACE_SETTINGS_FAILED",upstream.status===409
+          ?"空间状态已变化或当前角色不允许此操作，请刷新后检查"
+          :"空间操作未确认成功，请检查当前空间及权限");
+    }
+    if (action !== "update") return responseJson({data:{spaceId,action}});
+    const result = await data(upstream);
+    if (!result || result.id !== spaceId || !safeText(result.name,160)
+      || !safeText(result.timezone,100) || !Number.isSafeInteger(result.version)
+      || result.version !== input.version + 1) {
+      return fail(502,"CORE_INVALID_RESPONSE","空间修改结果异常，请刷新后检查");
+    }
+    return responseJson({data:{id:result.id,name:result.name,timezone:result.timezone,version:result.version}});
+  }
   if(memberModelAccess?.[3]){
     if(url.search||!isObject(input)||Object.keys(input).sort().join(",")!=="confirmModelKey,confirmSpaceId,confirmUserId,intent,maxAccess"
       ||input.intent!=="change-member-model-access"||input.confirmSpaceId!==memberModelAccess[1]

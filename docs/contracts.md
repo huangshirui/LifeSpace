@@ -1,3 +1,7 @@
+## 2026-11-17 · Account 通用空间管理（候选 v0.7.0，尚未部署）
+
+Account BFF adds three explicit same-origin, current-user and CSRF-protected Space operations: update (Core PATCH with version), close (existing owner-only logical close with version), leave (existing non-owner membership exit). Account validates exact confirmation Space ID and bounded input; all durable authorization and lifecycle semantics remain in Core. No scope, Identity/Core contract, persistent state or deployment change. Account becomes the generic self-service experience, not a required proxy for application-specific business workflows. HomeMew retains existing management until Account is mature and equivalent on supported clients. Further members/invites/avatar/subpage work remains #514.
+
 ## 2026-11-10 · Account Center 用户自助能力与体验重构（候选 v0.4.0，尚未部署）
 
 Account BFF `apps/account/openapi.json` Candidate 0.4.0 在既有 OAuth Consent / Delegation / current-user read 基础上新增：当前 User 的 Identity 姓名更新、头像上传、登录邮箱变更（仅声明待验证，不自动合并或证明新邮箱归属），以及 Core 的通用 Space 创建、邀请预览/加入。全部变更经过 Account 自己的 Cloudflare Access 会话、Same-Origin、CSRF、明确的 `profile:write` 或 `spaces:write` Scope 与 Identity/Core 当前权限重算；不新增 Account D1 / 管理员执行器。浏览器只接收白名单用户信息，不接收 Credential、Token 或 Provider Secret。

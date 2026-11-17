@@ -13,3 +13,5 @@ Before editing, read root `AGENTS.md`, `apps/AGENTS.md`, `docs/architecture.md`,
 - Never create or persist a generic `conn_*` connection or independent Account authorization database.
 - The Account consent route may return the validated OAuth callback to the browser only after the user explicitly confirms the exact selection. Referrer policy is no-referrer.
 - Keep Staging and Production environment bindings isolated. Deployment requires reviewed Access audience, Account Application credentials and security approval.
+
+- Account is the long-term user-facing home for generic account and Space self-service management. Applications retain product-specific creation/join flows, directories and bindings and may consume authoritative Identity/Core contracts directly. Preserve existing downstream management until Account equivalence and reachability are verified; do not move application-specific policy into Core or Account.
