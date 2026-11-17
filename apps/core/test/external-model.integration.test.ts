@@ -886,12 +886,16 @@ describe("Space-local External Model framework", () => {
     const f = await fixture();
     await f.authorize();
     f.state.calls = [];
+    f.metric.d1 = 0;
     const d = (
       (await (
         await f.request(`/api/v1/spaces/${f.space}/_discovery`)
       ).json()) as any
     ).data.models.find((m: any) => m.key === f.model);
     expect(d.origin).toBe("external");
+    // Warm Registry: one combined catalog/Native authority batch, one
+    // authoritative External access batch; never a separate catalog RTT.
+    expect(f.metric.d1).toBe(2);
     expect(d.version).toBeUndefined();
     expect(d.runtimeCapabilities.atomicBatch).toBe(false);
     expect(d.fields[0].sourceFieldId).toBeUndefined();

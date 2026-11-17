@@ -1,7 +1,10 @@
 import type { RecurrenceCapabilityDefinition } from "./recurrence-definition";
 import { recurrenceRuleSchema } from "./recurrence-rule";
 import { entityRefSchema } from "./entity-ref";
-import { visibleExternalModels } from "./external-runtime";
+import { projectVisibleExternalModels, visibleExternalModels } from "./external-runtime";
+import { hydrateExternalModelList, prepareExternalModelList, type ExternalModelListRow } from "./external-model";
+import { readAuthorityBatch } from "./model-authorization";
+import { authorityD1Observer, measurePerformancePhase } from "./performance-timing";
 import type { Context, Hono } from "hono";
 import type { Permission, SpaceRole } from "./authorization";
 import { capabilityActionAccess } from "./capability-runtime";
@@ -22,6 +25,7 @@ type AppContext = Context<AppEnv>;
 
 type CatalogRow = { model_key: string; max_access: ModelAccess };
 type MembershipRow = { role: SpaceRole };
+type SpaceDiscoveryRow = { id: string; name: string; role?: SpaceRole | null; model_key?: string | null; max_access?: ModelAccessCeiling | null };
 type CeilingRow = { model_key: string; max_access: ModelAccessCeiling };
 type SpaceCeilingRow = CeilingRow & { space_id: string };
 type MembershipAccessRow = MembershipRow & { space_id: string; space_name: string };
@@ -460,23 +464,20 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
     const principal = context.get("principal");
     const spaceId = context.req.param("spaceId");
 
+    // LEFT JOIN, not INNER JOIN: a User may hold an independent Data Grant
+    // after membership removal, and sparse ceilings still constrain that grant.
+    const spaceStatement = principal.type === "user"
+      ? context.env.DB.prepare(`SELECT s.id,s.name,m.role,c.model_key,c.max_access
+          FROM spaces s
+          LEFT JOIN space_memberships m ON m.space_id=s.id AND m.user_id=? AND m.deleted_at IS NULL
+          LEFT JOIN model_access_ceilings c ON c.space_id=s.id AND c.entity_type='user' AND c.entity_id=?
+          WHERE s.id=? AND s.deleted_at IS NULL`).bind(principal.id, principal.id, spaceId)
+      : context.env.DB.prepare("SELECT id,name FROM spaces WHERE id=? AND deleted_at IS NULL LIMIT 1").bind(spaceId);
     const statements: D1PreparedStatement[] = [
-      context.env.DB.prepare("SELECT id,name FROM spaces WHERE id=? AND deleted_at IS NULL LIMIT 1").bind(spaceId),
+      spaceStatement,
       context.env.DB.prepare(`SELECT model_key,max_access FROM application_model_access
         WHERE application_id=?`).bind(principal.clientId),
     ];
-
-    const membershipIndex = principal.type === "user" ? statements.length : -1;
-    if (principal.type === "user") {
-      statements.push(context.env.DB.prepare(`SELECT role FROM space_memberships
-        WHERE space_id=? AND user_id=? AND deleted_at IS NULL LIMIT 1`).bind(spaceId, principal.id));
-    }
-
-    const ceilingIndex = principal.type === "user" ? statements.length : -1;
-    if (principal.type === "user") {
-      statements.push(context.env.DB.prepare(`SELECT model_key,max_access FROM model_access_ceilings
-        WHERE space_id=? AND entity_type='user' AND entity_id=?`).bind(spaceId, principal.id));
-    }
 
     const grantsIndex = statements.length;
     statements.push(context.env.DB.prepare(`SELECT resource_type,resource_id,permission FROM data_grants
@@ -500,21 +501,28 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         .bind(principal.type, principal.id, principal.actor!.type, principal.actor!.id, principal.clientId, spaceId));
     }
 
-    const results = await context.env.DB.batch(statements);
-    const space = (results[0].results ?? [])[0] as { id: string; name: string } | undefined;
+    // The External catalog is metadata, not Provider records or authority.
+    // Fetch it in the same current-state batch; the External projection below
+    // still performs its own authoritative evaluation for every bound model.
+    const externalStatement = prepareExternalModelList(context.env, [spaceId]);
+    const externalIndex = externalStatement ? statements.length : -1;
+    if (externalStatement) statements.push(externalStatement);
+    const results = await measurePerformancePhase(context, "runtime.discovery_state", () =>
+      readAuthorityBatch(context.env, statements, authorityD1Observer(context)));
+    const spaceRows = (results[0].results ?? []) as unknown as SpaceDiscoveryRow[];
+    const space = spaceRows[0];
     if (!space) throw new ApiError("SPACE_NOT_FOUND", "Space not found", 404);
 
     const catalogs = (results[1].results ?? []) as CatalogRow[];
     const catalogByModel = new Map(catalogs.map((row) => [row.model_key, row.max_access]));
-    const membership = membershipIndex >= 0
-      ? ((results[membershipIndex].results ?? [])[0] as MembershipRow | undefined) ?? null
-      : null;
+    const membership = space.role ? { role: space.role } : null;
     const grants = (results[grantsIndex].results ?? []) as GrantRow[];
-    const ceilingsByModel = new Map<string, ModelAccessCeiling>(
-      (ceilingIndex >= 0 ? (results[ceilingIndex].results ?? []) as CeilingRow[] : [])
-        .map(row => [row.model_key, row.max_access] as const),
-    );
-    const models = await listPublishedModels(context.env);
+    const ceilingsByModel = new Map<string, ModelAccessCeiling>();
+    for (const row of spaceRows) {
+      if (row.model_key && row.max_access) ceilingsByModel.set(row.model_key, row.max_access);
+    }
+    const models = await measurePerformancePhase(context, "runtime.discovery_model_resolution", () =>
+      listPublishedModels(context.env));
     const delegatedByModel = new Map<string, ModelAccess>();
     if (delegatedAgent) {
       for (const row of (results[delegationIndex].results ?? []) as DelegationAccessRow[]) {
@@ -527,7 +535,7 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
         }
       }
     }
-    const visible = visibleModels(
+    const visible = await measurePerformancePhase(context, "runtime.discovery_native_projection", async () => visibleModels(
       principal,
       models,
       catalogByModel,
@@ -535,9 +543,13 @@ export function registerRuntimeDiscoveryRoutes(app: App): void {
       grants,
       delegatedAgent ? delegatedByModel : undefined,
       ceilingsByModel,
-    );
+    ));
 
-    const external = await visibleExternalModels(context.env,principal,[spaceId],context.req.header("x-lifespace-delegation-id"));
+    const externalModels = await measurePerformancePhase(context, "runtime.discovery_external_metadata", () =>
+      hydrateExternalModelList(context.env, externalIndex >= 0
+        ? (results[externalIndex].results ?? []) as unknown as ExternalModelListRow[] : []));
+    const external = await measurePerformancePhase(context, "runtime.discovery_external_authority_projection", () =>
+      projectVisibleExternalModels(context.env, principal, externalModels, context.req.header("x-lifespace-delegation-id")));
     const combined = [...visible,...(external.get(spaceId)??[])];
     return context.json(success({ spaceId, spaceName: combined.length ? space.name : null, models: combined }));
   });

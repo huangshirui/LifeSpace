@@ -149,7 +149,17 @@ export async function visibleExternalModels(
   spaceIds: readonly string[],
   delegationId?: string | null,
 ): Promise<Map<string, ReturnType<typeof externalSemanticDetail>[]>> {
-  const models = await listExternalModels(env, spaceIds);
+  return projectVisibleExternalModels(env, p, await listExternalModels(env, spaceIds), delegationId);
+}
+
+// Internal projection of freshly selected metadata; always re-evaluate current
+// External model authority before exposing any schema or capabilities.
+export async function projectVisibleExternalModels(
+  env: Bindings,
+  p: Principal,
+  models: readonly ExternalModel[],
+  delegationId?: string | null,
+): Promise<Map<string, ReturnType<typeof externalSemanticDetail>[]>> {
   const groups = new Map<string, ReturnType<typeof externalSemanticDetail>[]>();
   // Current Authority functions, never independently reconstruct an External ACL.
   for (const space of [...new Set(models.map((m) => m.space_id))]) {
