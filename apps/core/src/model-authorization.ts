@@ -447,7 +447,7 @@ export async function evaluateRecurrenceRoots(env: Bindings, entries: readonly {
 
 // D1 statement metadata may be absent in local runtimes or on failure.
 // Keep SQL time distinct from the wall time around the same Worker binding call.
-async function readAuthorityBatch(
+export async function readAuthorityBatch(
   env: Bindings,
   statements: D1PreparedStatement[],
   observe?: (sample: AuthorityD1Timing) => void,

@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import { createApp } from "../src/app";
 import type { Bindings } from "../src/env";
 import { reconcileExternalModels } from "../src/external-model";
+import { getRuntimeModel } from "../src/model-registry";
 
 const field = "amount",
   shared = "synthetic-external-shared-secret-at-least-32-chars";
@@ -886,12 +887,17 @@ describe("Space-local External Model framework", () => {
     const f = await fixture();
     await f.authorize();
     f.state.calls = [];
+    expect(await getRuntimeModel(f.bindings, f.model)).not.toBeNull();
+    f.metric.d1 = 0;
     const d = (
       (await (
         await f.request(`/api/v1/spaces/${f.space}/_discovery`)
       ).json()) as any
     ).data.models.find((m: any) => m.key === f.model);
     expect(d.origin).toBe("external");
+    // Warm Registry: one combined catalog/Native authority batch, one
+    // authoritative External access batch; never a separate catalog RTT.
+    expect(f.metric.d1).toBe(2);
     expect(d.version).toBeUndefined();
     expect(d.runtimeCapabilities.atomicBatch).toBe(false);
     expect(d.fields[0].sourceFieldId).toBeUndefined();
@@ -905,6 +911,22 @@ describe("Space-local External Model framework", () => {
       (await f.request(`/api/v1/spaces/spc_other/_discovery/models/${f.model}`))
         .status,
     ).toBe(404);
+    expect(f.state.calls).toEqual([]);
+
+    // Provider configured globally, but no active binding in this Space.
+    const emptySpace = "spc_" + crypto.randomUUID().replaceAll("-", "");
+    const now = new Date().toISOString();
+    await f.db.batch([
+      f.db.prepare("INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)")
+        .bind(emptySpace,"Empty External catalog",f.user,now,now,"UTC"),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),emptySpace,f.user,"owner",now,now),
+    ]);
+    f.metric.d1 = 0;
+    const empty = await f.request(`/api/v1/spaces/${emptySpace}/_discovery`);
+    expect(empty.status).toBe(200);
+    expect(((await empty.json()) as any).data.models.some((m:any)=>m.origin==="external")).toBe(false);
+    expect(f.metric.d1).toBe(1);
     expect(f.state.calls).toEqual([]);
   });
 

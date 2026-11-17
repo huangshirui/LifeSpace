@@ -6,7 +6,7 @@ import type { Bindings } from "../src/env";
 import { getRuntimeModel } from "../src/model-registry";
 
 type TestEnv = { DB: D1Database };
-type Counter = { roundTrips: number; maxBindings: number };
+type Counter = { roundTrips: number; maxBindings: number; statements: number };
 const statementTargets = new WeakMap<object, D1PreparedStatement>();
 const MODEL_KEYS = ["task", "event", "day_record", "wish"] as const;
 const TEST_TIMEOUT_MS = 15_000;
@@ -24,6 +24,7 @@ function countedStatement(statement: D1PreparedStatement, counter: Counter): D1P
       if (property === "first" || property === "all" || property === "run" || property === "raw") {
         return (...args: unknown[]) => {
           counter.roundTrips += 1;
+          counter.statements += 1;
           const fn = (statement as unknown as Record<PropertyKey, (...values: unknown[]) => unknown>)[property];
           return fn.apply(statement, args);
         };
@@ -42,6 +43,7 @@ function countedDatabase(database: D1Database, counter: Counter): D1Database {
       if (property === "batch") {
         return (statements: D1PreparedStatement[]) => {
           counter.roundTrips += 1;
+          counter.statements += statements.length;
           return database.batch(statements.map((statement) => statementTargets.get(statement as unknown as object) ?? statement));
         };
       }
@@ -60,6 +62,7 @@ function countedDatabase(database: D1Database, counter: Counter): D1Database {
 function reset(counter: Counter): void {
   counter.roundTrips = 0;
   counter.maxBindings = 0;
+  counter.statements = 0;
 }
 
 function pem(label: "PRIVATE KEY" | "PUBLIC KEY", bytes: ArrayBuffer): string {
@@ -127,7 +130,7 @@ describe("#165 M3-S2 compact inventory performance", () => {
   it("de-duplicates heavy model semantics without increasing aggregate D1 shape or ordinary Runtime tax", async () => {
     const database = (env as unknown as TestEnv).DB;
     const keyPair = await keys();
-    const counter: Counter = { roundTrips: 0, maxBindings: 0 };
+    const counter: Counter = { roundTrips: 0, maxBindings: 0, statements: 0 };
     const DB = countedDatabase(database, counter);
     const bindings = { DB, IDENTITY_PUBLIC_KEY: keyPair.publicKey, ENVIRONMENT: "test" };
 
@@ -220,10 +223,41 @@ describe("#165 M3-S2 compact inventory performance", () => {
     expect(counter.roundTrips).toBe(fullTrips);
     expect(restrictedFullPayload.data.spaces.find(s=>s.spaceId===restrictedSpaces[0])?.models.find(m=>m.key==="task")).toBeUndefined();
     expect(restrictedFullPayload.data.spaces.find(s=>s.spaceId===restrictedSpaces[1])?.models.find(m=>m.key==="task")?.access).toEqual(["read"]);
+    reset(counter);
     const perSpace = await request(`/api/v1/spaces/${restrictedSpaces[0]}/_discovery`);
     expect(perSpace.status).toBe(200);
     const perSpacePayload = await perSpace.json() as {data:{models:Array<{key:string}>}};
     expect(perSpacePayload.data.models.some(m=>m.key==="task")).toBe(false);
+    // Direct User, warm registry, configured Provider but no local bindings:
+    // one current-state batch, 3 authority statements, fresh Registry and at most one External catalog.
+    expect(counter.roundTrips).toBe(1);
+    expect(counter.statements).toBeLessThanOrEqual(5);
+
+    const target = restrictedSpaces[1];
+    await database.batch([
+      database.prepare("UPDATE space_memberships SET deleted_at=? WHERE space_id=? AND user_id=?")
+        .bind(now,target,scenario.userId),
+      database.prepare(`INSERT INTO data_grants
+        (id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at)
+        VALUES(?,?,'user',?,'model','task','write',?,?)`)
+        .bind("grt_"+crypto.randomUUID().replaceAll("-",""),target,scenario.userId,scenario.userId,now),
+      database.prepare(`INSERT INTO model_access_ceilings
+        (space_id,entity_type,entity_id,model_key,max_access,created_by_user_id,updated_by_user_id,created_at,updated_at)
+        VALUES(?,'user',?,'event','none',?,?,?,?)`)
+        .bind(target,scenario.userId,scenario.userId,scenario.userId,now,now),
+    ]);
+    reset(counter);
+    const grantOnly = await request(`/api/v1/spaces/${target}/_discovery`);
+    expect(grantOnly.status).toBe(200);
+    const grantPayload = await grantOnly.json() as {data:{models:Array<{key:string;access:string[]}>}};
+    expect(grantPayload.data.models.map(m=>({key:m.key,access:m.access}))).toEqual([{key:"task",access:["read"]}]);
+    expect(counter.roundTrips).toBe(1);
+    expect(counter.statements).toBeLessThanOrEqual(5);
+    await database.prepare("DELETE FROM model_access_ceilings WHERE space_id=? AND entity_id=? AND model_key='task'")
+      .bind(target,scenario.userId).run();
+    const restored = await request(`/api/v1/spaces/${target}/_discovery`);
+    const restoredPayload = await restored.json() as {data:{models:Array<{key:string;access:string[]}>}};
+    expect(restoredPayload.data.models.find(m=>m.key==="task")?.access).toEqual(["read","write"]);
 
     console.info(`M3S2_COMPACT_INVENTORY ${JSON.stringify({
       scenario: "32-spaces-x-4-models",

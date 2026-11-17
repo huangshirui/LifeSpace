@@ -483,6 +483,47 @@ export async function getExternalModel(
   if (!includeDisabled && !hasExternalProviderRoute(env, source.provider_key)) return null;
   return rowModel(env, row, source, includeDisabled);
 }
+export type ExternalModelListRow = ExternalModelRow & {
+  credential_ref: string;
+  source_status: "active";
+  source_created_at: string;
+  source_updated_at: string;
+};
+
+// Shared current-state metadata query; callers may co-batch one bounded group
+// with other Discovery statements. No Provider business data is fetched here.
+export function prepareExternalModelList(
+  env: Bindings,
+  spaceIds: readonly string[],
+): D1PreparedStatement | null {
+  if (!spaceIds.length || !configuredExternalProviderKeys(env).length) return null;
+  if (spaceIds.length > 80) throw new Error("External Model list group exceeds 80 Spaces");
+  return env.DB.prepare(
+    `SELECT m.*,s.credential_ref,s.status source_status,s.created_at source_created_at,s.updated_at source_updated_at FROM external_models m JOIN external_sources s ON s.id=m.source_id WHERE m.space_id IN (${spaceIds.map(() => "?").join(",")}) AND m.status!='disabled' AND s.status='active'`,
+  ).bind(...spaceIds);
+}
+
+export async function hydrateExternalModelList(
+  env: Bindings,
+  rows: readonly ExternalModelListRow[],
+): Promise<ExternalModel[]> {
+  const items: ExternalModel[] = [];
+  for (const r of rows) {
+    if (!hasExternalProviderRoute(env, r.provider_key)) continue;
+    const model = await rowModel(env, r, {
+      id: r.source_id,
+      space_id: r.space_id,
+      provider_key: r.provider_key,
+      credential_ref: r.credential_ref,
+      status: r.source_status,
+      created_at: r.source_created_at,
+      updated_at: r.source_updated_at,
+    });
+    if (model) items.push(model);
+  }
+  return items;
+}
+
 export async function listExternalModels(
   env: Bindings,
   spaceIds: readonly string[],
@@ -490,32 +531,10 @@ export async function listExternalModels(
   if (!spaceIds.length || !configuredExternalProviderKeys(env).length) return [];
   const items: ExternalModel[] = [];
   for (let i = 0; i < spaceIds.length; i += 80) {
-    const group = spaceIds.slice(i, i + 80);
-    const rows = await env.DB.prepare(
-      `SELECT m.*,s.credential_ref,s.status source_status,s.created_at source_created_at,s.updated_at source_updated_at FROM external_models m JOIN external_sources s ON s.id=m.source_id WHERE m.space_id IN (${group.map(() => "?").join(",")}) AND m.status!='disabled' AND s.status='active'`,
-    )
-      .bind(...group)
-      .all<
-        ExternalModelRow & {
-          credential_ref: string;
-          source_status: "active";
-          source_created_at: string;
-          source_updated_at: string;
-        }
-      >();
-    for (const r of rows.results) {
-      if (!hasExternalProviderRoute(env, r.provider_key)) continue;
-      const model = await rowModel(env, r, {
-          id: r.source_id,
-          space_id: r.space_id,
-          provider_key: r.provider_key,
-          credential_ref: r.credential_ref,
-          status: r.source_status,
-          created_at: r.source_created_at,
-          updated_at: r.source_updated_at,
-        });
-      if (model) items.push(model);
-    }
+    const statement = prepareExternalModelList(env, spaceIds.slice(i, i + 80));
+    if (!statement) continue;
+    const rows = await statement.all<ExternalModelListRow>();
+    items.push(...await hydrateExternalModelList(env, rows.results));
   }
   return items;
 }
