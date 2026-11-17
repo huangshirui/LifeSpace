@@ -76,3 +76,5 @@ The Account Center requests `GET /api/session?include=login-email` once. Account
 ## 2026-11-17 · 空间管理完整子页候选 0.8.0（未部署）
 
 空间概览、成员、邀请、设置四个子页，支持 `#spaces/<spaceId>/<tab>` 导航；仅列当前成员空间，邀请页仅经理角色可用且按需加载。成员角色调整使用 membership version，移除复用 Core 无 version 的生命周期，不能操作 Owner 或以 Account 绕过 Core。邀请角色/期限/次数受 Core 上限约束，完整邀请码只在创建响应/弹窗中显示一次，列表仅前缀；撤销不踢出已加入成员。头像沿用 Core multipart file/version，白名单同环境 Core 资产 URL；无新 Scope 或存储。新管理操作使用弹窗，权限和版本错误须刷新，不自动重试。HomeMew 保留现状。
+
+空间创建/加入也收敛为独立弹窗；无权访问的深链接保留明确不可用提示，不自动跳到其他 Space。实际 UI 路由、权限和邀请明文生命周期由浏览器控制器测试覆盖；生产体验仍需人工验收。

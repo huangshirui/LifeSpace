@@ -104,3 +104,10 @@ test("Space management has four real subpages and dedicated operation dialogs",(
   assert.ok(js.includes('confirmInviteId:item.id'));
   assert.ok(js.includes('spaceHash(id,tab)'));
 });
+
+test("Create and join use dedicated dialogs, not inline forms",()=>{
+  assert.match(html,/<dialog id="space-create-dialog"[^>]*><form id="space-create-form">/u);
+  assert.match(html,/<dialog id="space-join-dialog"[^>]*><form id="space-invite-form">/u);
+  assert.ok(js.includes('$("space-create-dialog").showModal()'));
+  assert.ok(js.includes('$("space-join-dialog").showModal()'));
+});

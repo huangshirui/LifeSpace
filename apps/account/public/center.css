@@ -205,3 +205,5 @@ dialog p{font-size:14px;line-height:1.7;color:#61758b}
 .space-section-tab{border:0;background:none;color:#61758b;padding:10px 12px;font:inherit;cursor:pointer;border-bottom:2px solid transparent}
 .space-section-tab[aria-current="page"]{color:#254a84;border-bottom-color:#254a84;font-weight:700}
 .space-section-content{min-width:0}.space-section-content>.member-list{margin-top:12px}
+
+#space-create-dialog,#space-join-dialog,#space-operation-dialog,#space-settings-dialog{max-height:calc(100dvh - 32px);overflow:auto;box-sizing:border-box}

@@ -108,20 +108,6 @@
           </div>
         </div>
         <div id="space-action-status" class="action-status" role="status" hidden></div>
-        <form id="space-create-form" class="surface action-form" hidden>
-          <h2>创建空间</h2>
-          <p class="inline-note">HomeMew 家庭请在 HomeMew 内创建。</p>
-          <div class="form-grid"><label>空间名称<input id="space-name-input" type="text" maxlength="100" required placeholder="例如：我的项目"></label>
-            <label>时区<select id="space-zone-input"><option value="Asia/Shanghai">上海 · UTC+8</option><option value="America/Los_Angeles">洛杉矶 · 太平洋时间</option><option value="UTC">UTC</option></select></label></div>
-          <div class="form-actions"><button type="button" id="space-create-cancel" class="button">取消</button><button type="submit" class="button primary">创建</button></div>
-        </form>
-        <form id="space-invite-form" class="surface action-form" hidden>
-          <h2>通过邀请加入空间</h2>
-          <div class="form-grid"><label>邀请码<input id="space-invite-input" type="text" maxlength="256" required placeholder="输入收到的邀请码" autocomplete="off"></label>
-            <button type="submit" class="button primary form-verify">验证邀请码</button></div>
-          <div id="space-invite-preview" class="invite-preview" role="status" hidden></div>
-          <div class="form-actions"><button type="button" id="space-invite-cancel" class="button">取消</button><button type="button" id="space-join-confirm" class="button primary" hidden>确认加入</button></div>
-        </form>
         <div class="space-grid">
           <div class="surface space-list-card"><div class="panel-header"><h2>已加入的空间</h2><button class="button subtle compact" type="button" id="refresh-spaces"><svg class="icon"><use href="#i-refresh-cw"/></svg>刷新</button></div>
             <div id="space-list" class="space-list"><p class="placeholder">正在读取…</p></div>
@@ -170,19 +156,33 @@
     </div>
   </main>
 </div>
+        <dialog id="space-create-dialog" aria-labelledby="space-create-heading"><form id="space-create-form">
+          <h2 id="space-create-heading">创建空间</h2>
+          <p class="inline-note">HomeMew 家庭请在 HomeMew 内创建。</p>
+          <div class="space-settings-fields"><label>空间名称<input id="space-name-input" type="text" maxlength="100" required placeholder="例如：我的项目"></label>
+            <label>时区<select id="space-zone-input"><option value="Asia/Shanghai">上海 · UTC+8</option><option value="America/Los_Angeles">洛杉矶 · 太平洋时间</option><option value="UTC">UTC</option></select></label></div>
+          <p id="space-create-error" class="dialog-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" id="space-create-cancel" class="button">取消</button><button type="submit" class="button primary">创建</button></div>
+        </form></dialog>
+<dialog id="space-join-dialog" aria-labelledby="space-join-heading"><form id="space-invite-form">
+          <h2 id="space-join-heading">通过邀请加入空间</h2>
+          <div class="space-settings-fields"><label>邀请码<input id="space-invite-input" type="text" maxlength="256" required placeholder="输入收到的邀请码" autocomplete="off"></label>
+            <button type="submit" class="button primary form-verify">验证邀请码</button></div>
+          <div id="space-invite-preview" class="invite-preview" role="status" hidden></div>
+          <p id="space-join-error" class="dialog-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" id="space-invite-cancel" class="button">取消</button><button type="button" id="space-join-confirm" class="button primary" hidden>确认加入</button></div>
+        </form></dialog>
 <dialog id="space-operation-dialog" aria-labelledby="space-operation-title">
   <h2 id="space-operation-title">空间管理</h2><p id="space-operation-context"></p>
   <form id="space-operation-form">
     <div class="space-settings-fields">
       <label id="space-operation-role-field" hidden>角色<select id="space-operation-role"><option value="viewer">查看者</option><option value="editor">编辑者</option><option value="admin">管理员</option></select></label>
       <div id="space-operation-invite-fields" class="space-settings-fields" hidden>
-        <label>有效分钟数（1–43200）<input id="space-operation-minutes" type="number" min="1" max="43200" step="1"></label>
+        <label>有效期<select id="space-operation-minutes"><option value="60">1 小时</option><option value="1440" selected>24 小时</option><option value="10080">7 天</option><option value="43200">30 天</option></select></label>
         <label>可使用次数（1–100）<input id="space-operation-uses" type="number" min="1" max="100" step="1"></label>
       </div>
       <label id="space-operation-avatar-field" hidden>选择头像<input id="space-operation-file" type="file" accept="image/jpeg,image/png,image/webp"></label>
     </div>
     <p id="space-operation-warning"></p>
-    <div id="space-operation-result" class="space-settings-fields" hidden><label>邀请码（仅显示一次）<input id="space-operation-code" type="text" readonly autocomplete="off"></label></div>
+    <div id="space-operation-result" class="space-settings-fields" hidden><label>邀请码（仅显示一次）<input id="space-operation-code" type="text" readonly autocomplete="off"></label><button id="space-operation-copy" type="button" class="button">复制邀请码</button><p id="space-operation-copy-status" role="status"></p></div>
     <p id="space-operation-error" class="dialog-error" role="alert" hidden></p>
     <div class="dialog-actions"><button id="space-operation-cancel" type="button" class="button">取消</button><button id="space-operation-save" type="submit" class="button primary">保存</button></div>
   </form>
