@@ -116,6 +116,11 @@ jobs:
           node --check infra/scripts/verify-staging-external-self-service.mjs
           node --check infra/scripts/verify-staging-file-uploads.mjs
 
+      - name: Verify fixed Staging Eventing receiver before mutation
+        env:
+          EVENTING_SMOKE_CONTROL_SECRET: ${{ secrets.EVENTING_SMOKE_CONTROL_SECRET }}
+        run: node infra/scripts/eventing-smoke-receiver-client.mjs
+
       - name: Validate External provider prerequisites before mutation
         run: node infra/scripts/external-provider-deployment.mjs prepare staging
 
@@ -269,9 +274,15 @@ jobs:
         run: node infra/scripts/verify-staging-platform-golden-flow.mjs
 
       - name: Verify real Eventing outbox/Queue/Webhook
+        id: eventing_positive
+        env:
+          EVENTING_SMOKE_CONTROL_SECRET: ${{ secrets.EVENTING_SMOKE_CONTROL_SECRET }}
         run: node infra/scripts/verify-staging-eventing.mjs
 
       - name: Verify Eventing disabled-subscriber revocation boundary
+        # Execute the independent security check even if positive transport failed.
+        # A skipped earlier deployment or cancelled run must not execute this step.
+        if: ${{ !cancelled() && (steps.eventing_positive.outcome == 'success' || steps.eventing_positive.outcome == 'failure') }}
         run: node infra/scripts/verify-staging-eventing-principal-revocation.mjs
 
       # Non-APAC GitHub-runner HTTP timing is diagnostic-only. The production

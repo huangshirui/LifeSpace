@@ -1,10 +1,9 @@
 import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import process from "node:process";
+import { receiverClient } from "./eventing-smoke-receiver-client.mjs";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
-const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? "";
-const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 const applicationId = process.env.LIFESPACE_STAGING_SMOKE_APPLICATION_ID ?? "";
 const applicationSecret = process.env.LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET ?? "";
 const userId = process.env.LIFESPACE_STAGING_SMOKE_USER_ID ?? "";
@@ -13,13 +12,9 @@ const personId = process.env.LIFESPACE_STAGING_PERSON_ID ?? "";
 const runId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-z_-]/gu, "_");
 const runAttempt = (process.env.GITHUB_RUN_ATTEMPT ?? "1").replace(/[^0-9A-Za-z_-]/gu, "_");
 const suffix = `${runId}_${runAttempt}`.replace(/[^0-9A-Za-z]/gu, "").slice(-12).toLowerCase();
-const workerName = `lifespace-eventing-smoke-${suffix}`.slice(0, 63);
-const sinkHostname = `eventing-smoke-staging-${suffix}.aisr.online`;
-const sinkBase = `https://${sinkHostname}`;
+const receiver = receiverClient();
 
 for (const [name, value] of Object.entries({
-  CLOUDFLARE_API_TOKEN: apiToken,
-  CLOUDFLARE_ACCOUNT_ID: accountId,
   LIFESPACE_STAGING_SMOKE_APPLICATION_ID: applicationId,
   LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET: applicationSecret,
   LIFESPACE_STAGING_SMOKE_USER_ID: userId,
@@ -28,87 +23,6 @@ for (const [name, value] of Object.entries({
 })) {
   if (!value) throw new Error(`${name} is required`);
 }
-
-const sinkSource = String.raw`
-const encoder = new TextEncoder();
-
-function hex(bytes) {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function sameText(left, right) {
-  if (left.length !== right.length) return false;
-  let diff = 0;
-  for (let index = 0; index < left.length; index += 1) diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
-  return diff === 0;
-}
-
-async function expectedSignature(secret, timestamp, rawBody) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signed = await crypto.subtle.sign("HMAC", key, encoder.encode(timestamp + "." + rawBody));
-  return "v1=" + hex(new Uint8Array(signed));
-}
-
-function exactKeys(value, expected) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  return actual.length === wanted.length && actual.every((entry, index) => entry === wanted[index]);
-}
-
-function bad(message, status = 400) {
-  return new Response(message, { status });
-}
-
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") return new Response("ok");
-    if (request.method === "GET" && url.pathname === "/ready") {
-      return env.EVENTING_SIGNING_SECRET ? new Response("ready") : new Response("secret missing", { status: 503 });
-    }
-    if (request.method !== "POST" || url.pathname !== "/webhook") return new Response("not found", { status: 404 });
-    if (!env.EVENTING_SIGNING_SECRET) return bad("secret missing", 503);
-
-    const timestamp = request.headers.get("x-lifespace-timestamp") || "";
-    const supplied = request.headers.get("x-lifespace-signature") || "";
-    const timestampNumber = Number(timestamp);
-    if (!Number.isInteger(timestampNumber) || Math.abs(Math.floor(Date.now() / 1000) - timestampNumber) > 300) {
-      return bad("timestamp invalid", 401);
-    }
-
-    const rawBody = await request.text();
-    const expected = await expectedSignature(env.EVENTING_SIGNING_SECRET, timestamp, rawBody);
-    if (!sameText(expected, supplied)) return bad("signature invalid", 401);
-
-    let payload;
-    try { payload = JSON.parse(rawBody); }
-    catch { return bad("body invalid"); }
-
-    if (request.headers.get("x-lifespace-test") === "true") {
-      if (!exactKeys(payload, ["id", "type", "endpointId", "spaceId", "subscriberServicePrincipalId", "occurredAt"])) return bad("test payload is not reference-only");
-      if (payload.type !== "endpoint.test") return bad("test payload semantics invalid");
-      if (request.headers.get("x-lifespace-webhook-endpoint-id") !== payload.endpointId) return bad("test endpoint header mismatch");
-      return new Response(null, { status: 204 });
-    }
-
-    if (!exactKeys(payload, ["id", "type", "spaceId", "modelKey", "recordId", "recordVersion", "changeId", "occurredAt"])) return bad("domain payload is not reference-only");
-    if (payload.type !== "record.created" || payload.modelKey !== "event") return bad("domain payload semantics invalid");
-    if (!Number.isInteger(payload.recordVersion) || payload.recordVersion < 1) return bad("record version invalid");
-    if (typeof payload.changeId !== "string" || !payload.changeId.startsWith("chg_")) return bad("governed Change reference invalid");
-    if (request.headers.get("x-lifespace-event-id") !== payload.id) return bad("event header mismatch");
-    if (!request.headers.get("x-lifespace-delivery-id") || !request.headers.get("x-lifespace-webhook-endpoint-id") || !request.headers.get("x-lifespace-subscription-id")) return bad("delivery headers missing");
-    return new Response(null, { status: 204 });
-  },
-};
-`;
-
 
 async function readResponse(response) {
   const raw = await response.text();
@@ -130,36 +44,6 @@ async function request(base, path, { method = "GET", bearer, body } = {}) {
   return { response, payload: await readResponse(response) };
 }
 
-async function cf(path, { method = "GET", body, form } = {}) {
-  const attempts = 4;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const headers = { Authorization: `Bearer ${apiToken}` };
-    let requestBody;
-    if (form) requestBody = form;
-    else if (body !== undefined) {
-      headers["content-type"] = "application/json";
-      requestBody = JSON.stringify(body);
-    }
-
-    const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, { method, headers, body: requestBody });
-    const payload = await readResponse(response);
-    if (response.ok && payload?.success !== false) return payload?.result;
-
-    const retryable = response.status === 429 || response.status >= 500;
-    if (!retryable || attempt === attempts) {
-      throw new Error(`Cloudflare ${method} request failed (HTTP ${response.status})`);
-    }
-
-    const retryAfterSeconds = Number(response.headers.get("retry-after"));
-    const delayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-      ? Math.min(retryAfterSeconds * 1000, 10_000)
-      : attempt * 2000;
-    console.warn(`Cloudflare request returned HTTP ${response.status}; retrying in ${delayMs}ms (${attempt}/${attempts})`);
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-  throw new Error("Cloudflare request retry loop exited unexpectedly");
-}
-
 async function poll(label, action, predicate, { attempts = 50, delayMs = 3000 } = {}) {
   let last;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -171,7 +55,8 @@ async function poll(label, action, predicate, { attempts = 50, delayMs = 3000 } 
     }
     if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  const detail = last?.response ? `HTTP ${last.response.status}` : "no response";
+  const code = last?.error?.cause?.code ?? last?.error?.name;
+  const detail = last?.response ? `HTTP ${last.response.status}` : `no response (${/^[A-Za-z0-9_]{1,60}$/u.test(code??"")?code:"unknown"})`;
   throw new Error(`${label} did not converge: ${detail}`);
 }
 
@@ -182,43 +67,7 @@ async function expectStatus(label, result, expectedStatus, expectedCode = null) 
   return result.payload?.data;
 }
 
-let workerCreated = false;
-let customDomainAttached = false;
-
-async function deploySink(signingSecret) {
-  const form = new FormData();
-  form.set("metadata", new File([
-    JSON.stringify({
-      main_module: "worker.mjs",
-      compatibility_date: "2026-08-08",
-      bindings: [{ type: "secret_text", name: "EVENTING_SIGNING_SECRET", text: signingSecret }],
-    }),
-  ], "metadata.json", { type: "application/json" }));
-  form.set("worker.mjs", new File([sinkSource], "worker.mjs", { type: "application/javascript+module" }));
-  await cf(`/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}`, { method: "PUT", form });
-  workerCreated = true;
-
-  const existing = await cf(`/accounts/${accountId}/workers/domains`);
-  const current = (existing ?? []).find((item) => item.hostname === sinkHostname);
-  if (current && current.service !== workerName) {
-    throw new Error(`Staging Eventing smoke hostname ${sinkHostname} is already attached to ${current.service}`);
-  }
-  if (!current) {
-    await cf(`/accounts/${accountId}/workers/domains`, {
-      method: "PUT",
-      body: { hostname: sinkHostname, service: workerName, zone_name: "aisr.online" },
-    });
-  }
-  customDomainAttached = true;
-}
-
-async function detachSinkDomain() {
-  const domains = await cf(`/accounts/${accountId}/workers/domains`);
-  const current = (domains ?? []).find((item) => item.hostname === sinkHostname && item.service === workerName);
-  if (current) {
-    await cf(`/accounts/${accountId}/workers/domains/${encodeURIComponent(current.id)}`, { method: "DELETE" });
-  }
-}
+let sessionAttempted = false;
 
 let managerBearer = "";
 let subscriberPrincipalId = "";
@@ -275,7 +124,8 @@ try {
   subscriberPrincipalId = principalData?.id ?? "";
   if (!subscriberPrincipalId) throw new Error("Staging Eventing subscriber principal ID was not returned");
 
-  const webhookUrl = `${sinkBase}/webhook`;
+  await receiver.ready();
+  const webhookUrl = receiver.url;
   const endpoint = await request(coreBase, "/api/v1/webhook-endpoints", {
     method: "POST",
     bearer: managerBearer,
@@ -351,16 +201,11 @@ try {
     throw new Error("Staging Eventing subscription filter was not listed under its Webhook Endpoint");
   }
 
-  await deploySink(signingSecret);
-  await poll(
-    "staging Eventing Custom Domain receiver readiness",
-    async () => {
-      const response = await fetch(`${sinkBase}/ready`);
-      return { response, payload: await response.text() };
-    },
-    ({ response }) => response.status === 200,
-    { attempts: 60, delayMs: 2000 },
-  );
+  // Attempt cleanup even if registration response is lost.
+  sessionAttempted = true;
+  await receiver.create({signingSecret,spaceId,endpointId,subscriptionId,subscriberServicePrincipalId});
+  const initialReceipts = await receiver.receipts();
+  if (initialReceipts.testCount!==0 || initialReceipts.receipts.length!==0) throw Error("Fresh receiver session is not empty");
 
   const testSend = await request(coreBase, `/api/v1/webhook-endpoints/${encodeURIComponent(endpointId)}/test`, {
     method: "POST",
@@ -371,6 +216,8 @@ try {
   if (testData?.ok !== true || testData?.statusCode !== 204) {
     throw new Error(`Staging Webhook Endpoint test sink rejected the signed request (HTTP ${Number.isInteger(testData?.statusCode) ? testData.statusCode : "unknown"})`);
   }
+
+  if ((await receiver.receipts()).testCount!==1) throw Error("Signed endpoint test receipt missing");
 
   const start = new Date(Date.now() + 60 * 60 * 1000);
   const end = new Date(start.getTime() + 30 * 60 * 1000);
@@ -400,6 +247,12 @@ try {
   );
   const delivery = deliveryPoll.payload.data.items.find((item) => item.recordId === eventId && item.modelKey === "event" && item.eventType === "record.created");
 
+  const received = await receiver.receipts();
+  const receipt = received.receipts.find(item =>
+    item.deliveryId===delivery.id && item.eventId===delivery.eventId && item.recordId===eventId
+    && item.recordVersion===eventVersion && item.changeId===delivery.changeId);
+  if (!receipt || received.receipts.length!==1 || delivery.recordVersion!==eventVersion) throw Error("Real delivery 204 has no unique matching receiver receipt");
+
   const revoked = await request(coreBase, `/api/v1/spaces/${encodeURIComponent(spaceId)}/grants/${encodeURIComponent(grantId)}`, {
     method: "DELETE",
     bearer: managerBearer,
@@ -424,10 +277,13 @@ try {
     throw new Error("Webhook Endpoint transport/signature test should remain independent from model Data Grant state");
   }
 
+  const finalReceipts=await receiver.receipts();
+  if (finalReceipts.testCount!==2 || finalReceipts.receipts.length!==1) throw Error("Signed post-revocation test receipt mismatch");
+
   verification = {
     ok: true,
-    worker: workerName,
-    customDomain: sinkHostname,
+    receiver: "persistent-staging-https",
+    receiverSession: receiver.sessionId,
     subscriberServicePrincipalId: subscriberPrincipalId,
     endpointId,
     subscriptionId,
@@ -488,14 +344,7 @@ try {
       if (![200, 404].includes(result.response.status)) throw new Error(`HTTP ${result.response.status}`);
     });
   }
-  if (customDomainAttached) {
-    await cleanup("temporary staging Custom Domain detach", detachSinkDomain);
-  }
-  if (workerCreated) {
-    await cleanup("temporary Eventing sink Worker delete", async () => {
-      await cf(`/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}`, { method: "DELETE" });
-    });
-  }
+  if (sessionAttempted) await cleanup("receiver session delete", () => receiver.remove());
 }
 
 if (primaryError) {
@@ -504,4 +353,4 @@ if (primaryError) {
 }
 if (cleanupErrors.length) throw new Error(`Staging Eventing smoke cleanup failed: ${cleanupErrors.join(" | ")}`);
 
-console.log(JSON.stringify({ ...verification, cleanup: { temporaryCustomDomainDetached: true, temporarySinkDeleted: true, subscriberDisabled: true, applicationScopeRestored: true } }, null, 2));
+console.log(JSON.stringify({ ...verification, cleanup: { receiverSessionDeleted: true, subscriberDisabled: true, applicationScopeRestored: true } }, null, 2));
