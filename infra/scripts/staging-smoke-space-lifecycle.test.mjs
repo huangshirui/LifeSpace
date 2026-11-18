@@ -43,3 +43,16 @@ test("already absent is non-mutating, and version conflict never retries close",
  await assert.rejects(closeCreatedSmokeSpace(input,conflict.request),/HTTP 204/u);
  assert.equal(conflict.calls.filter(x=>x.path.endsWith("/close")).length,1);
 });
+
+test("isolated Eventing fixture requires its exact run name and never closes the shared Space",async()=>{
+ const shared="spc_"+"b".repeat(32);
+ const eventing={...input,purpose:"eventing",sharedSpaceId:shared};
+ const f=fixture({space:{name:"LifeSpace staging smoke 123_2 Eventing"}});
+ assert.equal(await closeCreatedSmokeSpace(eventing,f.request),"closed");
+ const wrongName=fixture();
+ await assert.rejects(closeCreatedSmokeSpace(eventing,wrongName.request),/provenance/u);
+ assert.ok(!wrongName.calls.some(x=>x.path.endsWith("/close")));
+ const alias=fixture();
+ await assert.rejects(closeCreatedSmokeSpace({...eventing,sharedSpaceId:id},alias.request),/differ from shared/u);
+ assert.equal(alias.calls.length,0);
+});
