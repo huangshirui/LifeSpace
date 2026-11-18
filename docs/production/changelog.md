@@ -2,6 +2,25 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-11-18 (UTC+8) — Core Singapore Placement、D1 优化与分层性能验收（Production #44244215052）
+
+- **Verified release:** `fce1d434a1f3ed620e69158b1c434e4aeb5ba190`; [Staging #44242292198](https://github.com/huangshirui/LifeSpace/actions/runs/44242292198), [Production #44244215052](https://github.com/huangshirui/LifeSpace/actions/runs/44244215052) all three jobs passed. Core 0.55.0/schema82, Identity 0.19.0/schema20, unchanged 19 models / `mct_143d1f71246161628208ae657ef4a73b1c20fe4714384bc2e2e22d886fda1b56`.
+- **D1:** #599 bounded Delegation-chain reads, #600 endpoint Webhook history (schema82), #601 OAuth Client reference indexes (schema20). Preserve live authorization and query semantics. No measured production daily savings asserted.
+- **Placement:** both Core environments target Singapore; both Identity environments Smart. Actual production settings and isolation verified. No D1/R2/Queue migration or read-replica changes. Owner-approved #625.
+- **Acceptance:** #623 layered relative cost and unchanged absolute thresholds; canonical APAC gate on staging passed directly, 356/282/324 observations, 324/324 matched telemetry, zero transport failures and cleanup warnings. Endpoint P90 inherit/read GET120/75, List147/76, Discovery70/76 ms; attributable P90 .6/.6, .6/.5, 2.2/1.9 ms. Discovery has no absolute target. #618/#621 test fixture isolation and closure evidence validated by canonical Staging; production subscription semantics unchanged.
+- **No new user-visible capability beyond the prior V1 release:** deployment adds performance/storage indexes and placement, no ordinary model version change. #607 Account Space-management code not independently released by platform workflow. #615/#617 transport reliability, #613 load/cleanup, #618 subscription creation-time policy, #580/#499 actual OAuth acceptance remain separate. No claim of Shanghai access reliability or global latency improvement.
+
+---
+
+## 2026-11-17 (UTC+8) — V1 Model Access Ceiling、D1 成本控制与账户去重（Production #44015053875）
+
+- **Verified release:** `5da9a06a9c54b15985c6a7007c7e10ac71ec00b4`; [Staging #44011515055](https://github.com/huangshirui/LifeSpace/actions/runs/44011515055), [Production #44015053875](https://github.com/huangshirui/LifeSpace/actions/runs/44015053875), [Account #44019995766](https://github.com/huangshirui/LifeSpace/actions/runs/44019995766), [Console #44020015527](https://github.com/huangshirui/LifeSpace/actions/runs/44020015527) succeeded at same SHA. Core 0.55.0/schema81, Identity 0.19.0/schema19; unchanged active Model Contract.
+- **Added:** #590 V1 member Model Access Ceiling (schema80), Space × User × Model current constraint, no new grant; Native/External unified; Owner exempt, non-User independent roots unchanged; Person Directory and Space governance out of scope. Staging direct/represented and revocation acceptance verified; administrator remains trusted governance. Owner confirmed manual UI acceptance per #602.
+- **Performance:** #591 generic relation filter scan amplification repair, #594 independent scheduled cadence/pending indexes (schema81), #589 co-batched Discovery state. No weakened live authority; no proven daily quota elimination.
+- **Account:** #596 duplicate External Connection card race repair in independently deployed Account. Prior production capabilities and secret safety retained. Subsequent #44065939188 was blocked before production mutation, then resolved by 11-18 exact candidate release.
+
+---
+
 ## 2026-11-14 (UTC+8) — Activity v3、CIMD freshness、Person Consent / OAuth 生产恢复
 
 - **Verified releases:** Platform [#43595262721](https://github.com/huangshirui/LifeSpace/actions/runs/43595262721) at `542c0b052b7fbc620eab05e0e84c4254fca02149`, then Platform [#43605536269](https://github.com/huangshirui/LifeSpace/actions/runs/43605536269) and Account [#43606678174](https://github.com/huangshirui/LifeSpace/actions/runs/43606678174) at `95c3fb5d4d40a88cf68f9e32a65aedb9c4dfa159`; exact-candidate Staging [#43603770149](https://github.com/huangshirui/LifeSpace/actions/runs/43603770149) / [#43605033109](https://github.com/huangshirui/LifeSpace/actions/runs/43605033109), APAC and Production gates successful.
