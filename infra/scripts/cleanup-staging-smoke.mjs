@@ -107,6 +107,27 @@ try {
   warnings.push("Run-created Space retirement failed: " + (error instanceof Error ? error.message : "unknown error"));
 }
 
+// A closed Space correctly denies ordinary owner reads. For the exact
+// run-created Eventing fixture only, read the authoritative lifecycle audit;
+// never interpret 403/404 alone as successful cleanup or mutate D1 directly.
+async function readEventingClosureEvidence({spaceId, expectedName, ownerId}) {
+  const entries = await executeStagingD1Sql({ cwd: CORE_DIR, attempts: 3, delayMs: 10000,
+    sql: `SELECT s.id,s.name,s.deleted_at AS deletedAt,s.version,
+      e.occurred_at AS closedAt,e.actor_user_id AS actorUserId,
+      (SELECT count(*) FROM space_lifecycle_events l WHERE l.space_id=s.id AND l.event_type='closed') AS closeCount,
+      (SELECT count(*) FROM space_memberships m WHERE m.space_id=s.id AND m.deleted_at IS NULL) AS activeMembers,
+      (SELECT count(*) FROM data_grants g WHERE g.source_space_id=s.id AND g.revoked_at IS NULL) AS activeGrants
+      FROM spaces s JOIN space_lifecycle_events e ON e.space_id=s.id AND e.event_type='closed'
+      WHERE s.id=${sqlString(spaceId)} AND s.name=${sqlString(expectedName)}
+        AND e.actor_user_id=${sqlString(ownerId)} AND s.deleted_at IS NOT NULL
+        AND e.occurred_at=s.deleted_at`,
+  });
+  if (entries.length !== 1 || entries[0]?.success !== true || !Array.isArray(entries[0].results)) {
+    throw new Error("Eventing Space closure audit query failed");
+  }
+  return entries[0].results;
+}
+
 // Independent Eventing fixture marker must never alias the shared Space.
 // Retire before disabling the original run-owned Application.
 try {
@@ -116,7 +137,7 @@ try {
     ownerId:process.env.LIFESPACE_STAGING_SMOKE_USER_ID,userBearer,
     runId:process.env.GITHUB_RUN_ID,runAttempt:process.env.GITHUB_RUN_ATTEMPT,
     purpose:"eventing",sharedSpaceId:spaceId,
-  },coreRequest);
+  },coreRequest,{readClosureEvidence:readEventingClosureEvidence});
 } catch(error) {
   warnings.push("Eventing Space retirement failed: "+(error instanceof Error?error.message:"unknown error"));
 }
