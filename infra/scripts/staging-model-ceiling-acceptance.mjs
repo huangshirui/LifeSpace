@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import { summarize } from "./staging-canonical-performance-benchmark.mjs";
 import { USER_READ_TARGETS, targetMet } from "./performance-release-targets.mjs";
+import { readCeilingTelemetry, pairCeilingTelemetry } from "./ceiling-performance-evidence.mjs";
 
 /** Only the existing run-created staging fixture and its verified principals.
  * Never accept an arbitrary Space, reuse a real family, or mutate production. */
@@ -154,13 +155,16 @@ export function compareCeilingSamples(inherit,read,expected=45) {
 
 /** Fixed balanced 3×15 blocks, 3 warmups per phase, 45 retained samples per
  * scenario/state. Compare the same Editor on the same candidate and data.
- * Absolute existing Task targets remain unchanged. This measures row-hit
- * overhead, not the before/after deployment difference (separate baseline). */
-export async function runCeilingApacAcceptance(env,request,fetchImpl=fetch){
+ * Absolute existing Task targets remain unchanged; the relative threshold
+ * applies to attributable authority work, not unrelated transport/D1 wait.
+ * All raw observations remain evidence. */
+export async function runCeilingApacAcceptance(env,request,fetchImpl=fetch,readEvidence=readCeilingTelemetry){
   const f=await ceilingFixture(env,fetchImpl);
   const rows=[];
   let configured=false;
   const samples={taskGet:{inherit:[],read:[]},taskList10:{inherit:[],read:[]},discovery:{inherit:[],read:[]}};
+  const requests=[];
+  const startedAt=Date.now();
   try{
     for(let i=0;i<10;i++)rows.push(await f.call(f.records,f.owner,201,{method:"POST",body:{name:"Ceiling APAC "+f.suffix+" "+i}}));
     const routes={taskGet:f.records+"/"+rows[0].id,taskList10:f.records+"?limit=10",discovery:f.base+"/_discovery"};
@@ -175,6 +179,7 @@ export async function runCeilingApacAcceptance(env,request,fetchImpl=fetch){
       }
       assert.ok(Number.isFinite(result.elapsedMs)&&result.elapsedMs>=0);
       if(retain)samples[scenario][mode].push(result.elapsedMs);
+      requests.push({id:result.coreRequestId,mode,scenario,path,retained:retain,elapsedMs:result.elapsedMs});
     };
     for(let round=0;round<3;round++){
       for(const mode of (round===1?["read","inherit"]:["inherit","read"])){
@@ -187,14 +192,30 @@ export async function runCeilingApacAcceptance(env,request,fetchImpl=fetch){
         }
       }
     }
-    const outcomes=Object.fromEntries(Object.entries(samples).map(([scenario,{inherit,read}])=>{
+    const endpoints=Object.fromEntries(Object.entries(samples).map(([scenario,{inherit,read}])=>{
       const compared=compareCeilingSamples(inherit,read);
       const target=USER_READ_TARGETS[scenario];
       return [scenario,{...compared,absoluteMet:target?targetMet(compared.inherit,target)&&targetMet(compared.read,target):null}];
     }));
-    const passed=Object.values(outcomes).every(result=>result.relativeMet&&result.absoluteMet!==false);
-    console.log(JSON.stringify({MODEL_CEILING_APAC:passed?"passed":"blocked",comparison:"same-candidate Editor inherit vs read",outcomes,
+    // Emit all raw timings even when evidence is missing or malformed.
+    console.log(JSON.stringify({MODEL_CEILING_ENDPOINT_EVIDENCE:endpoints,
       diagnostics:request.diagnostics?.()??[]},null,2));
+    const evidence=pairCeilingTelemetry(requests,await readEvidence(env,{requests,startedAt,endedAt:Date.now()}));
+    const outcomes=Object.fromEntries(Object.entries(endpoints).map(([scenario,endpoint])=>{
+      const retained=evidence.filter(x=>x.retained&&x.scenario===scenario);
+      const modes=Object.fromEntries(["inherit","read"].map(mode=>[mode,retained.filter(x=>x.mode===mode)]));
+      const relative=key=>compareCeilingSamples(modes.inherit.map(x=>x[key]),modes.read.map(x=>x[key]));
+      const attributable=relative("attributableMs");
+      const sql=relative("d1SqlMs");
+      const maxStatements=mode=>Math.max(...modes[mode].map(x=>x.statements));
+      const ioMet=maxStatements("read")<=maxStatements("inherit");
+      return [scenario,{endpoint,attributable,sql,authorityWall:relative("authorityMs"),
+        d1Wait:relative("d1WaitMs"),core:relative("coreMs"),maxStatements:{inherit:maxStatements("inherit"),read:maxStatements("read")},
+        ioMet,relativeMet:attributable.relativeMet&&sql.relativeMet&&ioMet,absoluteMet:endpoint.absoluteMet}];
+    }));
+    const passed=Object.values(outcomes).every(result=>result.relativeMet&&result.absoluteMet!==false);
+    console.log(JSON.stringify({MODEL_CEILING_APAC:passed?"passed":"blocked",comparison:"same-candidate Editor inherit vs read; attributable authority phase and SQL",
+      outcomes,evidence,diagnostics:request.diagnostics?.()??[]},null,2));
     if(!passed)throw new Error("Model ceiling APAC comparison blocked: investigate matched samples; do not weaken existing gates");
   }finally{
     const errors=[];

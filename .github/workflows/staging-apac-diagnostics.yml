@@ -21,6 +21,7 @@ jobs:
     environment: staging
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      LIFESPACE_APAC_OBSERVABILITY_TOKEN: ${{ secrets.LIFESPACE_APAC_OBSERVABILITY_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       LIFESPACE_STAGING_BOOTSTRAP_SECRET: ${{ secrets.LIFESPACE_STAGING_BOOTSTRAP_SECRET }}
       LIFESPACE_CORE_STAGING_URL: https://core-staging.aisr.online
@@ -180,6 +181,7 @@ jobs:
           - Readiness: both \`/health\` and the real \`POST /run -> Core\` read path must converge before timed samples start.
           - Benchmark profile: \`apac\`, acceptance eligible.
           - Narrow P90 gray zone (P50 passes; P90 <= 110% of limit): only the failed credential/scenario receives two independent 45-sample batches; combined 135-sample P50/P90 and 2/3 rounds must meet unchanged targets. Every sample counts.
+          - Model Ceiling: all endpoint samples and absolute targets retained; relative gate uses paired attributable authority/SQL phases, missing evidence blocks.
           - User JWT ordinary-read target: P50 <= 150 ms and P90 <= 250 ms.
           - User JWT Day Record / Temporal read target: P50 <= 220 ms and P90 <= 300 ms.
           - User JWT mutation/action target: P50 <= 160 ms and P90 <= 250 ms, measured with 45 samples per mutation scenario (45 for reads too).

@@ -7,6 +7,7 @@ import { planApacConfirmation, evaluateApacConfirmation, APAC_CONFIRMATION_ROUND
 import { runStagingPerformanceBenchmark } from "./staging-canonical-performance-benchmark.mjs";
 import { runStagingServicePerformanceBenchmark } from "./staging-service-performance-benchmark.mjs";
 import { runCeilingApacAcceptance } from "./staging-model-ceiling-acceptance.mjs";
+import { preflightCeilingTelemetry } from "./ceiling-performance-evidence.mjs";
 
 const coreBaseUrl = (process.env.LIFESPACE_CORE_STAGING_URL ?? "").replace(/\/+$/u, "");
 const userBearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
@@ -52,6 +53,8 @@ function requestThroughApacProbe(credentialMode) {
 // Production promotion must prove functional governance semantics immediately before
 // performance acceptance. This prevents any alternate staging mutation/provisioning
 // path from satisfying version/schema checks while bypassing the canonical Golden Flow.
+// Detect missing observability access before the measured benchmark.
+await preflightCeilingTelemetry(process.env);
 requirePlatformGoldenFlow();
 
 const userAdapter = requestThroughApacProbe("user");

@@ -55,22 +55,46 @@ function fakeFixture(latency=40){
     else if(path===records+"?limit=10")data={items:[...rows.values()]};
     else data=rows.get(path.split("/").at(-1));
     assert.ok(data);
-    return {status:200,payload:{data},elapsedMs:ceiling?latency:40};
+    return {status:200,payload:{data},elapsedMs:ceiling?latency:40,
+      coreRequestId:"12345678-1234-1234-1234-"+String(calls.length).padStart(12,"0")};
   };
-  return {fetchImpl,request,rows,phases,calls};
+  const evidence=async(_env,{requests})=>requests.map(x=>({
+    message:"LifeSpace performance timing",service:"core",requestId:x.id,method:"GET",status:200,path:x.path.split("?")[0],
+    totalMs:30,phases:{runtime:{access_check:20,discovery_state:20}},
+    authorityD1:[{success:true,wallMs:20,sqlDurationMs:0.5,statements:1,rowsRead:x.mode==="read"?6:5}]
+  }));
+  return {fetchImpl,request,rows,phases,calls,evidence};
 }
 test("APAC Editor test balances 45 retained samples, restores ceiling and cleans records",async()=>{
   const f=fakeFixture();
-  await runCeilingApacAcceptance(env,f.request,f.fetchImpl);
+  await runCeilingApacAcceptance(env,f.request,f.fetchImpl,f.evidence);
   assert.equal(f.calls.length,324);
   assert.equal(f.calls.filter(x=>x.ceiling==="read").length,162);
   assert.equal(f.calls.filter(x=>x.ceiling===null).length,162);
   assert.equal(f.phases.at(-1),null);
   assert.equal(f.rows.size,0);
 });
-test("APAC Editor comparison blocks real regression but still restores fixture",async()=>{
+test("external-only relative variation does not block when absolute and paired authority gates pass",async()=>{
   const f=fakeFixture(55);
-  await assert.rejects(runCeilingApacAcceptance(env,f.request,f.fetchImpl),/comparison blocked/);
-  assert.equal(f.phases.at(-1),null);
-  assert.equal(f.rows.size,0);
+  await runCeilingApacAcceptance(env,f.request,f.fetchImpl,f.evidence);
+  assert.equal(f.phases.at(-1),null);assert.equal(f.rows.size,0);
+});
+test("real attributable regression, extra SQL statements, absolute regression and missing evidence block",async()=>{
+  for(const kind of ["authority","sql","statements","absolute","missing"]){
+    const f=fakeFixture(kind==="absolute"?300:40);
+    const read=async(...args)=>{
+      const rows=await f.evidence(...args);
+      if(kind==="missing")return rows.slice(1);
+      if(kind==="absolute")return rows;
+      return rows.map((row,i)=>{
+        if(args[1].requests[i].mode!=="read")return row;
+        if(kind==="authority")return {...row,totalMs:40,phases:{runtime:{access_check:30,discovery_state:30}}};
+        if(kind==="sql")row.authorityD1[0].sqlDurationMs=10;
+        if(kind==="statements")row.authorityD1[0].statements=2;
+        return row;
+      });
+    };
+    await assert.rejects(runCeilingApacAcceptance(env,f.request,f.fetchImpl,read),/comparison blocked|Incomplete Ceiling telemetry/);
+    assert.equal(f.phases.at(-1),null);assert.equal(f.rows.size,0);
+  }
 });
