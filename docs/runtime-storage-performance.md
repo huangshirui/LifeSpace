@@ -161,7 +161,9 @@ Performance work must never turn an uncertain write into a blind retry.
 
 ## 8. Cloud placement
 
-Core and Identity may use Cloudflare Smart Placement where D1-heavy request paths benefit from placement near their data/services.
+Core and Identity may use Cloudflare Smart or Targeted Placement where D1-heavy request paths benefit from placement near their data/services.
+
+**2026-11-18 owner-approved candidate (#543):** both Core environments target `aws:ap-southeast-1`, near the observed SIN Core D1 primaries; Identity retains Smart in both environments (production Identity D1 observed HKG, staging SIN). This is a compute hint, not a fixed machine, D1 relocation or public ingress selection. Staging diagnostic #44234867805 passed all absolute and layered relative targets with 324/324 matched Ceiling observations. The production configuration changes only after the exact candidate passes owner-dispatched canonical Staging and Production, including unchanged full APAC gates and deployed placement verification. No database, storage, authentication, contract or application change. Network diagnosis and test transport reliability are follow-up work, not prerequisites for this release. Rollback requires reviewed matching placement configuration and canonical deployment; do not bypass the gate.
 
 Placement is an implementation/topology optimization. It does not alter:
 

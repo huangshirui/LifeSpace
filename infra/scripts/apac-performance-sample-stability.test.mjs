@@ -8,7 +8,7 @@ import {
   USER_MUTATION_TARGETS,
   SERVICE_MUTATION_TARGETS,
 } from "./performance-release-targets.mjs";
-import {assertPlacement} from "./verify-staging-core-placement.mjs";
+import {assertPlacement,assertProductionCorePlacement} from "./verify-staging-core-placement.mjs";
 import { summarize as summarizeUser } from "./staging-canonical-performance-benchmark.mjs";
 import { summarize as summarizeService } from "./staging-service-performance-benchmark.mjs";
 
@@ -83,6 +83,7 @@ test("staging-only Singapore placement experiment cannot promote to a Smart Plac
   assert.throws(()=>assertPlacement({staging:target,production:smart,live,requireProductionParity:true}),/restore parity/u);
   assert.throws(()=>assertPlacement({staging:target,production:smart,live:smart}),/differs from candidate/u);
   assert.equal(assertPlacement({staging:smart,production:smart,live:smart,requireProductionParity:true}).productionParity,true);
+  assert.equal(assertPlacement({staging:target,production:target,live,requireProductionParity:true}).productionParity,true);
   const workflow=readFileSync(new URL("../../.github/workflows/production-deploy.yml",import.meta.url),"utf8");
   assert.match(workflow,/verify-staging-core-placement\.mjs --require-production-parity/u);
   assert.ok(workflow.indexOf("verify-staging-core-placement.mjs --require-production-parity")<workflow.indexOf("run: node infra/scripts/verify-staging-apac-performance.mjs"));
@@ -92,4 +93,20 @@ test("APAC runner emits completed observations on failure without changing gate 
   assert.match(verifier,/finally\s*\{[\s\S]*APAC_REQUEST_EVIDENCE/u);
   assert.match(verifier,/APAC_CHECKPOINT:"user_initial_complete"/u);
   assert.match(verifier,/await runCeilingApacAcceptance\(process.env, memberAdapter\)/u);
+});
+
+test("production verifier requires the actual candidate Singapore region and retains Identity Smart",()=>{
+  const desired={region:"aws:ap-southeast-1"};
+  const expected={configuredMode:"targeted",configuredRegion:"aws:ap-southeast-1"};
+  for(const live of [desired,{mode:"targeted",region:desired.region},{mode:"targeted",target:[desired]}]){
+    assert.deepEqual(assertProductionCorePlacement({desired,live}),expected);
+  }
+  for(const live of [{mode:"smart"},{region:"aws:us-east-1"},null]){
+    assert.throws(()=>assertProductionCorePlacement({desired,live}),/placement/i);
+  }
+  const smart={mode:"smart"};
+  assert.deepEqual(assertProductionCorePlacement({desired:smart,live:smart}),{configuredMode:"smart",configuredRegion:null});
+  const verifier=readFileSync(new URL("./verify-production-cloudflare.mjs",import.meta.url),"utf8");
+  assert.match(verifier,/assertProductionCorePlacement\(\{/u);
+  assert.match(verifier,/identity: await requireSmartPlacement\(identitySettings, "lifespace-identity"\)/u);
 });
