@@ -11,6 +11,9 @@ export async function closeCreatedSmokeSpace(input, request) {
   requireMatch(/^[0-9]+$/u.test(runId || "") && /^[1-9][0-9]*$/u.test(runAttempt || ""),
     "explicit GitHub run and attempt required");
   const suffix = runId + "_" + runAttempt;
+  requireMatch(input.purpose === undefined || input.purpose === "eventing", "unknown fixture purpose");
+  const expectedName = "LifeSpace staging smoke " + suffix + (input.purpose === "eventing" ? " Eventing" : "");
+  if (input.purpose === "eventing") requireMatch(/^spc_[a-f0-9]{32}$/u.test(input.sharedSpaceId || "") && spaceId !== input.sharedSpaceId, "Eventing fixture must differ from shared Space");
   requireMatch(applicationId === "app_staging_smoke_" + suffix
     && /^spc_[a-f0-9]{32}$/u.test(spaceId || "") && spaceId === createdSpaceId
     && /^usr_[A-Za-z0-9_-]+$/u.test(ownerId || "") && typeof userBearer === "string" && userBearer.length > 0,
@@ -25,7 +28,7 @@ export async function closeCreatedSmokeSpace(input, request) {
   // In either case fail closed: no additional lifecycle mutation is attempted.
   if (detail?.status === 404) return "already-absent-or-inaccessible";
   const row = detail?.ok ? (await detail.json().catch(()=>null))?.data : null;
-  requireMatch(row?.id === spaceId && row.name === "LifeSpace staging smoke " + suffix
+  requireMatch(row?.id === spaceId && row.name === expectedName
     && row.access === "owner" && Number.isSafeInteger(row.version) && row.version > 0,
     "current Space provenance or owner mismatch");
   const closed = await request(path + "/close", { method: "POST", body: { version: row.version } });

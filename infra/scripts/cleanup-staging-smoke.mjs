@@ -83,6 +83,7 @@ async function coreRequest(path, { method = "GET", body } = {}) {
 
 const warnings = [];
 let spaceRetirement = "not-created";
+let eventingSpaceRetirement = "not-created";
 if (userBearer && spaceId && serviceGrantId) {
   try {
     const revokedGrant = await coreRequest(`/api/v1/spaces/${spaceId}/grants/${serviceGrantId}`, { method: "DELETE" });
@@ -104,6 +105,20 @@ try {
   }, coreRequest);
 } catch (error) {
   warnings.push("Run-created Space retirement failed: " + (error instanceof Error ? error.message : "unknown error"));
+}
+
+// Independent Eventing fixture marker must never alias the shared Space.
+// Retire before disabling the original run-owned Application.
+try {
+  const eventingSpaceId=process.env.LIFESPACE_STAGING_EVENTING_CREATED_SPACE_ID;
+  if(eventingSpaceId) eventingSpaceRetirement=await closeCreatedSmokeSpace({
+    coreBase,identityBase,applicationId,spaceId:eventingSpaceId,createdSpaceId:eventingSpaceId,
+    ownerId:process.env.LIFESPACE_STAGING_SMOKE_USER_ID,userBearer,
+    runId:process.env.GITHUB_RUN_ID,runAttempt:process.env.GITHUB_RUN_ATTEMPT,
+    purpose:"eventing",sharedSpaceId:spaceId,
+  },coreRequest);
+} catch(error) {
+  warnings.push("Eventing Space retirement failed: "+(error instanceof Error?error.message:"unknown error"));
 }
 
 if (applicationSecret && principalId && tokenId) {
@@ -189,6 +204,7 @@ console.log(JSON.stringify({
   serviceRuntimeGrantRevocationAttempted: Boolean(userBearer && spaceId && serviceGrantId),
   modelAccessCleanupAttempted: true,
   spaceRetirement,
+  eventingSpaceRetirement,
   applicationCredentialRevoked,
   applicationDisabled,
   applicationAbsent,

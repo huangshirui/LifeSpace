@@ -26,7 +26,7 @@ function fixture(){
   const other=receiverClient({secret:control,sessionId:"2".repeat(32),fetcher});
   return {env,fetcher,client,other,objects,accesses:()=>accesses};
 }
-const input={signingSecret:signing,spaceId:"spc_fixture",endpointId:"whk_fixture",subscriptionId:"sub_fixture",subscriberServicePrincipalId:"svc_fixture"};
+const input={signingSecret:signing,spaceId:"spc_"+"a".repeat(32),endpointId:"whk_fixture",subscriptionId:"sub_fixture",subscriberServicePrincipalId:"svc_fixture"};
 function event(overrides={}){
   return {id:"evt_fixture",type:"record.created",spaceId:input.spaceId,modelKey:"event",recordId:"rec_fixture",recordVersion:1,changeId:"chg_fixture",occurredAt:new Date().toISOString(),...overrides};
 }
@@ -154,15 +154,18 @@ test("full staging Eventing verifier wires returned subscriber, Endpoint, Grant 
   const env={
     LIFESPACE_IDENTITY_STAGING_URL:"https://auth-staging.aisr.online",
     LIFESPACE_CORE_STAGING_URL:"https://core-staging.aisr.online",
-    LIFESPACE_STAGING_SMOKE_APPLICATION_ID:"app_fixture",
+    LIFESPACE_STAGING_SMOKE_APPLICATION_ID:"app_staging_smoke_123_2",
     LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET:"fixture_application_secret",
     LIFESPACE_STAGING_SMOKE_USER_ID:"usr_fixture",
-    LIFESPACE_STAGING_SPACE_ID:input.spaceId,
-    LIFESPACE_STAGING_PERSON_ID:"per_fixture",
+    LIFESPACE_STAGING_SPACE_ID:"spc_"+"b".repeat(32),
+    LIFESPACE_STAGING_USER_BEARER:"fixture_owner_bearer",
+    LIFESPACE_STAGING_EVENTING_CREATED_SPACE_ID:"",
+    GITHUB_RUN_ID:"123",GITHUB_RUN_ATTEMPT:"2",GITHUB_ENV:"",
     EVENTING_SMOKE_CONTROL_SECRET:control,
   };
   const saved=Object.fromEntries(Object.keys(env).map(k=>[k,process.env[k]]));
   const originalFetch=globalThis.fetch;
+  let isolatedSpace=false,spaceClosed=false;
   let endpointUrl,grant=false,subscription=false,eventCreated=false,endpoint=false,principal=false,grantDenials=0,testSends=0,deliverySends=0,sessionRegistrations=0;
   const data=(value,status=200)=>Response.json({data:value},{status});
   const denied=()=>{grantDenials++;return Response.json({error:{code:"EVENT_SUBSCRIBER_ACCESS_DENIED"}},{status:403});};
@@ -192,17 +195,25 @@ test("full staging Eventing verifier wires returned subscriber, Endpoint, Grant 
     }
     if(u.hostname==="auth-staging.aisr.online"){
       assert.equal(auth,"Bearer "+env.LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET);
-      if(method==="GET"&&path==="/internal/v1/applications/self")return data({id:env.LIFESPACE_STAGING_SMOKE_APPLICATION_ID,trustedBackend:true,status:"active",allowedScopes:["spaces:manage","grants:manage","resources:read","resources:write"]});
+      if(method==="GET"&&path==="/internal/v1/applications/self")return data({id:env.LIFESPACE_STAGING_SMOKE_APPLICATION_ID,trustedBackend:true,status:"active",allowedScopes:["spaces:write","spaces:manage","grants:manage","resources:read","resources:write"]});
       if(method==="POST"&&path==="/internal/v1/tokens"){assert.equal(body.subjectId,env.LIFESPACE_STAGING_SMOKE_USER_ID);return data({accessToken:token});}
       if(method==="POST"&&path==="/api/v1/service-principals"){principal=true;return data({id:input.subscriberServicePrincipalId},201);}
       if(method==="PATCH"&&path==="/api/v1/service-principals/"+input.subscriberServicePrincipalId){assert.equal(body.status,"disabled");principal=false;return data({status:"disabled"});}
       throw Error("unexpected Identity fixture route");
     }
     assert.equal(u.hostname,"core-staging.aisr.online");
+    if(auth==="Bearer "+env.LIFESPACE_STAGING_USER_BEARER){
+      if(method==="GET"&&path==="/api/v1/me")return data({principal:{type:"user",id:env.LIFESPACE_STAGING_SMOKE_USER_ID,clientId:env.LIFESPACE_STAGING_SMOKE_APPLICATION_ID}});
+      if(method==="POST"&&path==="/api/v1/spaces"){assert.equal(body.name,"LifeSpace staging smoke 123_2 Eventing");isolatedSpace=true;return data({id:input.spaceId,ownerPersonId:"per_eventing"},201);}
+      if(method==="GET"&&path==="/api/v1/spaces/"+input.spaceId){assert.equal(isolatedSpace,true);return data({id:input.spaceId,name:"LifeSpace staging smoke 123_2 Eventing",access:"owner",version:1});}
+      if(method==="POST"&&path==="/api/v1/spaces/"+input.spaceId+"/close"){assert.equal(body.version,1);assert.ok(!endpoint&&!subscription&&!eventCreated);spaceClosed=true;isolatedSpace=false;return empty();}
+      throw Error("unexpected owner fixture route");
+    }
     assert.equal(auth,"Bearer "+token);
+    assert.ok(!path.includes(env.LIFESPACE_STAGING_SPACE_ID),"shared Space must never receive Eventing fixture requests");
     const base="/api/v1/webhook-endpoints",ep=base+"/"+input.endpointId,sub="/api/v1/event-subscriptions",subPath=sub+"/"+input.subscriptionId,space="/api/v1/spaces/"+input.spaceId,gr=space+"/grants",records=space+"/models/event/records";
     if(method==="POST"&&path===base){
-      assert.equal(body.subscriberServicePrincipalId,input.subscriberServicePrincipalId);assert.equal(body.spaceId,input.spaceId);
+      assert.ok(isolatedSpace);assert.equal(body.subscriberServicePrincipalId,input.subscriberServicePrincipalId);assert.equal(body.spaceId,input.spaceId);assert.notEqual(body.spaceId,env.LIFESPACE_STAGING_SPACE_ID);
       endpointUrl=body.webhookUrl;assert.equal(new URL(endpointUrl).hostname,HOST);endpoint=true;
       return data({id:input.endpointId,signingSecret:signing},201);
     }
@@ -215,7 +226,7 @@ test("full staging Eventing verifier wires returned subscriber, Endpoint, Grant 
       const response=await signed(endpointTest(),true);testSends++;
       return data({ok:response.ok,statusCode:response.status});
     }
-    if(method==="POST"&&path===records){assert.ok(grant&&subscription);eventCreated=true;return data({id:"rec_fixture",version:1},201);}
+    if(method==="POST"&&path===records){assert.ok(grant&&subscription&&isolatedSpace);assert.deepEqual(body.attendeePersonIds,["per_eventing"]);eventCreated=true;return data({id:"rec_fixture",version:1},201);}
     if(method==="GET"&&path===ep+"/deliveries"){
       assert.ok(eventCreated&&grant);const response=await signed(event(),false);deliverySends++;
       assert.equal(response.status,204);
@@ -230,6 +241,7 @@ test("full staging Eventing verifier wires returned subscriber, Endpoint, Grant 
   };
   try {
     await import("./verify-staging-eventing.mjs?full-verifier-fixture");
+    assert.equal(spaceClosed,true);assert.equal(isolatedSpace,false);
     assert.equal(sessionRegistrations,1);
     assert.equal(grantDenials,2);
     assert.equal(testSends,2);

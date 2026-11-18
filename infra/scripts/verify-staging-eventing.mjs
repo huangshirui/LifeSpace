@@ -1,5 +1,7 @@
 import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import process from "node:process";
+import { appendFileSync } from "node:fs";
+import { closeCreatedSmokeSpace } from "./staging-smoke-space-lifecycle.mjs";
 import { receiverClient } from "./eventing-smoke-receiver-client.mjs";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
@@ -7,8 +9,10 @@ const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-stagin
 const applicationId = process.env.LIFESPACE_STAGING_SMOKE_APPLICATION_ID ?? "";
 const applicationSecret = process.env.LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET ?? "";
 const userId = process.env.LIFESPACE_STAGING_SMOKE_USER_ID ?? "";
-const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
-const personId = process.env.LIFESPACE_STAGING_PERSON_ID ?? "";
+const sharedSpaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
+const ownerBearer = process.env.LIFESPACE_STAGING_USER_BEARER ?? "";
+let spaceId = "";
+let personId = "";
 const runId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-z_-]/gu, "_");
 const runAttempt = (process.env.GITHUB_RUN_ATTEMPT ?? "1").replace(/[^0-9A-Za-z_-]/gu, "_");
 const suffix = `${runId}_${runAttempt}`.replace(/[^0-9A-Za-z]/gu, "").slice(-12).toLowerCase();
@@ -18,11 +22,24 @@ for (const [name, value] of Object.entries({
   LIFESPACE_STAGING_SMOKE_APPLICATION_ID: applicationId,
   LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET: applicationSecret,
   LIFESPACE_STAGING_SMOKE_USER_ID: userId,
-  LIFESPACE_STAGING_SPACE_ID: spaceId,
-  LIFESPACE_STAGING_PERSON_ID: personId,
+  LIFESPACE_STAGING_SPACE_ID: sharedSpaceId,
+  LIFESPACE_STAGING_USER_BEARER: ownerBearer,
 })) {
   if (!value) throw new Error(`${name} is required`);
 }
+
+// Create an independent run-owned Space before subscribing. The shared
+// fixture has other model changes whose outbox entries may still be pending.
+if (coreBase !== "https://core-staging.aisr.online" || identityBase !== "https://auth-staging.aisr.online"
+    || !/^[0-9]+$/u.test(process.env.GITHUB_RUN_ID ?? "") || !/^[1-9][0-9]*$/u.test(process.env.GITHUB_RUN_ATTEMPT ?? "")
+    || applicationId !== "app_staging_smoke_" + runId + "_" + runAttempt
+    || !/^spc_[a-f0-9]{32}$/u.test(sharedSpaceId)
+    || process.env.LIFESPACE_STAGING_EVENTING_CREATED_SPACE_ID) throw Error("Eventing fixture provenance mismatch");
+const ownerRequest = (path, {method="GET",body}={}) => fetch(coreBase+path,{
+  method,headers:{authorization:"Bearer "+ownerBearer,...(body===undefined?{}:{"content-type":"application/json"})},
+  ...(body===undefined?{}:{body:JSON.stringify(body)}),
+});
+const spaceName = "LifeSpace staging smoke " + runId + "_" + runAttempt + " Eventing";
 
 async function readResponse(response) {
   const raw = await response.text();
@@ -92,7 +109,7 @@ try {
   if (appData?.id !== applicationId || appData?.trustedBackend !== true || appData?.status !== "active") {
     throw new Error("Staging Eventing Application identity/trust mismatch");
   }
-  const requiredScopes = ["spaces:manage", "grants:manage", "resources:read", "resources:write"];
+  const requiredScopes = ["spaces:write", "spaces:manage", "grants:manage", "resources:read", "resources:write"];
   if (!Array.isArray(appData.allowedScopes) || requiredScopes.some((scope) => !appData.allowedScopes.includes(scope))) {
     throw new Error("Staging Eventing Application missing required scope ceiling; no automatic elevation");
   }
@@ -109,6 +126,21 @@ try {
   managerBearer = tokenData?.accessToken ?? "";
   if (!managerBearer) throw new Error("Staging Eventing manager token was not returned");
   mask(managerBearer);
+
+  const me = await ownerRequest("/api/v1/me");
+  const owner = me.ok ? (await me.json())?.data?.principal : null;
+  if (owner?.type!=="user" || owner.id!==userId || owner.clientId!==applicationId) throw Error("Eventing fixture owner mismatch");
+  const createdSpace = await ownerRequest("/api/v1/spaces",{method:"POST",body:{
+    name:spaceName,ownerDisplayName:"Staging Eventing Owner "+suffix,timezone:"UTC",
+  }});
+  const createdSpaceData=await expectStatus("isolated Eventing Space creation",{response:createdSpace,payload:await readResponse(createdSpace)},201);
+  if (!/^spc_[a-f0-9]{32}$/u.test(createdSpaceData?.id??"") || createdSpaceData.id===sharedSpaceId) throw Error("Eventing fixture Space identity mismatch");
+  spaceId=createdSpaceData.id;
+  // Export as soon as the exact new ID is known; the always-run authority
+  // cleanup can retire it even if this verifier exits before its finally.
+  if(process.env.GITHUB_ENV) appendFileSync(process.env.GITHUB_ENV,"LIFESPACE_STAGING_EVENTING_CREATED_SPACE_ID="+spaceId+"\n","utf8");
+  personId=createdSpaceData.ownerPersonId??"";
+  if(!/^per_[A-Za-z0-9_-]+$/u.test(personId)) throw Error("Eventing fixture owner Person missing");
 
   const principal = await request(identityBase, "/api/v1/service-principals", {
     method: "POST",
@@ -345,6 +377,11 @@ try {
     });
   }
   if (sessionAttempted) await cleanup("receiver session delete", () => receiver.remove());
+  if (spaceId) await cleanup("isolated Eventing Space retirement",async()=>{
+    const retired=await closeCreatedSmokeSpace({coreBase,identityBase,applicationId,spaceId,createdSpaceId:spaceId,
+      ownerId:userId,userBearer:ownerBearer,runId,runAttempt,purpose:"eventing",sharedSpaceId},ownerRequest);
+    if(retired!=="closed") throw Error("Expected governed Eventing Space closure");
+  });
 }
 
 if (primaryError) {
@@ -353,4 +390,4 @@ if (primaryError) {
 }
 if (cleanupErrors.length) throw new Error(`Staging Eventing smoke cleanup failed: ${cleanupErrors.join(" | ")}`);
 
-console.log(JSON.stringify({ ...verification, cleanup: { receiverSessionDeleted: true, subscriberDisabled: true, applicationScopeRestored: true } }, null, 2));
+console.log(JSON.stringify({ ...verification, cleanup: { receiverSessionDeleted: true, subscriberDisabled: true, applicationScopeRestored: true, isolatedSpaceClosed: true } }, null, 2));
