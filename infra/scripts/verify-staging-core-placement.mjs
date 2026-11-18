@@ -14,6 +14,13 @@ export function assertPlacement({staging,production,live,requireProductionParity
   if(requireProductionParity&&desired!==prod)throw Error("Staging placement experiment differs from production candidate; restore parity before production promotion");
   return {staging:desired,production:prod,live:actual,productionParity:desired===prod};
 }
+// Compare deployed production settings against the candidate, not a hard-coded
+// Smart-only rule. The production gate still requires matching staging first.
+export function assertProductionCorePlacement({desired,live}){
+  const expected=placementKey(desired),actual=placementKey(live);
+  if(expected!==actual)throw Error("Live production Core placement differs from candidate");
+  return {configuredMode:expected==="smart"?"smart":"targeted",configuredRegion:expected==="smart"?null:expected};
+}
 async function main(){
   const config=JSON.parse(readFileSync(new URL("../../apps/core/wrangler.jsonc",import.meta.url),"utf8"));
   const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN;

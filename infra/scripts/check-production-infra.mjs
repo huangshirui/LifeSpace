@@ -73,7 +73,7 @@ for (const [label, source, required] of [
     "\"queue\": \"lifespace-event-deliveries\"",
     "\"dead_letter_queue\": \"lifespace-event-deliveries-dlq\"",
     "\"pattern\": \"core.aisr.online\"",
-    "\"placement\": { \"mode\": \"smart\" }",
+    "\"placement\": { \"region\": \"aws:ap-southeast-1\" }",
   ]],
   ["Identity", identityWrangler, [
     "\"name\": \"lifespace-identity\"",
@@ -84,6 +84,19 @@ for (const [label, source, required] of [
   ]],
 ]) {
   requireTokens(`${label} production Wrangler config`, source, required);
+}
+
+const coreConfig = JSON.parse(coreWrangler);
+const identityConfig = JSON.parse(identityWrangler);
+for (const env of ["staging", "production"]) {
+  const core = coreConfig.env?.[env]?.placement;
+  const identity = identityConfig.env?.[env]?.placement;
+  if (JSON.stringify(core) !== JSON.stringify({ region: "aws:ap-southeast-1" })) {
+    throw new Error(`Core ${env} must target Singapore`);
+  }
+  if (JSON.stringify(identity) !== JSON.stringify({ mode: "smart" })) {
+    throw new Error(`Identity ${env} must retain Smart Placement`);
+  }
 }
 
 const productionDeploy = readFileSync(resolve(ROOT, ".github/workflows/production-deploy.yml"), "utf8");

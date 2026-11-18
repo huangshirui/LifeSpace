@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { queueAttachmentSnapshot } from "./production-cloudflare-shapes.mjs";
+import { assertProductionCorePlacement } from "./verify-staging-core-placement.mjs";
 
 const token = process.env.CLOUDFLARE_API_TOKEN;
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -167,8 +168,15 @@ function requireBinding(bindings, expected, worker) {
 
 const coreSettings = await workerSettings("lifespace-core");
 const identitySettings = await workerSettings("lifespace-identity");
+const coreConfig = JSON.parse(await readFile(new URL("../../apps/core/wrangler.jsonc", import.meta.url), "utf8"));
+const corePlacement = assertProductionCorePlacement({
+  desired: coreConfig.env.production.placement,
+  live: coreSettings.placement ?? {mode:coreSettings.placement_mode},
+});
 const placement = {
-  core: await requireSmartPlacement(coreSettings, "lifespace-core"),
+  core: corePlacement.configuredMode === "smart"
+    ? await requireSmartPlacement(coreSettings, "lifespace-core")
+    : corePlacement,
   identity: await requireSmartPlacement(identitySettings, "lifespace-identity"),
 };
 
@@ -215,7 +223,7 @@ console.log(JSON.stringify({
     core: ["DB", "ASSETS", "IDENTITY", "EVENT_DELIVERY_QUEUE"],
     identity: ["DB", "ASSETS"],
   },
-  smartPlacementVerified: placement,
+  placementVerified: placement,
   domains: Object.fromEntries((manifest.domains ?? []).map((item) => [item.hostname, item.service])),
   secretNamesVerified: true,
   stagingIsolationVerified: true,
