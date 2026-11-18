@@ -43,3 +43,13 @@ test("already absent is non-mutating, and version conflict never retries close",
  await assert.rejects(closeCreatedSmokeSpace(input,conflict.request),/HTTP 204/u);
  assert.equal(conflict.calls.filter(x=>x.path.endsWith("/close")).length,1);
 });
+
+test("eventing fixture retirement requires explicit kind and exact isolated name",async()=>{
+ const f=fixture({space:{name:"LifeSpace staging smoke 123_2 eventing"}});
+ assert.equal(await closeCreatedSmokeSpace({...input,fixtureKind:"eventing"},f.request),"closed");
+ for(const [kind,name] of [["shared","LifeSpace staging smoke 123_2 eventing"],["eventing","LifeSpace staging smoke 123_2"],["unknown","LifeSpace staging smoke 123_2"]]){
+  const wrong=fixture({space:{name}});
+  await assert.rejects(closeCreatedSmokeSpace({...input,fixtureKind:kind},wrong.request));
+  assert.ok(!wrong.calls.some(x=>x.path.endsWith("/close")));
+ }
+});

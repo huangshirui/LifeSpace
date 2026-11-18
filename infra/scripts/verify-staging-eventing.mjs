@@ -1,14 +1,16 @@
 import { registerRunnerSecret as mask } from "./runner-secret.mjs";
 import process from "node:process";
 import { receiverClient } from "./eventing-smoke-receiver-client.mjs";
+import { closeCreatedSmokeSpace } from "./staging-smoke-space-lifecycle.mjs";
 
 const identityBase = (process.env.LIFESPACE_IDENTITY_STAGING_URL ?? "https://auth-staging.aisr.online").replace(/\/+$/u, "");
 const coreBase = (process.env.LIFESPACE_CORE_STAGING_URL ?? "https://core-staging.aisr.online").replace(/\/+$/u, "");
 const applicationId = process.env.LIFESPACE_STAGING_SMOKE_APPLICATION_ID ?? "";
 const applicationSecret = process.env.LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET ?? "";
 const userId = process.env.LIFESPACE_STAGING_SMOKE_USER_ID ?? "";
-const spaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
-const personId = process.env.LIFESPACE_STAGING_PERSON_ID ?? "";
+const sharedSpaceId = process.env.LIFESPACE_STAGING_SPACE_ID ?? "";
+let spaceId = "";
+let personId = "";
 const runId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}`).replace(/[^0-9A-Za-z_-]/gu, "_");
 const runAttempt = (process.env.GITHUB_RUN_ATTEMPT ?? "1").replace(/[^0-9A-Za-z_-]/gu, "_");
 const suffix = `${runId}_${runAttempt}`.replace(/[^0-9A-Za-z]/gu, "").slice(-12).toLowerCase();
@@ -18,11 +20,18 @@ for (const [name, value] of Object.entries({
   LIFESPACE_STAGING_SMOKE_APPLICATION_ID: applicationId,
   LIFESPACE_STAGING_SMOKE_APPLICATION_SECRET: applicationSecret,
   LIFESPACE_STAGING_SMOKE_USER_ID: userId,
-  LIFESPACE_STAGING_SPACE_ID: spaceId,
-  LIFESPACE_STAGING_PERSON_ID: personId,
+  LIFESPACE_STAGING_SPACE_ID: sharedSpaceId,
 })) {
   if (!value) throw new Error(`${name} is required`);
 }
+
+// Only the canonical owner-dispatched staging fixture may create a Space.
+if (coreBase !== "https://core-staging.aisr.online" || identityBase !== "https://auth-staging.aisr.online"
+  || !/^[0-9]+$/u.test(process.env.GITHUB_RUN_ID ?? "") || !/^[1-9][0-9]*$/u.test(process.env.GITHUB_RUN_ATTEMPT ?? "")
+  || applicationId !== `app_staging_smoke_${runId}_${runAttempt}`) {
+  throw new Error("Eventing fixture requires canonical staging run provenance");
+}
+const fixtureName = `LifeSpace staging smoke ${runId}_${runAttempt} eventing`;
 
 async function readResponse(response) {
   const raw = await response.text();
@@ -31,8 +40,8 @@ async function readResponse(response) {
   catch { return raw; }
 }
 
-async function request(base, path, { method = "GET", bearer, body } = {}) {
-  const response = await fetch(`${base}${path}`, {
+async function rawRequest(base, path, { method = "GET", bearer, body } = {}) {
+  return fetch(`${base}${path}`, {
     method,
     headers: {
       accept: "application/json",
@@ -41,6 +50,10 @@ async function request(base, path, { method = "GET", bearer, body } = {}) {
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+async function request(base, path, options) {
+  const response = await rawRequest(base, path, options);
   return { response, payload: await readResponse(response) };
 }
 
@@ -92,7 +105,7 @@ try {
   if (appData?.id !== applicationId || appData?.trustedBackend !== true || appData?.status !== "active") {
     throw new Error("Staging Eventing Application identity/trust mismatch");
   }
-  const requiredScopes = ["spaces:manage", "grants:manage", "resources:read", "resources:write"];
+  const requiredScopes = ["profile:read", "spaces:read", "spaces:write", "spaces:manage", "grants:manage", "resources:read", "resources:write"];
   if (!Array.isArray(appData.allowedScopes) || requiredScopes.some((scope) => !appData.allowedScopes.includes(scope))) {
     throw new Error("Staging Eventing Application missing required scope ceiling; no automatic elevation");
   }
@@ -102,13 +115,28 @@ try {
     bearer: applicationSecret,
     body: {
       subjectId: userId,
-      scopes: ["spaces:manage", "grants:manage", "resources:read", "resources:write"],
+      scopes: requiredScopes,
     },
   });
   const tokenData = await expectStatus("staging Eventing manager token", tokenResult, 200);
   managerBearer = tokenData?.accessToken ?? "";
   if (!managerBearer) throw new Error("Staging Eventing manager token was not returned");
   mask(managerBearer);
+
+  // A preceding verifier may leave record.created pending in the shared Space.
+  // Dispatch-time matching is intentional current behavior; isolate the fixture
+  // rather than dropping unexpected receipts or changing subscriber semantics.
+  const createdSpace = await request(coreBase, "/api/v1/spaces", {
+    method: "POST", bearer: managerBearer,
+    body: { name: fixtureName, ownerDisplayName: "Staging Eventing Owner", timezone: "UTC" },
+  });
+  const fixture = await expectStatus("isolated Eventing Space", createdSpace, 201);
+  if (!/^spc_[a-f0-9]{32}$/u.test(fixture?.id ?? "") || fixture.id === sharedSpaceId) {
+    throw new Error("Eventing fixture did not return a new Space ID");
+  }
+  spaceId = fixture.id; // retain exact creation provenance even if later setup fails
+  personId = fixture.ownerPersonId ?? "";
+  if (!personId) throw new Error("Eventing fixture did not return its owner Person");
 
   const principal = await request(identityBase, "/api/v1/service-principals", {
     method: "POST",
@@ -283,6 +311,7 @@ try {
   verification = {
     ok: true,
     receiver: "persistent-staging-https",
+    isolatedFixtureSpace: true,
     receiverSession: receiver.sessionId,
     subscriberServicePrincipalId,
     endpointId,
@@ -345,6 +374,13 @@ try {
     });
   }
   if (sessionAttempted) await cleanup("receiver session delete", () => receiver.remove());
+  if (spaceId && managerBearer) await cleanup("isolated Eventing Space close", async () => {
+    const result = await closeCreatedSmokeSpace({ coreBase, identityBase, applicationId,
+      spaceId, createdSpaceId: spaceId, ownerId: userId, userBearer: managerBearer,
+      runId, runAttempt, fixtureKind: "eventing" },
+    (path, options) => rawRequest(coreBase, path, { ...options, bearer: managerBearer }));
+    if (result !== "closed") throw new Error("Eventing fixture retirement not confirmed");
+  });
 }
 
 if (primaryError) {
@@ -353,4 +389,4 @@ if (primaryError) {
 }
 if (cleanupErrors.length) throw new Error(`Staging Eventing smoke cleanup failed: ${cleanupErrors.join(" | ")}`);
 
-console.log(JSON.stringify({ ...verification, cleanup: { receiverSessionDeleted: true, subscriberDisabled: true, applicationScopeRestored: true } }, null, 2));
+console.log(JSON.stringify({ ...verification, cleanup: { receiverSessionDeleted: true, subscriberDisabled: true, fixtureSpaceClosed: true, applicationScopeRestored: true } }, null, 2));

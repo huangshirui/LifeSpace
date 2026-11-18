@@ -4,13 +4,15 @@
 export async function closeCreatedSmokeSpace(input, request) {
   if (!input.createdSpaceId) return "no-creation-marker";
   const { coreBase, identityBase, applicationId, spaceId, createdSpaceId,
-    ownerId, userBearer, runId, runAttempt } = input;
+    ownerId, userBearer, runId, runAttempt, fixtureKind = "shared" } = input;
   const requireMatch = (condition, message) => { if (!condition) throw new Error(message); };
   requireMatch(coreBase === "https://core-staging.aisr.online"
     && identityBase === "https://auth-staging.aisr.online", "canonical staging origins required");
   requireMatch(/^[0-9]+$/u.test(runId || "") && /^[1-9][0-9]*$/u.test(runAttempt || ""),
     "explicit GitHub run and attempt required");
   const suffix = runId + "_" + runAttempt;
+  requireMatch(fixtureKind === "shared" || fixtureKind === "eventing", "unknown fixture kind");
+  const expectedName = "LifeSpace staging smoke " + suffix + (fixtureKind === "eventing" ? " eventing" : "");
   requireMatch(applicationId === "app_staging_smoke_" + suffix
     && /^spc_[a-f0-9]{32}$/u.test(spaceId || "") && spaceId === createdSpaceId
     && /^usr_[A-Za-z0-9_-]+$/u.test(ownerId || "") && typeof userBearer === "string" && userBearer.length > 0,
@@ -25,7 +27,7 @@ export async function closeCreatedSmokeSpace(input, request) {
   // In either case fail closed: no additional lifecycle mutation is attempted.
   if (detail?.status === 404) return "already-absent-or-inaccessible";
   const row = detail?.ok ? (await detail.json().catch(()=>null))?.data : null;
-  requireMatch(row?.id === spaceId && row.name === "LifeSpace staging smoke " + suffix
+  requireMatch(row?.id === spaceId && row.name === expectedName
     && row.access === "owner" && Number.isSafeInteger(row.version) && row.version > 0,
     "current Space provenance or owner mismatch");
   const closed = await request(path + "/close", { method: "POST", body: { version: row.version } });
