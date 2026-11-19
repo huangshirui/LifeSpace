@@ -2,6 +2,9 @@ import { env } from "cloudflare:workers";
 import { sign } from "hono/jwt";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app";
+import { publishModelDefinition } from "../src/model-registry";
+import { createGenericResource } from "../src/generic-resource";
+import type { Bindings, Principal } from "../src/env";
 import { oauthExecutionRouteAllowed, verifyAccessToken } from "../src/auth";
 
 type TestEnv = { DB: D1Database };
@@ -90,6 +93,8 @@ async function fixture() {
     ENVIRONMENT: "staging", DB: countedDb, IDENTITY_PUBLIC_KEY: publicKey,
     CORE_IDENTITY_SHARED_SECRET: "synthetic-core-to-identity-shared-secret",
     OAUTH_ACCOUNT_APPLICATION_ID: accountApp,
+    R2_S3_ACCOUNT_ID: "synthetic-account", R2_S3_ACCESS_KEY_ID: "synthetic-access-key",
+    R2_S3_SECRET_ACCESS_KEY: "synthetic-secret-key", R2_S3_BUCKET: "synthetic-files",
     IDENTITY: { fetch: async (url: string, init: RequestInit) => {
       checks++;
       const pathname = new URL(url).pathname;
@@ -181,6 +186,80 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
       ["GET", "/api/v1/platform-admin/spaces"],
       ["GET", "/api/v1/spaces/" + sp + "/_discovery/models/../members"],
     ]) expect(oauthExecutionRouteAllowed(method, path, sp)).toBe(false);
+  });
+
+  it("reads only the exact linked native File via an explicitly exposed operation, including represented once-only authority", async () => {
+    const f=await fixture();
+    const suffix=crypto.randomUUID().replaceAll("-","");
+    const modelKey="oauth_file_"+suffix.slice(0,12);
+    const fileId="fil_"+suffix;
+    const now=new Date().toISOString();
+    const bindings={DB:f.db} as Bindings;
+    const publisher:Principal={type:"service",id:"svc_"+suffix,clientId:"lifespace-platform-admin",scopes:["models:manage"],tokenId:"tok_publish_"+suffix};
+    const model=await publishModelDefinition(bindings,publisher,{
+      definitionVersion:1,key:modelKey,
+      display:{singular:"Synthetic File holder",plural:"Synthetic File holders"},
+      fields:{attachment:{type:"file",nullable:true},otherAttachment:{type:"file",nullable:true},label:{type:"string",nullable:true}},
+      access:["read","write"],
+    },"initial");
+    await f.db.batch([
+      f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)")
+        .bind(f.application,modelKey,"read","service",publisher.id),
+      f.db.prepare("INSERT INTO files(id,space_id,name,content_type,size_bytes,object_key,status,application_id,principal_type,principal_id,actor_type,actor_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        .bind(fileId,f.space,"synthetic.pdf","application/pdf",12,"files/"+f.space+"/"+fileId,"ready",f.application,"user",f.oauthUser,"user",f.oauthUser,now),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+suffix,f.space,f.oauthUser,now,now),
+    ]);
+    const owner:Principal={type:"user",id:f.oauthUser,clientId:f.application,scopes:["resources:read","resources:write"],tokenId:"tok_owner_"+suffix};
+    const record=await createGenericResource(bindings,owner,f.space,model,{attachment:fileId,otherAttachment:null,label:"Synthetic report"});
+    const base="/api/v1/spaces/"+f.space;
+    const route=base+"/models/"+modelKey+"/records/"+record.id+"/file-downloads";
+    const payload={fieldKey:"attachment",fileId};
+    const configure=async(operations:string[])=>f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+      .bind(JSON.stringify({models:[{modelKey,operations}]}),f.serverId).run();
+    await configure(["get"]);
+    expect((await f.request("POST",route,{},payload)).status).toBe(403);
+    await configure(["get","file_read"]);
+    expect((await f.request("POST",base+"/file-downloads",{},{modelKey,recordId:record.id,...payload})).status).toBe(403);
+    expect((await f.request("POST",route.replace(f.space,f.other),{},payload)).status).toBe(403);
+    expect((await f.request("POST",route,{}, {...payload,modelKey})).status).toBe(400);
+    expect((await f.request("POST",route,{}, {...payload,fieldKey:"otherAttachment"})).status).toBe(404);
+    expect((await f.request("POST",route,{}, {...payload,fieldKey:"label"})).status).toBe(404);
+    const discovered=await f.request("GET",base+"/_discovery/operations?modelKey="+modelKey+"&operation=file_read");
+    expect(discovered.status).toBe(200);
+    const listing=await discovered.json() as {data:{operations:Array<{operation:string;operationRef:string;requiredScopes:string[];inputSchema:unknown}>}};
+    expect(listing.data.operations).toHaveLength(1);
+    const op=listing.data.operations[0]!;
+    expect(op).toMatchObject({operation:"file_read",requiredScopes:["resources:read"],inputSchema:{properties:{data:{properties:{fieldKey:{enum:["attachment","otherAttachment"]}}}}}});
+    const downloaded=await f.request("POST",base+"/_operations/"+op.operationRef+"/invoke",{},{
+      arguments:{spaceId:f.space,recordId:record.id,data:payload},
+    });
+    expect(downloaded.status).toBe(200);
+    expect(downloaded.headers.get("cache-control")).toBe("no-store");
+    const descriptor=await downloaded.json() as {data:{id:string;name:string;contentType:string;size:number;url:string;expiresAt:string}};
+    expect(descriptor.data).toMatchObject({id:fileId,name:"synthetic.pdf",contentType:"application/pdf",size:12});
+    expect(new URL(descriptor.data.url).searchParams.get("X-Amz-Signature")).toBeTruthy();
+    await configure(["get"]);
+    expect((await f.request("POST",base+"/_operations/"+op.operationRef+"/invoke",{},{
+      arguments:{spaceId:f.space,recordId:record.id,data:payload},
+    })).status).toBe(404);
+    await configure(["get","file_read"]);
+    f.setDelegationEnabled(true);
+    const patch={oauth_allow_user_authorization:true};
+    const requested=await f.request("POST",base+"/oauth-delegation-requests",patch,{modelKey,operation:"file_read",reason:"Read one approved synthetic file"});
+    expect(requested.status).toBe(201);
+    const requestId=(await requested.json() as {data:{id:string}}).data.id;
+    const approved=await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+requestId+"/approve",{});
+    expect(approved.status).toBe(200);
+    const dlg=(await approved.json() as {data:{delegations:Array<{id:string}>}}).data.delegations[0]!.id;
+    const represented={...patch,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg};
+    const headers={"x-lifespace-delegation-id":dlg};
+    expect((await f.request("POST",route,represented,payload)).status).toBe(403);
+    expect((await f.request("GET",route.replace("/file-downloads",""),represented,undefined,headers)).status).toBe(404);
+    expect((await f.request("POST",route,represented,payload,headers)).status).toBe(200);
+    expect((await f.request("POST",route,represented,payload,headers)).status).toBe(403);
+    await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE grantee_id=? AND source_space_id=?").bind(now,f.agent,f.space).run();
+    expect((await f.request("POST",route,patch,payload)).status).toBe(403);
   });
 
   it("valid signed Agent JWT is current-state rechecked and inventory cannot disclose second granted Space", async () => {
