@@ -98,6 +98,10 @@ async function fixture() {
     IDENTITY: { fetch: async (url: string, init: RequestInit) => {
       checks++;
       const pathname = new URL(url).pathname;
+      if(pathname==="/introspection/v1/agent-credentials"){
+        expect(new Headers(init.headers).get("authorization")).toBe("Bearer lsp_agt_synthetic");
+        return Response.json({data:{active:true,audience:"lifespace-core",principal:{type:"agent",id:agent,clientId:application,tokenId:"agc_synthetic",purpose:"agent_api",scopes:["resources:read","resources:write"]}}});
+      }
       expect(["/introspection/v1/oauth-executions",
         "/introspection/v1/oauth-delegation-authorizations"]).toContain(pathname);
       expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
@@ -134,6 +138,11 @@ async function fixture() {
         ...(body===undefined?{}:{"content-type":"application/json"})},
       ...(body===undefined?{}:{body:JSON.stringify(body)}),
     },bindings);
+  const opaqueAgentRequest=async(method:string,path:string,selector:string,body?:unknown)=>
+    createApp().request("http://localhost"+path,{method,
+      headers:{authorization:"Bearer lsp_agt_synthetic","x-lifespace-delegation-id":selector,
+        ...(body===undefined?{}:{"content-type":"application/json"})},
+      ...(body===undefined?{}:{body:JSON.stringify(body)})},bindings);
   const accountToken = (userId = oauthUser) => sign({
     iss: "lifespace-identity", aud: "lifespace-core", sub: userId,
     azp: accountApp, principal_type: "user", scope: "profile:read spaces:read spaces:manage",
@@ -147,7 +156,7 @@ async function fixture() {
     },bindings);
   return {
     agent, application, space, other, claims, jwt, request, publicKey, serverId,
-    accountRequest, trustedRequest, oauthUser, accountApp, authId, client, resource,
+    accountRequest, trustedRequest, opaqueAgentRequest, oauthUser, accountApp, authId, client, resource,
     db, setConsentScopes: (v: string[]) => { consentScopes = v; },
     setDelegationEnabled: (enabled: boolean) => { delegationEnabled = enabled; },
     setEnvironment: (v: string) => { bindings.ENVIRONMENT = v; },
@@ -747,6 +756,9 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const represented={...claims,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg};
     const headers={"x-lifespace-delegation-id":dlg};
     const query=base+"/models/task/records/query";
+    // OAuth-approved exact operation cannot be replayed through an opaque
+    // trusted Agent credential, even by the same Agent/Application.
+    expect((await f.opaqueAgentRequest("POST",query,dlg,{page:{limit:1}})).status).toBe(403);
     for(let i=0;i<2;i++)expect((await f.request("POST",query,represented,{page:{limit:1}},headers)).status).toBe(200);
     expect((await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+dlg+"/revoke",{})).status).toBe(200);
     expect((await f.request("POST",query,represented,{page:{limit:1}},headers)).status).toBe(403);
