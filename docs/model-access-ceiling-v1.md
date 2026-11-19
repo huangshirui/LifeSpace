@@ -1,6 +1,6 @@
 # Model Access Ceiling V1 / 模型访问权限上限
 
-Status: planned implementation, not a deployed capability. Tracking: [#589](https://github.com/huangshirui/LifeSpace/issues/589). Direction approved 2026-11-16; detailed governance choices below are the proposed V1 implementation contract, to be reviewed with implementation. This is an Authority Constraint serving A3 Bounded Authority; North Star remains unchanged.
+Status: V1 deployed in [Production #44015053875](https://github.com/huangshirui/LifeSpace/actions/runs/44015053875), retained in [#44244215052](https://github.com/huangshirui/LifeSpace/actions/runs/44244215052). Tracking: [#590](https://github.com/huangshirui/LifeSpace/pull/590). Direction approved 2026-11-16; the following design boundaries remain normative; exact deployed behavior is recorded in [production capability guide](production/capability-guide.md). This is an Authority Constraint serving A3 Bounded Authority; North Star remains unchanged.
 
 ## 1. Semantics / 语义
 
