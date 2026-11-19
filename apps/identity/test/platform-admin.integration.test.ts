@@ -293,6 +293,39 @@ describe("Identity Platform Admin API", () => {
     expect(JSON.stringify(createAudit)).not.toContain(created.clientSecret);
   });
 
+  it("governs OAuth delegation approval at Application level, with Account as the default", async () => {
+    const pair = await keys();
+    const console = await provisionConsole(pair);
+    const root = "/internal/v1/platform-admin/applications";
+    const headers = { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" };
+    const create = (body: object) => request(root, { method: "POST", headers, body: JSON.stringify(body) }, pair);
+    expect((await create({ name: "Untrusted approval", oauthDelegationApproval: "application" })).status).toBe(422);
+    const external = (await (await create({ name: "External client" })).json() as any).data;
+    const trusted = (await (await create({ name: "Trusted client", trustedBackend: true })).json() as any).data;
+    expect(external.oauthDelegationApproval).toBe("account");
+    expect(trusted.oauthDelegationApproval).toBe("account");
+    const patch = (id: string, body: object, h = headers) => request(root + "/" + id, {
+      method: "PATCH", headers: h, body: JSON.stringify(body),
+    }, pair);
+    expect((await patch(external.id, { oauthDelegationApproval: "application" })).status).toBe(422);
+    expect((await patch(trusted.id, { oauthDelegationApproval: "invalid" })).status).toBe(422);
+    expect((await patch(trusted.id, { oauthDelegationApproval: "application" }, {
+      ...headers, "x-lifespace-actor-token": "",
+    })).status).toBe(401);
+    const enabled = await patch(trusted.id, { oauthDelegationApproval: "application" });
+    expect(enabled.status).toBe(200);
+    expect((await enabled.json() as any).data.oauthDelegationApproval).toBe("application");
+    const renamed = await patch(trusted.id, { name: "Renamed trusted client" });
+    expect((await renamed.json() as any).data.oauthDelegationApproval).toBe("application");
+    const own = await request("/internal/v1/applications/self", {
+      method: "GET", headers: { authorization: "Bearer " + trusted.clientSecret },
+    }, pair);
+    expect(own.status).toBe(200);
+    expect((await own.json() as any).data.oauthDelegationApproval).toBe("application");
+    const disabled = await patch(trusted.id, { oauthDelegationApproval: "account" });
+    expect((await disabled.json() as any).data.oauthDelegationApproval).toBe("account");
+  });
+
   it("reads and updates an existing semantic application id while new application creation remains app_*", async () => {
     const pair = await keys();
     const console = await provisionConsole(pair);
