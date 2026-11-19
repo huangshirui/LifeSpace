@@ -3,6 +3,7 @@ import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { requirePlatformAdminContext, type PlatformAdminContext } from "./platform-admin-auth";
+import { parseMcpDelegationContexts, type McpDelegationContext } from "./mcp-delegation-contexts";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -11,7 +12,7 @@ type Operation = "get" | "query" | "create" | "update" | "delete" | "file_read" 
 type PersonOperation = "list" | "get" | "create" | "update" | "delete";
 type ModelSelection = { modelKey: string; operations: Operation[] };
 type ResourceSelection = { resourceKey: "person_directory"; operations: PersonOperation[] };
-type Configuration = { models: ModelSelection[]; resources?: ResourceSelection[] };
+type Configuration = { models: ModelSelection[]; resources?: ResourceSelection[]; delegationContexts?: McpDelegationContext[] };
 type ServerRow = {
   id: string; display_name: string; description: string; enabled: number;
   config_json: string; revision: number; created_by_user_id: string;
@@ -51,7 +52,9 @@ function description(value: unknown): string {
 }
 function configuration(value: unknown, allowEmpty = false): Configuration {
   if (!object(value)) throw new ApiError("VALIDATION_ERROR", "Configuration must be an object", 422);
-  rejectKeys(value, ["models", "resources"]);
+  rejectKeys(value, ["models", "resources", "delegationContexts"]);
+  const contexts = parseMcpDelegationContexts(value.delegationContexts);
+  const contextConfig = value.delegationContexts===undefined?{}:{delegationContexts:contexts};
   if (!Array.isArray(value.models) || value.models.length > 32) {
     throw new ApiError("VALIDATION_ERROR", "models must contain at most 32 entries", 422);
   }
@@ -77,7 +80,7 @@ function configuration(value: unknown, allowEmpty = false): Configuration {
   }).sort((a,b) => a.modelKey.localeCompare(b.modelKey));
   if (value.resources === undefined) {
     if (!allowEmpty && !models.length) throw new ApiError("VALIDATION_ERROR", "Select at least one Model or Person Directory", 422);
-    return { models };
+    return { models, ...contextConfig };
   }
   if (!Array.isArray(value.resources) || value.resources.length > 1) {
     throw new ApiError("VALIDATION_ERROR", "Only Person Directory Kernel resource is supported", 422);
@@ -101,7 +104,7 @@ function configuration(value: unknown, allowEmpty = false): Configuration {
   if (!allowEmpty && !models.length && !resources.length) {
     throw new ApiError("VALIDATION_ERROR", "Select at least one Model or Person Directory", 422);
   }
-  return { models, resources };
+  return { models, resources, ...contextConfig };
 }
 async function validateModels(context: Context<AppEnv>, config: Configuration): Promise<void> {
   if (!config.models.length) return;
