@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity API
-  version: 0.19.0
+  version: 0.20.0
   description: Global LifeSpace user identity, profile, trusted application exchange, Cloudflare Access principal resolution/linking, application credential lifecycle, Agent identity/execution-token issuance, service principals and credential issuance API.
 paths:
   /health:
@@ -724,7 +724,7 @@ paths:
                 userId: { type: string, pattern: '^usr_' }
                 spaceId: { type: string, pattern: '^spc_' }
       responses:
-        '200': { description: Current active state and allowed scopes; false when authorization revoked, not opted in or any dimension mismatches }
+        '200': { description: Current active state, allowed scopes and oauthDelegationApproval for an active authorization; false when authorization revoked, not opted in or any dimension mismatches }
         '400': { description: Invalid exact-bound context }
         '401': { description: Private Core service proof missing }
   /oauth/revoke:
@@ -928,6 +928,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 100 }
         allowedScopes: { type: array, uniqueItems: true, items: { type: string } }
         trustedBackend: { type: boolean }
+        oauthDelegationApproval: { type: string, enum: [account, application], description: 'Application-level OAuth delegation confirmation policy; application requires trustedBackend.' }
         accessTokenTtlSeconds: { type: integer, minimum: 300, maximum: 3600 }
         status: { type: string, enum: [active, disabled] }
         createdAt: { type: string, format: date-time }
@@ -941,6 +942,7 @@ components:
         allowedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 } }
         accessTokenTtlSeconds: { type: integer, minimum: 300, maximum: 3600 }
         status: { type: string, enum: [active, disabled] }
+        oauthDelegationApproval: { type: string, enum: [account, application], description: 'Application-level OAuth delegation confirmation policy; application requires trustedBackend.' }
     ApplicationResponse: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Application' } } }
     ApplicationCredential:
       type: object
