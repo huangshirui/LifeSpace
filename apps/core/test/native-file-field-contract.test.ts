@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeCanonicalFieldValue } from "../src/generic-resource";
 import { validateModelDefinition } from "../src/model-definition";
 import { compilePhysicalSchema } from "../src/physical-schema";
+import { nativeFileReadFields } from "../src/file-read-fields";
 
 const fileId = "fil_0123456789abcdef0123456789abcdef";
 
@@ -23,6 +24,15 @@ describe("Native File canonical field contract", () => {
     }
     expect(normalizeCanonicalFieldValue("attachment", { type: "file" }, fileId)).toBe(fileId);
     expect(normalizeCanonicalFieldValue("attachment", { type: "file_list" }, [fileId])).toEqual([fileId]);
+  });
+
+  it("projects only native File fields and never external references or record icons", () => {
+    expect(nativeFileReadFields({fields:{
+      attachment:{type:"file"}, evidence:{type:"file_list"}, label:{type:"string"},
+      externalRef:{type:"file_ref_list"},
+    }})).toEqual(["attachment","evidence"]);
+    expect(nativeFileReadFields({origin:"external",fields:{attachment:{type:"file"}}})).toEqual([]);
+    expect(nativeFileReadFields({fields:{label:{type:"string"}}})).toEqual([]);
   });
 
   it("rejects malformed and duplicate file identities", () => {
