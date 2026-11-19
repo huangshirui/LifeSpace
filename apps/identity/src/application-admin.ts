@@ -8,6 +8,7 @@ type ApplicationRow = {
   name: string;
   allowed_scopes: string;
   trusted_backend: number;
+  oauth_delegation_approval: OAuthDelegationApproval;
   access_token_ttl_seconds: number;
   status: string;
   created_at: string;
@@ -28,9 +29,16 @@ type UpdateApplicationBody = {
   allowedScopes?: unknown;
   accessTokenTtlSeconds?: unknown;
   status?: unknown;
+  oauthDelegationApproval?: unknown;
 };
 
-export const IDENTITY_CONTRACT_VERSION = "0.19.0";
+export const IDENTITY_CONTRACT_VERSION = "0.20.0";
+export type OAuthDelegationApproval = "account" | "application";
+
+export function validOAuthDelegationApproval(value: unknown, trustedBackend: boolean): value is OAuthDelegationApproval {
+  return value === "account" || (value === "application" && trustedBackend);
+}
+
 export const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 900;
 export const MIN_ACCESS_TOKEN_TTL_SECONDS = 300;
 export const MAX_ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -74,6 +82,7 @@ function applicationDto(row: ApplicationRow) {
     name: row.name,
     allowedScopes: parseScopes(row.allowed_scopes),
     trustedBackend: row.trusted_backend === 1,
+    oauthDelegationApproval: row.oauth_delegation_approval,
     accessTokenTtlSeconds: row.access_token_ttl_seconds,
     status: row.status,
     createdAt: row.created_at,
@@ -94,7 +103,7 @@ function credentialDto(row: CredentialRow) {
 
 async function loadApplication(db: D1Database, applicationId: string): Promise<ApplicationRow | null> {
   return db.prepare(`
-    SELECT id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
+    SELECT id,name,allowed_scopes,trusted_backend,oauth_delegation_approval,access_token_ttl_seconds,status,created_at,updated_at
     FROM applications WHERE id=?
   `).bind(applicationId).first<ApplicationRow>();
 }
@@ -124,9 +133,9 @@ export function registerApplicationAdminRoutes(app: Hono<AppEnv>) {
       return c.json(fail("INVALID_REQUEST", "Application update body is required", c.get("requestId")), 400);
     }
     const keys = Object.keys(input);
-    const allowedKeys = new Set(["name", "allowedScopes", "accessTokenTtlSeconds", "status"]);
+    const allowedKeys = new Set(["name", "allowedScopes", "accessTokenTtlSeconds", "status", "oauthDelegationApproval"]);
     if (!keys.length || keys.some((key) => !allowedKeys.has(key))) {
-      return c.json(fail("INVALID_REQUEST", "Only name, allowedScopes, accessTokenTtlSeconds and status may be updated", c.get("requestId")), 400);
+      return c.json(fail("INVALID_REQUEST", "Only name, allowedScopes, accessTokenTtlSeconds, status and oauthDelegationApproval may be updated", c.get("requestId")), 400);
     }
 
     const assignments: string[] = [];
@@ -157,6 +166,16 @@ export function registerApplicationAdminRoutes(app: Hono<AppEnv>) {
       }
       assignments.push("status=?");
       values.push(input.status);
+    }
+
+    if ("oauthDelegationApproval" in input) {
+      const current = await loadApplication(c.env.DB, c.req.param("applicationId"));
+      if (!current) return c.json(fail("APPLICATION_NOT_FOUND", "Application not found", c.get("requestId")), 404);
+      if (!validOAuthDelegationApproval(input.oauthDelegationApproval, current.trusted_backend === 1)) {
+        return c.json(fail("VALIDATION_ERROR", "Application approval requires trustedBackend", c.get("requestId")), 422);
+      }
+      assignments.push("oauth_delegation_approval=?");
+      values.push(input.oauthDelegationApproval);
     }
 
     const updatedAt = new Date().toISOString();
