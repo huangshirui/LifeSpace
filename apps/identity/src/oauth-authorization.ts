@@ -20,7 +20,7 @@ type Authorization = {
   id: string; client_id: string; user_id: string; application_id: string; space_id: string; agent_id: string;
   resource: string; scopes: string; status: string; allow_user_authorization: number;
   userStatus: string; appStatus: string; agentStatus: string; bindingStatus: string; bindingRevoked: string | null;
-  clientStatus: string; allowedScopes: string;
+  clientStatus: string; allowedScopes: string; trustedBackend: number; oauthDelegationApproval: string;
 };
 type CodeRow = { code_hash: string; client_id: string; redirect_uri: string; code_challenge: string; authorization_id: string; expires_at: string; consumed_at: string | null };
 type RefreshRow = { authorization_id: string; client_id: string; family_id: string; expires_at: string; consumed_at: string | null; revoked_at: string | null };
@@ -271,7 +271,7 @@ async function revokeOAuthAuthorization(
   return (await statement.bind(timestamp, authorizationId).run()).meta.changes === 1;
 }
 
-const AUTHORIZATION_COLUMNS = "oa.*,u.status userStatus,a.status appStatus,a.allowed_scopes allowedScopes,ag.status agentStatus,aa.status bindingStatus,aa.revoked_at bindingRevoked,oc.status clientStatus";
+const AUTHORIZATION_COLUMNS = "oa.*,u.status userStatus,a.status appStatus,a.allowed_scopes allowedScopes,a.trusted_backend trustedBackend,a.oauth_delegation_approval oauthDelegationApproval,ag.status agentStatus,aa.status bindingStatus,aa.revoked_at bindingRevoked,oc.status clientStatus";
 const AUTHORIZATION_RELATIONS = "oauth_authorizations oa JOIN users u ON u.id=oa.user_id JOIN applications a ON a.id=oa.application_id JOIN agents ag ON ag.id=oa.agent_id JOIN agent_applications aa ON aa.agent_id=oa.agent_id AND aa.application_id=oa.application_id JOIN oauth_clients oc ON oc.id=oa.client_id";
 export async function authorization(db: D1Database, authorizationId: string): Promise<Authorization | null> {
   return db.prepare("SELECT " + AUTHORIZATION_COLUMNS + " FROM " + AUTHORIZATION_RELATIONS + " WHERE oa.id=?")
