@@ -55,6 +55,7 @@ async function fixture(role: "owner" | "viewer" = "owner") {
   const bearer = await token(pair.privateKey, userId, appId);
   const forwarded: Array<{ url: string; secret: string; body: Record<string, unknown> }> = [];
   let upstreamStatus = 200;
+  let pendingResource: string|null=null;
   let upstreamPayload: Record<string, unknown> = {
     authorization_id: "oaz_" + suffix,
     redirect_url: "https://client.example.test/callback?code=lsp_oac_sample&state=opaque",
@@ -74,6 +75,10 @@ async function fixture(role: "owner" | "viewer" = "owner") {
             ? [{ agentId, agentName: "Test Agent", applicationId: targetApp, applicationName: "Target App" }]
             : [] });
         }
+        if(address.endsWith("/api/v1/me/oauth/requests/"+requestId)&&pendingResource){
+          expect(new Headers(init?.headers).get("authorization")).toBe("Bearer "+bearer);
+          return Response.json({data:{id:requestId,resource:pendingResource}});
+        }
         forwarded.push({
           url: address,
           secret: new Headers(init?.headers).get("x-lifespace-oauth-approver-secret") ?? "",
@@ -91,6 +96,7 @@ async function fixture(role: "owner" | "viewer" = "owner") {
       body: JSON.stringify(body),
     }, bindings);
   return { userId, appId, spaceId, agentId, requestId, pair, db, bearer, bindings, selected, forwarded, call,
+    setPendingResource(resource:string){pendingResource=resource;},
     changeUpstream(status: number, payload: Record<string, unknown> = upstreamPayload) {
       upstreamStatus = status; upstreamPayload = payload;
     },
@@ -98,6 +104,29 @@ async function fixture(role: "owner" | "viewer" = "owner") {
 }
 
 describe("Core Account OAuth Consent boundary", () => {
+  it("permits only exact Server-configured zero-Grant Agent contexts with explicit User authorization",async()=>{
+    const f=await fixture();
+    const now=new Date().toISOString(),serverId="mcp_"+crypto.randomUUID().replaceAll("-","");
+    const resource="https://core.example.test/mcp/"+serverId;
+    Object.assign(f.bindings,{MCP_PUBLIC_ORIGIN:"https://core.example.test"});
+    f.setPendingResource(resource);
+    await f.db.prepare("DELETE FROM data_grants WHERE grantee_id=?").bind(f.agentId).run();
+    await f.db.prepare("INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) VALUES(?,?,?,1,?,1,?,?,?,?)")
+      .bind(serverId,"Synthetic delegation context","",JSON.stringify({models:[{modelKey:"task",operations:["query"]}],
+        delegationContexts:[{spaceId:f.spaceId,applicationId:f.selected.applicationId,agentId:f.agentId}]}),f.userId,f.userId,now,now).run();
+    const choices=await createApp().request("https://core.example.test/api/v1/me/oauth/choices?"+new URLSearchParams({resource}),
+      {headers:{authorization:"Bearer "+f.bearer}},f.bindings);
+    expect(choices.status).toBe(200);
+    expect((await choices.json() as any).data.candidates).toContainEqual(expect.objectContaining({
+      spaceId:f.spaceId,agentId:f.agentId,applicationId:f.selected.applicationId,requiresUserAuthorization:true,
+    }));
+    expect((await f.call(f.bearer,{...f.selected,allowUserAuthorization:false})).status).toBe(403);
+    expect((await f.call(f.bearer,{...f.selected,agentId:"agt_unrelated"})).status).toBe(403);
+    expect((await f.call()).status).toBe(200);
+    await f.db.prepare("UPDATE mcp_server_definitions SET enabled=0 WHERE id=?").bind(serverId).run();
+    expect((await f.call()).status).toBe(403);
+    expect(await f.db.prepare("SELECT COUNT(*) n FROM data_grants WHERE grantee_id=?").bind(f.agentId).first("n")).toBe(0);
+  });
   it("forwards Account-only explicit denial without approval or leaking arbitrary callbacks", async () => {
     const f = await fixture();
     f.changeUpstream(200, {
