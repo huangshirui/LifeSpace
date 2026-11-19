@@ -23,13 +23,13 @@ async function keys() {
   };
 }
 
-async function userToken(privateKey: string, userId: string) {
+async function userToken(privateKey: string, userId: string, applicationId="test-app") {
   const iat = Math.floor(Date.now() / 1000);
   return sign({
     iss: "lifespace-identity",
     aud: "lifespace-core",
     sub: userId,
-    azp: "test-app",
+    azp: applicationId,
     principal_type: "user",
     scope: "resources:read resources:write",
     iat,
@@ -38,7 +38,7 @@ async function userToken(privateKey: string, userId: string) {
   }, privateKey, "RS256");
 }
 
-function identityBinding(agentId: string, state: { active: boolean; scopes: string[] }): Fetcher {
+function identityBinding(agentId: string, state: { active: boolean; scopes: string[] }, applicationId="test-app"): Fetcher {
   return {
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       const request = input instanceof Request ? input : new Request(input, init);
@@ -52,7 +52,7 @@ function identityBinding(agentId: string, state: { active: boolean; scopes: stri
                 type: "agent",
                 id: agentId,
                 displayName: "Adapter Agent",
-                clientId: "test-app",
+                clientId: applicationId,
                 scopes: state.scopes,
                 tokenId: "agc_test",
                 purpose: "agent_api",
@@ -71,6 +71,7 @@ async function request(path: string, options: RequestInit, publicKey: string, id
     IDENTITY: identity,
     CORE_IDENTITY_SHARED_SECRET: "core-secret",
     ENVIRONMENT: "test",
+    MCP_PUBLIC_ORIGIN:"https://core.example.test",
   });
 }
 
@@ -93,6 +94,46 @@ function jsonData(response: Response) {
 }
 
 describe("opaque Agent API credential execution", () => {
+  it("projects and invokes trusted MCP operations with no Agent Grant and an explicit current Delegation",async()=>{
+    const {privateKey,publicKey}=await keys();
+    const uuid=crypto.randomUUID().replaceAll("-","");
+    const userId="usr_"+uuid,agentId="agt_"+uuid,spaceId="spc_"+uuid,applicationId="app_"+uuid,serverId="mcp_"+uuid;
+    const resource="https://core.example.test/mcp/"+serverId,now=new Date().toISOString();
+    const db=(env as unknown as TestEnv).DB;
+    await seed(userId,spaceId);
+    await db.batch([
+      db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?, 'event','read','user',?)").bind(applicationId,userId),
+      db.prepare("INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) VALUES(?,?,?,1,?,1,?,?,?,?)")
+        .bind(serverId,"Trusted MCP","",JSON.stringify({models:[{modelKey:"event",operations:["query","get","create"]}],
+          delegationContexts:[{spaceId,applicationId,agentId}]}),userId,userId,now,now),
+    ]);
+    const state={active:true,scopes:["resources:read"]};
+    const identity=identityBinding(agentId,state,applicationId);
+    const directUser=await userToken(privateKey,userId,applicationId);
+    const base="/api/v1/spaces/"+spaceId;
+    const issued=await request(base+"/delegations",{method:"POST",headers:{authorization:"Bearer "+directUser,"content-type":"application/json"},
+      body:JSON.stringify({actor:{type:"agent",id:agentId},scope:{target:{type:"model",id:"event"},maxAccess:"read"}})},publicKey,identity);
+    expect(issued.status).toBe(201);
+    const dlg=(await jsonData(issued)).id;
+    const headers={authorization:"Bearer lsp_agt_test_credential","x-lifespace-mcp-resource":resource,"x-lifespace-delegation-id":dlg};
+    const discover=()=>request(base+"/_discovery/operations",{headers},publicKey,identity);
+    expect((await request(base+"/_discovery/operations",{headers:{...headers,"x-lifespace-delegation-id":"dlg_invalid"}},publicKey,identity)).status).toBe(403);
+    expect((await request(base+"/_discovery/operations",{headers:{authorization:headers.authorization,"x-lifespace-mcp-resource":resource}},publicKey,identity)).status).toBe(403);
+    const listed=await discover();
+    expect(listed.status).toBe(200);
+    const operations=(await jsonData(listed)).operations;
+    expect(operations.map((row:{operation:string})=>row.operation)).toEqual(["query","get"]);
+    const invoke=()=>request(base+"/_operations/"+operations[0].operationRef+"/invoke",{method:"POST",headers:{...headers,"content-type":"application/json"},
+      body:JSON.stringify({arguments:{spaceId,data:{page:{limit:1}}}})},publicKey,identity);
+    expect((await invoke()).status).toBe(200);
+    expect((await invoke()).status).toBe(200);
+    await db.prepare("UPDATE mcp_server_definitions SET enabled=0 WHERE id=?").bind(serverId).run();
+    expect((await invoke()).status).toBe(403);
+    await db.prepare("UPDATE mcp_server_definitions SET enabled=1 WHERE id=?").bind(serverId).run();
+    await db.prepare("UPDATE delegations SET revoked_at=? WHERE id=?").bind(now,dlg).run();
+    expect((await invoke()).status).toBe(403);
+    expect((await discover()).status).toBe(403);
+  });
   it("derives represented User only from dlg_* and preserves User/Agent Change attribution", async () => {
     const { privateKey, publicKey } = await keys();
     const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
