@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Identity Platform Admin API
-  version: 0.6.0
+  version: 0.7.0
   description: >-
     Privileged LifeSpace Identity control-plane contract for the LifeSpace Console and break-glass
     platform provisioning. It is intentionally versioned separately from the downstream Identity
@@ -742,6 +742,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 100 }
         allowedScopes: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 100 }, default: [] }
         trustedBackend: { type: boolean, default: false }
+        oauthDelegationApproval: { type: string, enum: [account, application], description: 'Application-level OAuth delegation confirmation policy; application requires trustedBackend.' }
         accessTokenTtlSeconds: { type: integer, minimum: 300, maximum: 3600 }
     CreatePlatformApplicationResponse:
       type: object
