@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 const doc=parse(readFileSync(new URL("../mcp-operations.openapi.yaml",import.meta.url),"utf8"));
 assert.equal(doc.openapi,"3.1.0");
-assert.equal(doc.info.version,"0.4.0");
+assert.equal(doc.info.version,"0.5.0");
 const get=doc.paths["/api/v1/spaces/{spaceId}/_discovery/operations"].get;
 assert.deepEqual(get.parameters.filter(p=>p.in==="query").map(p=>p.name),["modelKey","operation"]);
 for(const p of get.parameters.filter(p=>p.in==="query")) {
@@ -18,4 +18,8 @@ assert.ok(doc.paths["/api/v1/spaces/{spaceId}/_operations/{operationRef}/invoke"
 assert.ok(new RegExp(descriptor.properties.operation.pattern).test("file_read"));
 assert.ok(new RegExp(get.parameters.find(p=>p.name==="operation").schema.pattern).test("file_read"));
 assert.ok(doc.paths["/api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}/file-downloads"].post);
+assert.ok(new RegExp(descriptor.properties.operation.pattern).test("file_upload"));
+assert.ok(new RegExp(get.parameters.find(p=>p.name==="operation").schema.pattern).test("file_upload"));
+assert.ok(doc.paths["/api/v1/spaces/{spaceId}/models/{modelKey}/file-uploads"].post);
+assert.ok(doc.paths["/api/v1/spaces/{spaceId}/models/{modelKey}/file-uploads/{uploadId}/complete"].post);
 console.log("Generic Operations OpenAPI syntax and target projection checks passed");
