@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { nativeFileReadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
@@ -11,7 +11,7 @@ import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues
 // This is a transport-specific pending-approval bridge, NOT a second
 // Delegation authority. Trusted in-app / WeCom arq_* routes are untouched.
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
-type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | `action:${string}`;
+type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | `action:${string}`;
 type Access = "read" | "write";
 type Binding = {
   channel: "oauth_mcp"; authorizationId: string; clientId: string;
@@ -32,7 +32,7 @@ const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
 const PERSON_MODEL = "person";
 const PERSON_TARGET = "person_directory";
 const delegationTarget = (modelKey: string) => modelKey === PERSON_MODEL ? PERSON_TARGET : modelKey;
-const OPS = new Set<string>(["get","query","create","update","delete","file_read"]);
+const OPS = new Set<string>(["get","query","create","update","delete","file_read","file_upload"]);
 const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
 const validOp = (value: unknown): value is Op => typeof value === "string"
   && (OPS.has(value) || ACTION.test(value));
@@ -112,7 +112,7 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   // Person is exposed as an ordinary consumer-facing "person" model, but
   // the exact Kernel target and current Grant stay Core-private.
   if (modelKey === PERSON_MODEL) {
-    if (ACTION.test(operation) || operation === "file_read") throw fail();
+    if (ACTION.test(operation) || operation === "file_read" || operation === "file_upload") throw fail();
     const resources = (config as {resources?: unknown}).resources;
     if (!Array.isArray(resources)) throw fail();
     const person = resources.find(r => r && typeof r === "object" && !Array.isArray(r)
@@ -133,8 +133,9 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   const model=await getRuntimeModel(env,modelKey);
   if (!model) throw fail();
   if (operation === "file_read" && !nativeFileReadFields(model.definition).length) throw fail();
+  if (operation === "file_upload" && !nativeFileUploadFields(model.definition).length) throw fail();
   if (model.definition.origin === "external") {
-    if (ACTION.test(operation) || operation === "file_read") throw fail();
+    if (ACTION.test(operation) || operation === "file_read" || operation === "file_upload") throw fail();
     const bound=await getExternalModel(env,spaceId,modelKey);
     const externalOperation=operation as "get"|"query"|"create"|"update"|"delete";
     if (!bound || bound.status!=="active" || !bound.snapshot.capabilities[externalOperation]
@@ -271,6 +272,8 @@ export async function requireOAuthMcpDelegatedOperation(
     ? method==="POST" && path.startsWith(prefix+"/")
       && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1).split("/")[0])
       && path === prefix+"/"+path.slice(prefix.length+1).split("/")[0]+"/actions/"+action[1]
+    : op==="file_upload" ? method==="POST" && (path===prefix.slice(0,-8)+"/file-uploads"
+      || path.startsWith(prefix.slice(0,-8)+"/file-uploads/") && /^upl_[a-f0-9]{32}\/complete$/u.test(path.slice((prefix.slice(0,-8)+"/file-uploads/").length)))
     : op==="file_read" ? method==="POST" && path.startsWith(prefix+"/")
       && /^rec_[A-Za-z0-9_-]+\/file-downloads$/u.test(path.slice(prefix.length+1))
     : op==="query" ? method==="POST" && path===prefix+"/query"
@@ -416,6 +419,9 @@ export function registerOAuthDelegationRoutes(app: App): void {
     // The authenticated Account User chooses the lifetime, never the OAuth Agent.
     // Legacy "{}" approvals retain the safe once-only default.
     const lifetime=isApprove ? approvalLifetime(body,new Date()) : null;
+    if (isApprove && loaded.binding.operation==="file_upload" && lifetime?.mode==="once") {
+      throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED","Multi-step upload requires timed or until-revoked Delegation",422);
+    }
     const current=statusOf(loaded.row);
     if (current!=="pending") throw new ApiError("AUTHORIZATION_REQUEST_NOT_PENDING","Approval is no longer pending",409);
     const scopes=await liveConsent(c.env,loaded.row,loaded.binding);
