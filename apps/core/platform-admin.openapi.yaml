@@ -703,6 +703,15 @@ components:
           maxItems: 5
           uniqueItems: true
           items: { type: string, enum: [list, get, create, update, delete] }
+    McpDelegationContext:
+      type: object
+      additionalProperties: false
+      required: [spaceId, applicationId, agentId]
+      description: Explicit Server enrollment context, not a Data Grant or execution authority.
+      properties:
+        spaceId: { type: string, pattern: '^spc_[A-Za-z0-9_-]{1,128}$' }
+        applicationId: { type: string, pattern: '^app_[A-Za-z0-9_-]{1,128}$' }
+        agentId: { type: string, pattern: '^agt_[A-Za-z0-9_-]{1,128}$' }
     McpServerConfiguration:
       type: object
       additionalProperties: false
@@ -716,6 +725,12 @@ components:
           type: array
           maxItems: 1
           items: { $ref: '#/components/schemas/McpKernelResourceSelection' }
+        delegationContexts:
+          type: array
+          maxItems: 32
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/McpDelegationContext' }
+          description: Configured contexts eligible for independent User consent, including Agents with zero Data Grants.
     CreateMcpServerRequest:
       type: object
       additionalProperties: false
