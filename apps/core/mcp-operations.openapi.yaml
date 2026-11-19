@@ -4,8 +4,8 @@ info:
   version: 0.5.0
   description: |
     Protocol-neutral, authenticated operation projection for the current OAuth
-    MCP Agent execution context or opaque Agent credential with explicit current
-    Delegation and configured MCP Server context. This contract is Core-owned. Internal Native,
+    MCP Agent execution context or opaque Agent credential with configured MCP
+    Server context and an optional explicitly selected current Delegation. This contract is Core-owned. Internal Native,
     Space Person and External Provider resolution is never a consumer contract.
     An operationRef is not an authority grant or bearer credential.
 servers:
@@ -36,9 +36,14 @@ paths:
         the actual OAuth scopes. It returns only model/operation/scope metadata,
         never executable descriptors, operationRef, input schemas or records.
         Independent Account approval and exact represented execution remain required.
-        Trusted Agent credentials require the exact X-LifeSpace-MCP-Resource and
-        X-LifeSpace-Delegation-Id headers; no direct fallback or eligibility preview.
-        Discovery validates the selected current Delegation without consuming it.
+        Opaque Agent credentials require the exact X-LifeSpace-MCP-Resource header.
+        Without X-LifeSpace-Delegation-Id, executable descriptors reflect only direct
+        Agent authority; no Grant means an empty catalog, not failed authentication.
+        An explicit selector must be current and never falls back to direct authority.
+        mode=configuration returns only configuredOperations metadata bounded by the
+        enabled Server, Application Model Access, published capabilities and actual
+        credential Scope; it is not User eligibility or executable authority.
+        Configuration mode is available only to an opaque Agent without a selector.
       parameters:
         - $ref: '#/components/parameters/spaceId'
         - $ref: '#/components/parameters/trustedMcpResource'
@@ -55,8 +60,8 @@ paths:
         - name: mode
           in: query
           required: false
-          description: Explicit delegation eligibility preview; requires live consent enabling User Delegation.
-          schema: { type: string, enum: [delegation_request] }
+          description: OAuth delegation eligibility or opaque Agent configuration-only operation metadata.
+          schema: { type: string, enum: [delegation_request, configuration] }
       responses:
         '200':
           description: Current direct operation catalog or non-authorizing eligibility preview; no Provider, storage origin or Kernel type
@@ -85,6 +90,14 @@ paths:
                         additionalProperties: false
                         properties:
                           eligibleOperations:
+                            type: array
+                            maxItems: 128
+                            items: { $ref: '#/components/schemas/DelegationEligibility' }
+                      - type: object
+                        required: [configuredOperations]
+                        additionalProperties: false
+                        properties:
+                          configuredOperations:
                             type: array
                             maxItems: 128
                             items: { $ref: '#/components/schemas/DelegationEligibility' }
@@ -117,8 +130,8 @@ paths:
         Multi-step upload does not support once-only Delegation.
         OAuth Agent Direct retains its current contract. OAuth represented execution
         uses the separate exact approved canonical operation. Trusted Agent credentials
-        may execute via this generic route only with an explicitly selected, current
-        trusted-channel Delegation and exact configured Server context. Canonical
+        may execute via this generic route with direct Agent authority or an explicitly
+        selected, current trusted-channel Delegation and exact configured Server context. Canonical
         handlers independently recheck authority and consume single-use when required.
       parameters:
         - $ref: '#/components/parameters/spaceId'
@@ -294,7 +307,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: lsp_agt_ opaque Agent API credential
-      description: Current Identity-introspected Agent credential; exact configured context and selected trusted User Delegation are mandatory.
+      description: Current Identity-introspected Agent credential; exact configured context is mandatory; selected User Delegation is optional.
   parameters:
     trustedMcpResource:
       name: X-LifeSpace-MCP-Resource
@@ -307,7 +320,7 @@ components:
       in: header
       required: false
       schema: { type: string, pattern: '^dlg_[A-Za-z0-9_-]{1,128}$' }
-      description: Required for trusted Agent transport; explicit selected trusted-channel User Delegation.
+      description: Optional for opaque Agent transport; explicit selected trusted-channel User Delegation. Omission selects direct Agent authority.
     spaceId:
       name: spaceId
       in: path
