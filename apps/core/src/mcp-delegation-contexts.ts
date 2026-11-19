@@ -2,6 +2,7 @@ import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import { oauthMcpServerId, currentMcpOAuthQueryPolicy } from "./mcp-oauth-server-policy";
 import { expectedOrigin } from "./mcp-resource-ingress";
+import { delegationChainStatement, groupDelegationChainRows, resolveAgentApiDelegatedPrincipal, validateStructuralDelegationChain, type DelegationChainRow } from "./delegation-chain";
 
 // Explicit protocol exposure/enrollment configuration, not a Data Grant.
 // These tuples never create a membership, authorize a record, or select a User.
@@ -57,5 +58,9 @@ export async function requireTrustedMcpContext(env:Bindings,principal:Principal,
   const configured=await currentMcpDelegationContexts(env,resource);
   if(!includesMcpDelegationContext(configured,{spaceId,applicationId:principal.clientId,agentId:principal.id}))
     throw new ApiError("FORBIDDEN","Trusted MCP context unavailable",403);
+  const [result]=await env.DB.batch<Record<string,unknown>>([delegationChainStatement(env,[selector])]);
+  const rows=groupDelegationChainRows((result?.results??[]) as DelegationChainRow[]).get(selector)??[];
+  const represented=resolveAgentApiDelegatedPrincipal(principal,spaceId,selector,rows);
+  validateStructuralDelegationChain(represented,spaceId,selector,rows);
   return currentMcpOAuthQueryPolicy(env.DB,resource,"GET","/api/v1/spaces/"+spaceId+"/_discovery/operations");
 }
