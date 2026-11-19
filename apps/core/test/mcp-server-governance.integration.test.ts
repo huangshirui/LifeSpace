@@ -186,6 +186,9 @@ describe("MCP Server direct configuration lifecycle", () => {
     expect((await call("POST", root, { name: "Invalid capability",
       configuration: { models: [{ modelKey: "task", operations: ["action:not_real"] }] },
     })).status).toBe(422);
+    expect((await call("POST", root, { name: "No File field",
+      configuration: { models: [{ modelKey: "task", operations: ["file_read"] }] },
+    })).status).toBe(422);
     expect((await call("POST", root, { name: "Old empty draft" })).status).toBe(422);
   });
 
