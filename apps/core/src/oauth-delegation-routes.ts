@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { nativeFileReadFields } from "./file-read-fields";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
@@ -10,7 +11,7 @@ import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues
 // This is a transport-specific pending-approval bridge, NOT a second
 // Delegation authority. Trusted in-app / WeCom arq_* routes are untouched.
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
-type Op = "get" | "query" | "create" | "update" | "delete" | `action:${string}`;
+type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | `action:${string}`;
 type Access = "read" | "write";
 type Binding = {
   channel: "oauth_mcp"; authorizationId: string; clientId: string;
@@ -31,7 +32,7 @@ const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
 const PERSON_MODEL = "person";
 const PERSON_TARGET = "person_directory";
 const delegationTarget = (modelKey: string) => modelKey === PERSON_MODEL ? PERSON_TARGET : modelKey;
-const OPS = new Set<string>(["get","query","create","update","delete"]);
+const OPS = new Set<string>(["get","query","create","update","delete","file_read"]);
 const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
 const validOp = (value: unknown): value is Op => typeof value === "string"
   && (OPS.has(value) || ACTION.test(value));
@@ -67,7 +68,7 @@ const accessOf = (operation: Op, actual?: Access): Access => {
     if (actual !== "read" && actual !== "write") throw fail();
     return actual;
   }
-  return operation === "get" || operation === "query" ? "read" : "write";
+  return operation === "get" || operation === "query" || operation === "file_read" ? "read" : "write";
 };
 const uuid = (prefix: string) => prefix + "_" + crypto.randomUUID().replaceAll("-", "");
 
@@ -111,7 +112,7 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   // Person is exposed as an ordinary consumer-facing "person" model, but
   // the exact Kernel target and current Grant stay Core-private.
   if (modelKey === PERSON_MODEL) {
-    if (ACTION.test(operation)) throw fail();
+    if (ACTION.test(operation) || operation === "file_read") throw fail();
     const resources = (config as {resources?: unknown}).resources;
     if (!Array.isArray(resources)) throw fail();
     const person = resources.find(r => r && typeof r === "object" && !Array.isArray(r)
@@ -131,8 +132,9 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   // published Model origin and current Provider capability as Core runtime.
   const model=await getRuntimeModel(env,modelKey);
   if (!model) throw fail();
+  if (operation === "file_read" && !nativeFileReadFields(model.definition).length) throw fail();
   if (model.definition.origin === "external") {
-    if (ACTION.test(operation)) throw fail();
+    if (ACTION.test(operation) || operation === "file_read") throw fail();
     const bound=await getExternalModel(env,spaceId,modelKey);
     const externalOperation=operation as "get"|"query"|"create"|"update"|"delete";
     if (!bound || bound.status!=="active" || !bound.snapshot.capabilities[externalOperation]
@@ -269,6 +271,8 @@ export async function requireOAuthMcpDelegatedOperation(
     ? method==="POST" && path.startsWith(prefix+"/")
       && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1).split("/")[0])
       && path === prefix+"/"+path.slice(prefix.length+1).split("/")[0]+"/actions/"+action[1]
+    : op==="file_read" ? method==="POST" && path.startsWith(prefix+"/")
+      && /^rec_[A-Za-z0-9_-]+\/file-downloads$/u.test(path.slice(prefix.length+1))
     : op==="query" ? method==="POST" && path===prefix+"/query"
     : op==="create" ? method==="POST" && path===prefix
     : op==="get" ? method==="GET" && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1)) && path.startsWith(prefix+"/")
