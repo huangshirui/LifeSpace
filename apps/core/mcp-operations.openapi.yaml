@@ -79,7 +79,8 @@ paths:
         The explicit file_read operation requires resources:read and is available only for
         a configured native model with file or file_list fields. Input data contains
         fieldKey and fileId; recordId is required. A successful response contains the
-        existing short-lived FileDownloadResponse. Treat its URL as a secret.
+        existing short-lived FileDownloadResponse. The authorized client fetches the
+        file directly; the URL is a bearer credential, not a durable File identity.
         Current candidate accepts Agent Direct; exact User-delegated operation
         equivalence requires a separate hardened authorization gate.
       parameters:
@@ -117,7 +118,8 @@ paths:
         OAuth execution only; selected Space, explicit file_read Server operation
         and (for represented execution) exact current User Delegation are checked.
         Reuses the existing native File authority, record link and read policy.
-        The result is private and contains a short-lived bearer URL, not MCP content.
+        The result is private and contains a short-lived bearer URL for direct
+        client transfer; no file bytes are returned by this operation.
       parameters:
         - $ref: '#/components/parameters/spaceId'
         - name: modelKey
@@ -146,7 +148,7 @@ paths:
                 fileId: { type: string, pattern: '^fil_[a-f0-9]{32}$' }
       responses:
         '200':
-          description: Existing native File download descriptor; never expose signed URL in model context
+          description: Existing native File download descriptor for direct authorized client transfer; treat URL as secret
           headers:
             Cache-Control:
               schema: { type: string, enum: [no-store] }
