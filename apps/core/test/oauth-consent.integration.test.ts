@@ -75,8 +75,9 @@ async function fixture(role: "owner" | "viewer" = "owner") {
             ? [{ agentId, agentName: "Test Agent", applicationId: targetApp, applicationName: "Target App" }]
             : [] });
         }
-        if(address.endsWith("/api/v1/me/oauth/requests/"+requestId)&&pendingResource){
+        if(address.endsWith("/api/v1/me/oauth/requests/"+requestId)){
           expect(new Headers(init?.headers).get("authorization")).toBe("Bearer "+bearer);
+          if(!pendingResource)return Response.json({error:"not pending"},{status:400});
           return Response.json({data:{id:requestId,resource:pendingResource}});
         }
         forwarded.push({
