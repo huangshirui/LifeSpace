@@ -138,6 +138,7 @@ function projectionOptions(c:ContextApp):ProjectionOptions{
 async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,eligibility=false):Promise<Entry[]>{
   const principal=c.get("principal"),execution=principal.oauthExecution;
   const spaceId=c.req.param("spaceId");
+  if(!spaceId)throw denied();
   const trusted=principal.purpose==="agent_api"&&principal.type==="agent"&&!principal.actor;
   const selector=trusted?c.req.header("x-lifespace-delegation-id"):undefined;
   const trustedResource=trusted?c.req.header("x-lifespace-mcp-resource"):undefined;
