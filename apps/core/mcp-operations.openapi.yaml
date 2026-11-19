@@ -123,87 +123,11 @@ paths:
         - name: modelKey
           in: path
           required: true
-          schema: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}
-    oauthAgentExecution:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: |
-        Private, Identity-signed <=60s OAuth MCP Core execution JWT.
-        The third-party OAuth access token must never be forwarded to Core.
-  parameters:
-    spaceId:
-      name: spaceId
-      in: path
-      required: true
-      schema: { type: string, pattern: '^spc_[A-Za-z0-9_-]+$' }
-  schemas:
-    OperationDescriptor:
-      type: object
-      additionalProperties: false
-      required: [modelKey, display, operation, operationRef, inputSchema, title, description, requiredScopes]
-      properties:
-        modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
-        display: { type: string, minLength: 1 }
-        operation:
-          type: string
-          pattern: '^(query|get|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$'
-        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}$' }
-        requiredScopes:
-          type: array
-          minItems: 1
-          maxItems: 2
-          uniqueItems: true
-          items: { type: string, enum: ['resources:read', 'resources:write'] }
-          description: Credential scopes required to execute; not proof of any Grant
-        inputSchema:
-          type: object
-          description: Core-owned JSON Schema; no provider or origin fields
-        title: { type: string, minLength: 1 }
-        description: { type: string }
- }
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
         - name: recordId
           in: path
           required: true
-          schema: { type: string, pattern: '^rec_[A-Za-z0-9_-]+
-    oauthAgentExecution:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: |
-        Private, Identity-signed <=60s OAuth MCP Core execution JWT.
-        The third-party OAuth access token must never be forwarded to Core.
-  parameters:
-    spaceId:
-      name: spaceId
-      in: path
-      required: true
-      schema: { type: string, pattern: '^spc_[A-Za-z0-9_-]+$' }
-  schemas:
-    OperationDescriptor:
-      type: object
-      additionalProperties: false
-      required: [modelKey, display, operation, operationRef, inputSchema, title, description, requiredScopes]
-      properties:
-        modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
-        display: { type: string, minLength: 1 }
-        operation:
-          type: string
-          pattern: '^(query|get|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$'
-        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}$' }
-        requiredScopes:
-          type: array
-          minItems: 1
-          maxItems: 2
-          uniqueItems: true
-          items: { type: string, enum: ['resources:read', 'resources:write'] }
-          description: Credential scopes required to execute; not proof of any Grant
-        inputSchema:
-          type: object
-          description: Core-owned JSON Schema; no provider or origin fields
-        title: { type: string, minLength: 1 }
-        description: { type: string }
- }
+          schema: { type: string, pattern: '^rec_[A-Za-z0-9_-]+$' }
         - name: X-LifeSpace-Delegation-Id
           in: header
           required: false
@@ -219,45 +143,7 @@ paths:
               required: [fieldKey, fileId]
               properties:
                 fieldKey: { type: string, maxLength: 63 }
-                fileId: { type: string, pattern: '^fil_[a-f0-9]{32}
-    oauthAgentExecution:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: |
-        Private, Identity-signed <=60s OAuth MCP Core execution JWT.
-        The third-party OAuth access token must never be forwarded to Core.
-  parameters:
-    spaceId:
-      name: spaceId
-      in: path
-      required: true
-      schema: { type: string, pattern: '^spc_[A-Za-z0-9_-]+$' }
-  schemas:
-    OperationDescriptor:
-      type: object
-      additionalProperties: false
-      required: [modelKey, display, operation, operationRef, inputSchema, title, description, requiredScopes]
-      properties:
-        modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
-        display: { type: string, minLength: 1 }
-        operation:
-          type: string
-          pattern: '^(query|get|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$'
-        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}$' }
-        requiredScopes:
-          type: array
-          minItems: 1
-          maxItems: 2
-          uniqueItems: true
-          items: { type: string, enum: ['resources:read', 'resources:write'] }
-          description: Credential scopes required to execute; not proof of any Grant
-        inputSchema:
-          type: object
-          description: Core-owned JSON Schema; no provider or origin fields
-        title: { type: string, minLength: 1 }
-        description: { type: string }
- }
+                fileId: { type: string, pattern: '^fil_[a-f0-9]{32}$' }
       responses:
         '200':
           description: Existing native File download descriptor; never expose signed URL in model context
