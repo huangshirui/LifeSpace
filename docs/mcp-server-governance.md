@@ -1,3 +1,7 @@
+## Native File upload / 上传附件（开发候选）
+
+Model operation `file_upload` is explicit opt-in, shown as 上传附件 only for a published writable native file/file_list field. It adds the write Scope ceiling but not Data Grants, Create, Update, Delete, Query or file_read. Core validates current operation configuration and file field eligibility at both upload phases. Account describes the write operation and disables single-use approval for this multi-step capability. Existing Server selections remain unchanged. Generic Operations 0.5.0 and Platform Admin 0.11.0 describe the candidate; enable only after compatible Core/Adapter/Account/Console deployments.
+
 ## 2026-11-19 · Native File read / 读取附件（开发候选）
 
 Model operations gain explicit opt-in `file_read`, selectable in Console as 读取附件 only when the published model has readable native file/file_list fields. It is a read operation and does not imply Get, Query, write, or any Grant. Existing selections are unchanged. Core validates the selection and revalidates at execution; Account previews the operation as read-only. No separate File ACL, migration, health-specific rule, or External provider transfer capability is introduced. See Generic Operations 0.4.0 and Platform Admin 0.10.0 candidate contracts.
