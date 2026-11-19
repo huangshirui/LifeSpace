@@ -167,8 +167,8 @@ paths:
     post:
       operationId: downloadRecordFileForMcp
       description: |
-        OAuth execution or trusted Agent credential with explicit current Delegation
-        and configured Server context; selected Space, explicit file_read Server operation
+        OAuth execution or opaque Agent credential with configured Server context
+        and optional explicit Delegation; selected Space, explicit file_read Server operation
         and (for represented execution) exact current User Delegation are checked.
         Reuses the existing native File authority, record link and read policy.
         The result is private and contains a short-lived bearer URL for direct
@@ -220,7 +220,7 @@ paths:
       operationId: beginModelFileUploadForMcp
       description: |
         Exact model-scoped native upload session for authorized OAuth execution
-        or trusted Agent credential with explicit current Delegation and configured Server context.
+        or opaque Agent credential with configured Server context and optional explicit Delegation.
         Both phases require current write Scope, Server operation, model authority
         and (when represented) exact timed or until-revoked Delegation.
         The authorized client PUTs bytes directly using the returned URL and headers.
