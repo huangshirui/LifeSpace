@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { nativeFileReadFields } from "./file-read-fields";
 import type { Bindings, Variables } from "./env";
 import { requireScope } from "./auth";
 import { requireSpacePermission } from "./authorization";
@@ -198,7 +199,7 @@ export function registerOAuthConsentRoutes(app: App): void {
         || exposed.has(modelKey)) {
         throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
       }
-      exposed.set(modelKey, operations.filter(op => ["get", "query", "create", "update", "delete"].includes(op)));
+      exposed.set(modelKey, operations.filter(op => ["get", "query", "create", "update", "delete", "file_read"].includes(op)));
     }
     const eligible = await candidates(c.env, spaceId);
     if (!eligible.some((r) => r.applicationId === appId && r.agentId === agentId)) {
@@ -232,11 +233,12 @@ export function registerOAuthConsentRoutes(app: App): void {
     const visible = visibleModelAccess(direct, published, modelAccess, null, agentGrants);
     const selected = visible.flatMap(({ model, access }) => {
       const operations = (exposed.get(model.key) ?? []).filter(op =>
-        ["get", "query"].includes(op) ? access.includes("read") : access.includes("write"));
+        op === "file_read" ? access.includes("read") && nativeFileReadFields(model.definition).length > 0
+          : ["get", "query"].includes(op) ? access.includes("read") : access.includes("write"));
       if (!operations.length) return [];
       return [{
         key: model.key, name: model.definition.display.singular, operations,
-        access: [...new Set(operations.map(op => ["get", "query"].includes(op) ? "read" : "write"))],
+        access: [...new Set(operations.map(op => ["get", "query", "file_read"].includes(op) ? "read" : "write"))],
       }];
     });
     const person = await projectMcpPersonOperations(c.env, direct, spaceId, personOperations);
