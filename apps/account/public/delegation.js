@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const REQUEST = /^arq_[a-f0-9]{32}$/u;
-const labels = {get:"读取单条记录",query:"查询记录",create:"创建记录",update:"修改记录",delete:"删除记录"};
+const labels = {get:"读取单条记录",query:"查询记录",file_read:"读取记录附件",create:"创建记录",update:"修改记录",delete:"删除记录"};
 const id = new URL(location.href).searchParams.get("request_id");
 let csrf = "", busy = false, record = null;
 const chosenMode=()=>document.querySelector('input[name="delegation-mode"]:checked')?.value||"once";
@@ -62,7 +62,7 @@ async function decide(approve){
   if(approve && mode!=="once"){
     const detail=mode==="timed"?"在 "+$("duration").selectedOptions[0].textContent+" 内可重复执行"
       :"长期有效，直到你主动撤销";
-    if(!confirm("确认允许这个 Agent "+detail+"？\\n它可能修改所选模型内多条记录。"))return;
+    if(!confirm("确认允许这个 Agent "+detail+"？\\n它可以在授权范围内重复执行所选操作。"))return;
   }
   busy=true;$("approve").disabled=true;$("deny").disabled=true;
   try{
