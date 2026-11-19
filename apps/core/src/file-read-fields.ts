@@ -7,7 +7,7 @@ export function nativeFileReadFields(definition: unknown): string[] {
   if (value.origin === "external" || !value.fields || typeof value.fields !== "object"
     || Array.isArray(value.fields)) return [];
   return Object.entries(value.fields).filter(([key, field]) => {
-    if (!/^[a-zA-Z][a-zA-Z0-9_]{0,62}$/u.test(key)
+    if (!/^[a-z][A-Za-z0-9]{0,62}$/u.test(key)
       || !field || typeof field !== "object" || Array.isArray(field)) return false;
     const type = (field as { type?: unknown }).type;
     return type === "file" || type === "file_list";
