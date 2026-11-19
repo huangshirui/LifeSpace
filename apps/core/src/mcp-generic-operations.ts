@@ -221,7 +221,9 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
       dto:{modelKey,display,operation,operationRef:opRef,
         inputSchema:dataSchema,title:toolOp+" "+display,
         requiredScopes:access==="read"?["resources:read"]:["resources:read","resources:write"],
-        description:"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
+        description:operation==="file_read"
+          ?"Request a short-lived download URL for the linked file. Fetch the file directly using the returned URL before expiry. Treat the URL as a secret; do not log, persist or share it. Current Core authority is revalidated at issuance."
+          :"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
   };
   for(const {key,configured,model,bound,semantic} of candidates){
     const {read,write}=permissions.get(key)??{read:false,write:false};
