@@ -25,6 +25,7 @@ export type DelegationChainRow = {
   delegation_target_model_key: string | null;
   delegation_max_access: Permission;
   selected_leaf: number;
+  external_approval_channel?: number;
 };
 
 const permissionRank: Record<Permission, number> = {
@@ -83,6 +84,13 @@ export function delegationChainStatement(
       ds.target_id AS delegation_target_id,
       ds.target_model_key AS delegation_target_model_key,
       ds.max_access AS delegation_max_access,
+      EXISTS(SELECT 1 FROM authorization_request_delegations ard
+        JOIN authorization_requests ar ON ar.id=ard.request_id
+        WHERE ard.delegation_id=d.id AND
+          CASE WHEN ar.correlation_json IS NULL THEN 0
+               WHEN json_valid(ar.correlation_json)=0 THEN 1
+               ELSE json_type(ar.correlation_json,'$.channel') IS NOT NULL END
+      ) AS external_approval_channel,
       CASE WHEN d.id IN (${placeholders}) THEN 1 ELSE 0 END AS selected_leaf
     FROM chain c
     CROSS JOIN delegations d ON d.id=c.delegation_id
@@ -186,6 +194,11 @@ export function validateStructuralDelegationChain(
 
   for (let index = 0; index < orderedLeafToRoot.length; index += 1) {
     const row = orderedLeafToRoot[index]!;
+    // An externally approved OAuth operation must never be replayed as a
+    // trusted Agent API or other generic represented call. The exact OAuth
+    // operation and current consent are checked by the OAuth transport.
+    if(row.external_approval_channel&&principal.purpose!=="oauth_agent_execution")
+      throw new ApiError("DELEGATION_INVALID","Delegation belongs to a separate approval channel",403);
     if (
       row.principal_type !== principal.type
       || row.principal_id !== principal.id
