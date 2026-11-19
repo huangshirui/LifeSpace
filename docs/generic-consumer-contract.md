@@ -1,6 +1,6 @@
 ## 2026-11-19 · Native File read projection (candidate)
 
-Core exposes opt-in `file_read` in its current operation catalog for eligible native record fields; input is spaceId, recordId and data containing fieldKey and fileId. It requires resources:read and the existing current authority intersection. The Core transfer descriptor is private to the consumer transport; a protocol adapter must handle its bounded transfer separately from tool-visible content, with no credential disclosure or second authority model. Existing ordinary CRUD and file transfer contracts remain compatible. External references and upload/delete are outside this slice.
+Core exposes opt-in `file_read` in its current operation catalog for eligible native record fields; input is spaceId, recordId and data containing fieldKey and fileId. It requires resources:read and the existing current authority intersection. The existing Core transfer descriptor is returned to the authorized consumer for direct download. A protocol adapter may project the descriptor without fetching file bytes or introducing a second authority model. The consumer must handle the short-lived URL as a secret and must not persist it as File identity. Existing ordinary CRUD and file transfer contracts remain compatible. External references and upload/delete are outside this slice.
 
 ## 2026-11-09 · OAuth Scope-aware operation discovery / OAuth 范围升级与发现（Candidate）
 
