@@ -1,3 +1,7 @@
+## Native File upload projection (candidate)
+
+Core projects the explicit model-selected write operation `file_upload` with input data.phase begin or complete. Begin returns the existing signed PUT session and required headers; the consumer PUTs local bytes directly, then completes using uploadId. The result is ordinary native File metadata; attach the File ID only through independently authorized record mutation. No protocol adapter uploads or downloads bytes, owns storage or duplicates authority. Current Scope, Space, Application, Server, model, session and Delegation are rechecked at both phases. Single-use Delegation is unsupported; timed and until-revoked represented authority preserve the existing multi-step upload contract. External upload and icon transfer are not exposed by this candidate.
+
 ## 2026-11-19 · Native File read projection (candidate)
 
 Core exposes opt-in `file_read` in its current operation catalog for eligible native record fields; input is spaceId, recordId and data containing fieldKey and fileId. It requires resources:read and the existing current authority intersection. The existing Core transfer descriptor is returned to the authorized consumer for direct download. A protocol adapter may project the descriptor without fetching file bytes or introducing a second authority model. The consumer must handle the short-lived URL as a secret and must not persist it as File identity. Existing ordinary CRUD and file transfer contracts remain compatible. External references and upload/delete are outside this slice.
