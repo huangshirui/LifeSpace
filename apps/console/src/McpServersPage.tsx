@@ -12,13 +12,13 @@ type Server = {
 };
 type Model = { key: string; version: number; definition: {
   display?: { singular?: string }; access?: string[]; actions?: Record<string, { access?: string }>;
-  origin?: string; fields?: Record<string, { type?: string }>;
+  origin?: string; fields?: Record<string, { type?: string; readOnly?: boolean }>;
 } };
 type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 const personOps = ["list", "get", "create", "update", "delete"] as const;
 const labels: Record<string,string> = {
   list: "查询列表", get: "读取详情", query: "查询", create: "创建",
-  update: "更新", delete: "删除", file_read: "读取附件",
+  update: "更新", delete: "删除", file_read: "读取附件", file_upload: "上传附件",
 };
 const blank = (): Configuration => ({ models: [], resources: [] });
 const path = (id: string) => "/api/mcp-servers/" + encodeURIComponent(id);
@@ -46,7 +46,10 @@ function allowedOperations(model?: Model) {
     values.push("query", "get");
     if (model.definition.origin !== "external" && Object.values(model.definition.fields ?? {}).some(field => field.type === "file" || field.type === "file_list")) values.push("file_read");
   }
-  if (access.includes("write")) values.push("create", "update", "delete");
+  if (access.includes("write")) {
+    values.push("create", "update", "delete");
+    if (model.definition.origin !== "external" && Object.values(model.definition.fields ?? {}).some(field => field.readOnly !== true && (field.type === "file" || field.type === "file_list"))) values.push("file_upload");
+  }
   for (const [action, detail] of Object.entries(model.definition.actions ?? {})) {
     if ((detail.access === "read" || detail.access === "write") && access.includes(detail.access)) {
       values.push("action:" + action);
