@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 const doc=parse(readFileSync(new URL("../mcp-operations.openapi.yaml",import.meta.url),"utf8"));
 assert.equal(doc.openapi,"3.1.0");
-assert.equal(doc.info.version,"0.3.0");
+assert.equal(doc.info.version,"0.4.0");
 const get=doc.paths["/api/v1/spaces/{spaceId}/_discovery/operations"].get;
 assert.deepEqual(get.parameters.filter(p=>p.in==="query").map(p=>p.name),["modelKey","operation"]);
 for(const p of get.parameters.filter(p=>p.in==="query")) {
@@ -15,4 +15,7 @@ const descriptor=doc.components.schemas.OperationDescriptor;
 assert.deepEqual(Object.keys(descriptor.properties).sort(),[...descriptor.required].sort());
 assert.ok(new RegExp(descriptor.properties.operationRef.pattern).test("op_"+"a".repeat(64)));
 assert.ok(doc.paths["/api/v1/spaces/{spaceId}/_operations/{operationRef}/invoke"].post);
+assert.ok(new RegExp(descriptor.properties.operation.pattern).test("file_read"));
+assert.ok(new RegExp(get.parameters.find(p=>p.name==="operation").schema.pattern).test("file_read"));
+assert.ok(doc.paths["/api/v1/spaces/{spaceId}/models/{modelKey}/records/{recordId}/file-downloads"].post);
 console.log("Generic Operations OpenAPI syntax and target projection checks passed");

@@ -98,7 +98,7 @@ export function allowedMcpToolModels(configJson: string): string[] {
       || !Array.isArray(operations) || !operations.length
       || operations.some(op => typeof op !== "string")) throw forbidden();
     seen.add(modelKey);
-    if (operations.some(op => ["get","query","create","update","delete"].includes(op) || op.startsWith("action:"))) allowed.push(modelKey);
+    if (operations.some(op => ["get","query","create","update","delete","file_read"].includes(op) || op.startsWith("action:"))) allowed.push(modelKey);
   }
   return allowed.sort();
 }
@@ -145,6 +145,11 @@ export async function currentMcpOAuthQueryPolicy(
     : method === "DELETE" && person[1] ? "delete" : null);
   if (personOp) {
     if (!personOperations.includes(personOp)) throw forbidden();
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
+  }
+  const fileRead = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/rec_[A-Za-z0-9_-]+\/file-downloads$/u.exec(path);
+  if (method === "POST" && fileRead) {
+    if (!modelOperations[fileRead[1]]?.includes("file_read")) throw forbidden();
     return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
   const action = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/rec_[A-Za-z0-9_-]+\/actions\/([a-z][a-z0-9_-]{0,62})$/u.exec(path);

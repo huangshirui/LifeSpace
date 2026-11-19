@@ -84,7 +84,7 @@ function fixture(requestedScopes = ["resources:read"]) {
           nativeModelsOnly: false, modelPolicyApplied: false,
           resourceCapabilityApplied: true,
           models: [{ key: "task", name: "Task", access: ["read", "write"],
-            operations: ["query", "create", "update"] },
+            operations: ["query", "create", "update", "file_read"] },
             {key:"person",name:"Person",access:["read","write"],operations:["query","get","create","update"]}],
           truncated: false,
         } });
@@ -211,7 +211,7 @@ test("permission projection is bounded by current Identity OAuth scopes, not use
   assert.equal(data.resourceCapabilityApplied, true);
   assert.equal(data.modelPolicyApplied, false);
   assert.equal(data.nativeModelsOnly,false);
-  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"], operations: ["query"] },
+  assert.deepEqual(data.models, [{ key: "task", name: "Task", access: ["read"], operations: ["query", "file_read"] },
     {key:"person",name:"Person",access:["read"],operations:["query","get"]}]);
   assert.deepEqual(data.requestedScopes, ["resources:read"]);
   assert.equal((await t.request("/api/oauth/capabilities?" + suffix + "&scope=resources:write")).status, 400);
@@ -230,7 +230,7 @@ test("explicit read+write client consent previews only Core-selected supported o
   assert.equal(data.resourceCapabilityApplied, true);
   assert.deepEqual(data.models, [{
     key: "task", name: "Task", access: ["read", "write"],
-    operations: ["query", "create", "update"],
+    operations: ["query", "create", "update", "file_read"],
   },{key:"person",name:"Person",access:["read","write"],operations:["query","get","create","update"]}]);
   assert.deepEqual(data.requestedScopes, ["resources:read", "resources:write"]);
 });

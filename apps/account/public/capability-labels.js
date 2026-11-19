@@ -25,6 +25,7 @@ const operationNames = Object.freeze({
   free_busy: "可查看忙闲",
   get: "可获取详情",
   query: "可查询",
+  file_read: "可读取附件",
   create: "可创建",
   update: "可修改",
   delete: "可删除",

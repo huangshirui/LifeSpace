@@ -2,6 +2,7 @@
 // Storage kind and source model are strictly Core-internal. The public DTO
 // contains no origin, provider, Person Directory identifier or route binding.
 import type { Context, Hono } from "hono";
+import { nativeFileReadFields } from "./file-read-fields";
 import { requirePersonDirectoryPermission } from "./authorization";
 import { getExternalModel, externalAuthorityModel } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
@@ -18,7 +19,7 @@ type AppEnv={Bindings:Bindings;Variables:Variables};
 type ContextApp=Context<AppEnv>;
 type Access="read"|"write";
 type Kind="native"|"external"|"person"|"action";
-type Operation="query"|"get"|"create"|"update"|"delete"|`action:${string}`;
+type Operation="query"|"get"|"create"|"update"|"delete"|"file_read"|`action:${string}`;
 type Contract={ contractId?:string; modelKey:string; display:string; operation:Operation;
   operationRef:string; inputSchema:Record<string,unknown>; title:string; description:string;
   requiredScopes:string[]; };
@@ -34,7 +35,7 @@ const version={type:"integer",minimum:1};
 function operationSchema(spaceId:string,op:Operation,data?:JsonSchema,recordId?:JsonSchema):JsonSchema {
   const properties:JsonSchema={spaceId:{type:"string",enum:[spaceId]}};
   const required=["spaceId"];
-  if(op==="get"||op==="update"||op==="delete"||op.startsWith("action:")) {
+  if(op==="get"||op==="update"||op==="delete"||op==="file_read"||op.startsWith("action:")) {
     properties.recordId=recordId??schemaString;
     required.push("recordId");
   }
@@ -127,7 +128,7 @@ function projectionFilter(c:ContextApp):ProjectionFilter|undefined{
   if([...params.keys()].some(key=>key!=="modelKey"&&key!=="operation")
     ||params.getAll("modelKey").length!==1||params.getAll("operation").length>1
     ||!modelKey||!MODEL.test(modelKey)
-    ||(operation!==null&&!/^(query|get|create|update|delete|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation)))
+    ||(operation!==null&&!/^(query|get|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation)))
     throw new ApiError("INVALID_REQUEST","Invalid operation projection filter",400);
   return {modelKey,...(operation===null?{}:{operation})};
 }
@@ -166,7 +167,8 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
     for(const op of operations){
       if(validCrud(op)){
         if(await matches(external?"external":"native",key,op))configured.push(op);
-      }else if(!external&&op.startsWith("action:")&&await matches("action",key,op))configured.push(op);
+      }else if(op==="file_read"&&!external&&nativeFileReadFields(model.definition).length&&await matches("native",key,op))configured.push(op);
+      else if(!external&&op.startsWith("action:")&&await matches("action",key,op))configured.push(op);
     }
     if(!configured.length)continue;
     const bound=external?await getExternalModel(c.env,spaceId,key):null;
@@ -176,7 +178,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
     candidates.push({key,configured,model,bound,authority,semantic});
     const needed=new Set<Access>();
     for(const op of configured){
-      if(op==="query"||op==="get")needed.add("read");
+      if(op==="query"||op==="get"||op==="file_read")needed.add("read");
       else if(validCrud(op))needed.add("write");
       else{
         const action=semantic?.actions.find(a=>a.key===op.slice(7));
@@ -209,7 +211,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
       ??(await getOrCreateActiveModelContract(c.env));
     return contractCache;
   };
-  const push=async(kind:Kind,modelKey:string,display:string,operation:Operation,data?:JsonSchema,actionKey?:string,access:Access=["query","get"].includes(operation)?"read":"write")=>{
+  const push=async(kind:Kind,modelKey:string,display:string,operation:Operation,data?:JsonSchema,actionKey?:string,access:Access=["query","get","file_read"].includes(operation)?"read":"write")=>{
     if(out.length>=MAX_OPERATIONS)throw new ApiError("OPERATION_LIMIT","Too many configured MCP operations",413);
     const opRef=await operationRef(kind,modelKey,operation);
     if(targetRef&&opRef!==targetRef)return;
@@ -219,7 +221,9 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
       dto:{modelKey,display,operation,operationRef:opRef,
         inputSchema:dataSchema,title:toolOp+" "+display,
         requiredScopes:access==="read"?["resources:read"]:["resources:read","resources:write"],
-        description:"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
+        description:operation==="file_read"
+          ?"Request a short-lived download URL for the linked file. Fetch the file directly using the returned URL before expiry. Treat the URL as a secret; do not log, persist or share it. Current Core authority is revalidated at issuance."
+          :"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
   };
   for(const {key,configured,model,bound,semantic} of candidates){
     const {read,write}=permissions.get(key)??{read:false,write:false};
@@ -237,7 +241,14 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
     }
     if(!semantic)continue;
     for(const op of configured){
-      if(["query","get","create","update","delete"].includes(op)){
+      if(op==="file_read"){
+        const fieldKeys=nativeFileReadFields(model.definition);
+        if(read&&fieldKeys.length)await push("native",key,names(semantic.display.singular),op,{
+          type:"object",additionalProperties:false,
+          properties:{fieldKey:{type:"string",enum:fieldKeys},fileId:{type:"string",pattern:"^fil_[a-f0-9]{32}$"}},
+          required:["fieldKey","fileId"],
+        });
+      }else if(["query","get","create","update","delete"].includes(op)){
         if(!(op==="query"||op==="get"?read:write))continue;
         let schema:JsonSchema={type:"object",additionalProperties:false};
         if(op==="delete")schema={type:"object",additionalProperties:false,properties:{version},required:["version"]};
@@ -304,7 +315,7 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
     ||args.spaceId!==spaceId)throw denied();
   const op=item.dto.operation;
   const refId=args.recordId;
-  if(["get","update","delete"].includes(op)||op.startsWith("action:")){
+  if(["get","update","delete","file_read"].includes(op)||op.startsWith("action:")){
     if(typeof refId!=="string"||!ID.test(refId))throw denied();
   }else if(refId!==undefined)throw denied();
   // Empty Query has the same meaning on all Core-owned model families.
@@ -333,6 +344,7 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
     const modelBase=base+"/models/"+encodeURIComponent(item.target)+"/records";
     if(op==="query"){method="POST";path=modelBase+"/query";body=data;}
     else if(op==="get"){path=modelBase+"/"+encodeURIComponent(refId as string);}
+    else if(op==="file_read"){method="POST";path=modelBase+"/"+encodeURIComponent(refId as string)+"/file-downloads";body=data;}
     else if(op.startsWith("action:")){method="POST";path=modelBase+"/"+encodeURIComponent(refId as string)
       +"/actions/"+encodeURIComponent(item.actionKey!);body=data;}
     else{method=op==="create"?"POST":op==="update"?"PATCH":"DELETE";

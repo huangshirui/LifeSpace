@@ -1,3 +1,7 @@
+## 2026-11-19 · Native File read / 读取附件（开发候选）
+
+Model operations gain explicit opt-in `file_read`, selectable in Console as 读取附件 only when the published model has readable native file/file_list fields. It is a read operation and does not imply Get, Query, write, or any Grant. Existing selections are unchanged. Core validates the selection and revalidates at execution; Account previews the operation as read-only. No separate File ACL, migration, health-specific rule, or External provider transfer capability is introduced. See Generic Operations 0.4.0 and Platform Admin 0.10.0 candidate contracts.
+
 # MCP Server simplified configuration (LifeSpace)
 
 Status: V7 Staging candidate · Core Platform Admin 0.8.0 · Schema 78.
