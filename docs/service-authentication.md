@@ -1,3 +1,7 @@
+## OAuth MCP native File upload (candidate)
+
+The Identity-signed execution context is unchanged. Core adds only exact selected-Space/model upload begin and completion routes; both require the current Server file_upload operation and write Scope. Represented execution requires a current matching approved timed or until-revoked Delegation; Core rejects once-only approval. The same application/Principal/Actor must complete the upload, and both phases revalidate current authority. Signed PUT URLs remain short-lived bearer credentials; clients transfer directly, never persist or log them, and cannot use them to mutate a permanent object. Existing REST file consumers remain unchanged.
+
 ## 2026-11-19 · OAuth MCP file read (candidate)
 
 The Identity-signed OAuth execution context is unchanged. Core adds only an exact selected-Space/model/record file transfer route and checks the current Server `file_read` capability before execution. Represented execution requires a signed matching Delegation selector and current exact approved operation; ordinary Agent API credentials continue using existing canonical File API authority. No broad credential or User bearer substitution. Signed file-transfer URLs remain secrets; do not persist or log them. Trusted Agent MCP authentication/selection is an independent compatibility gate, not assumed by this candidate.
