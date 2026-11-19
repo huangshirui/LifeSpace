@@ -1,16 +1,21 @@
 const $ = id => document.getElementById(id);
 const REQUEST = /^arq_[a-f0-9]{32}$/u;
-const labels = {get:"读取单条记录",query:"查询记录",file_read:"读取记录附件",create:"创建记录",update:"修改记录",delete:"删除记录"};
+const labels = {get:"读取单条记录",query:"查询记录",file_read:"读取记录附件",file_upload:"上传附件（创建及完成上传会话）",create:"创建记录",update:"修改记录",delete:"删除记录"};
 const id = new URL(location.href).searchParams.get("request_id");
 let csrf = "", busy = false, record = null;
 const chosenMode=()=>document.querySelector('input[name="delegation-mode"]:checked')?.value||"once";
 function updateLifetime(){
+  const once=document.querySelector('input[name="delegation-mode"][value="once"]');
+  const timed=document.querySelector('input[name="delegation-mode"][value="timed"]');
+  const upload=record?.operation==="file_upload";
+  if(once){once.disabled=upload;if(upload&&once.checked&&timed)timed.checked=true;}
   const mode=chosenMode();
   $("duration").disabled=mode!=="timed";
   $("approve").textContent=mode==="once"?"允许这一次":mode==="timed"?"允许限时操作":"允许长期操作";
   $("lifetime-warning").textContent=mode==="once"?"仅一次执行；批准后 30 分钟内有效。"
     :mode==="timed"?"授权期间可反复执行上述模型操作，直到过期或被你撤销。"
     :"高权限提醒：此授权不会自动过期，Agent 可持续执行上述模型操作，直到你主动撤销。";
+  if(upload)$("lifetime-warning").textContent+=" 上传需要创建及完成两个步骤，不支持一次性委托。此授权不包含记录创建或修改。";
 }
 const show = (key,yes) => $(key).classList.toggle("hidden",!yes);
 async function call(path,options={}) {
@@ -53,12 +58,14 @@ async function init(){
     if(request.status==="approved"||request.status==="denied"){finish(request.status);return;}
     if(request.status!=="pending")throw new Error("申请已过期，请让 Agent 重新发起");
     fill(request,session.user);
+    updateLifetime();
     show("loading",false);show("error",false);show("content",true);
   } catch(e){error(e.message||"无法加载委托申请");}
 }
 async function decide(approve){
   if(busy||!record||record.status!=="pending"||!csrf)return;
   const mode=chosenMode();
+  if(approve && record.operation==="file_upload" && mode==="once")return;
   if(approve && mode!=="once"){
     const detail=mode==="timed"?"在 "+$("duration").selectedOptions[0].textContent+" 内可重复执行"
       :"长期有效，直到你主动撤销";

@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { nativeFileReadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { requirePlatformAdminContext, type PlatformAdminContext } from "./platform-admin-auth";
@@ -7,7 +7,7 @@ import { requirePlatformAdminContext, type PlatformAdminContext } from "./platfo
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Json = Record<string, unknown>;
-type Operation = "get" | "query" | "create" | "update" | "delete" | "file_read" | `action:${string}`;
+type Operation = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | `action:${string}`;
 type PersonOperation = "list" | "get" | "create" | "update" | "delete";
 type ModelSelection = { modelKey: string; operations: Operation[] };
 type ResourceSelection = { resourceKey: "person_directory"; operations: PersonOperation[] };
@@ -22,7 +22,7 @@ type ModelRow = { model_key: string; definition_json: string };
 const ID = /^mcp_[a-f0-9]{32}$/u;
 const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
 const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
-const OPERATIONS = new Set(["get", "query", "create", "update", "delete", "file_read"]);
+const OPERATIONS = new Set(["get", "query", "create", "update", "delete", "file_read", "file_upload"]);
 const PERSON_OPERATIONS = new Set(["list", "get", "create", "update", "delete"]);
 const now = () => new Date().toISOString();
 const newId = () => "mcp_" + crypto.randomUUID().replaceAll("-", "");
@@ -119,6 +119,9 @@ async function validateModels(context: Context<AppEnv>, config: Configuration): 
     for (const operation of entry.operations) {
       if (operation === "file_read" && !nativeFileReadFields(definition).length) {
         throw new ApiError("VALIDATION_ERROR", entry.modelKey + " has no native file field", 422);
+      }
+      if (operation === "file_upload" && !nativeFileUploadFields(definition).length) {
+        throw new ApiError("VALIDATION_ERROR", entry.modelKey + " has no writable native file field", 422);
       }
       const action = ACTION.exec(operation);
       const candidate = action ? actions[action[1] ?? ""] : null;

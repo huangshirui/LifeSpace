@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.10.0
+  version: 0.11.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
     platform automation. This contract is separate from both the downstream Core Kernel Contract and
@@ -689,7 +689,7 @@ components:
           minItems: 1
           maxItems: 32
           uniqueItems: true
-          items: { type: string, pattern: '^(get|query|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$' }
+          items: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
     McpKernelResourceSelection:
       type: object
       additionalProperties: false

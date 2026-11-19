@@ -80,6 +80,23 @@ describe("Core-owned MCP Server resource and operation boundary", () => {
     await expect(currentMcpOAuthQueryPolicy(db,resource,"POST",path)).rejects.toMatchObject({status:403});
   });
 
+  it("requires explicit file_upload and write Scope for both model-scoped phases", async () => {
+    const modelKey="synthetic_file";
+    const path="/api/v1/spaces/spc_example/models/"+modelKey+"/file-uploads";
+    let config=JSON.stringify({models:[{modelKey,operations:["file_read"]}]});
+    const db={prepare:()=>({bind:()=>({first:async()=>({enabled:1,config_json:config})})})} as unknown as D1Database;
+    const resource="https://core.example.test/mcp/"+id;
+    await expect(currentMcpOAuthQueryPolicy(db,resource,"POST",path)).rejects.toMatchObject({status:403});
+    config=JSON.stringify({models:[{modelKey,operations:["file_upload"]}]});
+    expect(allowedMcpToolModels(config)).toEqual([modelKey]);
+    expect(allowedMcpQueryModels(config)).toEqual([]);
+    expect(configuredMcpOAuthScopes(config)).toEqual(["resources:read","resources:write"]);
+    for(const route of [path,path+"/upl_"+"a".repeat(32)+"/complete"])
+      await expect(currentMcpOAuthQueryPolicy(db,resource,"POST",route)).resolves.toMatchObject({modelOperations:{[modelKey]:["file_upload"]}});
+    await expect(currentMcpOAuthQueryPolicy(db,resource,"POST",path.replace(modelKey,"another_model"))).rejects.toMatchObject({status:403});
+    await expect(currentMcpOAuthQueryPolicy(db,resource,"POST","/api/v1/spaces/spc_example/file-uploads")).rejects.toMatchObject({status:403});
+  });
+
   it("fails closed on malformed or duplicate selected model configuration", () => {
     for (const bad of [
       "{",

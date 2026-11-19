@@ -7,7 +7,7 @@ import { createGenericResource } from "../src/generic-resource";
 import type { Bindings, Principal } from "../src/env";
 import { oauthExecutionRouteAllowed, verifyAccessToken } from "../src/auth";
 
-type TestEnv = { DB: D1Database };
+type TestEnv = { DB: D1Database; ASSETS: R2Bucket };
 
 function pem(label: "PRIVATE KEY" | "PUBLIC KEY", bytes: ArrayBuffer) {
   return "-----BEGIN " + label + "-----\n"
@@ -90,7 +90,7 @@ async function fixture() {
   let delegationEnabled = false;
   let consentScopes = ["resources:read"];
   const bindings = {
-    ENVIRONMENT: "staging", DB: countedDb, IDENTITY_PUBLIC_KEY: publicKey,
+    ENVIRONMENT: "staging", DB: countedDb, ASSETS: (env as unknown as TestEnv).ASSETS, IDENTITY_PUBLIC_KEY: publicKey,
     CORE_IDENTITY_SHARED_SECRET: "synthetic-core-to-identity-shared-secret",
     OAUTH_ACCOUNT_APPLICATION_ID: accountApp,
     R2_S3_ACCOUNT_ID: "synthetic-account", R2_S3_ACCESS_KEY_ID: "synthetic-access-key",
@@ -261,6 +261,91 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE grantee_id=? AND source_space_id=?").bind(now,f.agent,f.space).run();
     expect((await f.request("POST",route,patch,payload)).status).toBe(403);
   });
+
+  it("projects native file_upload, verifies both phases and preserves write and exact delegated authority", async () => {
+    const f=await fixture();
+    const suffix=crypto.randomUUID().replaceAll("-","");
+    const modelKey="oauth_upload_"+suffix.slice(0,12);
+    const now=new Date().toISOString();
+    const bindings={DB:f.db} as Bindings;
+    await publishModelDefinition(bindings,{
+      type:"service",id:"svc_"+suffix,clientId:"lifespace-platform-admin",scopes:["models:manage"],tokenId:"tok_publish_"+suffix,
+    },{
+      definitionVersion:1,key:modelKey,display:{singular:"Synthetic upload",plural:"Synthetic uploads"},
+      fields:{attachment:{type:"file",nullable:true},label:{type:"string",nullable:true}},access:["read","write"],
+    },"initial");
+    await f.db.batch([
+      f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)").bind(f.application,modelKey,"write","service","svc_"+suffix),
+      f.db.prepare("UPDATE data_grants SET permission='write' WHERE grantee_id=? AND source_space_id=?").bind(f.agent,f.space),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)").bind("mem_"+suffix,f.space,f.oauthUser,now,now),
+    ]);
+    const configure=async(operations:string[])=>f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?").bind(JSON.stringify({models:[{modelKey,operations}]}),f.serverId).run();
+    const base="/api/v1/spaces/"+f.space;
+    const route=base+"/models/"+modelKey+"/file-uploads";
+    const bytes=new TextEncoder().encode("synthetic upload");
+    const payload={fieldKey:"attachment",name:"synthetic.txt",contentType:"text/plain",size:bytes.length};
+    const write={scope:"resources:read resources:write"};
+    f.setConsentScopes(["resources:read","resources:write"]);
+    await configure(["get"]);
+    expect((await f.request("POST",route,write,payload)).status).toBe(403);
+    await configure(["file_upload"]);
+    expect((await f.request("POST",route,{},payload)).status).toBe(403);
+    expect((await f.request("POST",base+"/file-uploads",write,{modelKey,...payload})).status).toBe(403);
+    expect((await f.request("POST",route.replace(f.space,f.other),write,payload)).status).toBe(403);
+    expect((await f.request("POST",route,write,{...payload,fieldKey:"label"})).status).toBe(405);
+    const catalog=await f.request("GET",base+"/_discovery/operations?modelKey="+modelKey+"&operation=file_upload");
+    expect(catalog.status).toBe(200);
+    const op=(await catalog.json() as {data:{operations:Array<{operationRef:string;requiredScopes:string[];operation:string}>}}).data.operations[0]!;
+    expect(op).toMatchObject({operation:"file_upload",requiredScopes:["resources:read","resources:write"]});
+    const invoke=(patch:Record<string,unknown>,data:unknown)=>f.request("POST",base+"/_operations/"+op.operationRef+"/invoke",patch,{arguments:{spaceId:f.space,data}});
+    expect((await invoke({},{phase:"begin",...payload})).status).toBe(403);
+    const start=await invoke(write,{phase:"begin",...payload});
+    expect(start.status).toBe(201);
+    expect(start.headers.get("cache-control")).toBe("no-store");
+    const descriptor=(await start.json() as {data:{id:string;destination:string;upload:{url:string;method:string;headers:Record<string,string>}}}).data;
+    expect(descriptor).toMatchObject({destination:"native",upload:{method:"PUT",headers:{"content-type":"text/plain"}}});
+    expect(new URL(descriptor.upload.url).searchParams.get("X-Amz-Signature")).toBeTruthy();
+    const row=await f.db.prepare("SELECT object_key,file_id FROM file_upload_sessions WHERE id=?").bind(descriptor.id).first<{object_key:string;file_id:string}>();
+    expect(row).toBeTruthy();
+    const complete=route+"/"+descriptor.id+"/complete";
+    expect((await invoke(write,{phase:"complete",uploadId:descriptor.id})).status).toBe(409);
+    const bucket=(env as unknown as TestEnv).ASSETS;
+    await bucket.put(row!.object_key,bytes,{httpMetadata:{contentType:"text/plain"}});
+    await configure(["get"]);
+    expect((await f.request("POST",complete,write)).status).toBe(403);
+    await configure(["file_upload"]);
+    const result=await invoke(write,{phase:"complete",uploadId:descriptor.id});
+    expect(result.status).toBe(200);
+    const file=(await result.json() as {data:{id:string}}).data;
+    expect(file.id).toBe(row!.file_id);
+    expect(await (await bucket.get("files/"+f.space+"/"+file.id))?.text()).toBe("synthetic upload");
+    expect((await invoke(write,{phase:"complete",uploadId:descriptor.id})).status).toBe(409);
+    // Upload permission does not imply record creation or update.
+    expect((await f.request("POST",base+"/models/"+modelKey+"/records",write,{attachment:file.id})).status).toBe(403);
+    f.setDelegationEnabled(true);
+    const delegatedWrite={...write,oauth_allow_user_authorization:true};
+    const requested=await f.request("POST",base+"/oauth-delegation-requests",delegatedWrite,{modelKey,operation:"file_upload",reason:"Upload synthetic attachment"});
+    expect(requested.status).toBe(201);
+    const requestId=(await requested.json() as {data:{id:string}}).data.id;
+    const approve="/api/v1/me/oauth/delegation-requests/"+requestId+"/approve";
+    expect((await f.accountRequest("POST",approve,{})).status).toBe(422);
+    const approved=await f.accountRequest("POST",approve,{mode:"timed",durationMinutes:60});
+    expect(approved.status).toBe(200);
+    const dlg=(await approved.json() as {data:{delegations:Array<{id:string}>}}).data.delegations[0]!.id;
+    const represented={...delegatedWrite,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg};
+    const headers={"x-lifespace-delegation-id":dlg};
+    const begin=await f.request("POST",route,represented,payload,headers);
+    expect(begin.status).toBe(201);
+    const second=(await begin.json() as {data:{id:string}}).data.id;
+    // An independently authorized direct Agent cannot finalize the user's upload.
+    const completeSecond=route+"/"+second+"/complete";
+    expect((await f.request("POST",completeSecond,delegatedWrite)).status).toBe(403);
+    const secondRow=await f.db.prepare("SELECT object_key FROM file_upload_sessions WHERE id=?").bind(second).first<{object_key:string}>();
+    await bucket.put(secondRow!.object_key,bytes,{httpMetadata:{contentType:"text/plain"}});
+    expect((await f.request("POST",completeSecond,represented,undefined,headers)).status).toBe(200);
+    await f.db.prepare("UPDATE delegations SET revoked_at=? WHERE id=?").bind(now,dlg).run();
+    expect((await f.request("POST",route,represented,payload,headers)).status).toBe(403);
+  }, 20000);
 
   it("valid signed Agent JWT is current-state rechecked and inventory cannot disclose second granted Space", async () => {
     const f = await fixture();

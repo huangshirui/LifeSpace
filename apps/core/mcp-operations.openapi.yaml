@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Generic Operations (Candidate)
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Protocol-neutral, authenticated operation projection for the current OAuth
     MCP Agent execution context. This contract is Core-owned. Internal Native,
@@ -39,7 +39,7 @@ paths:
           in: query
           required: false
           description: Requires modelKey; exact operation, not an authority claim.
-          schema: { type: string, pattern: '^(query|get|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$' }
+          schema: { type: string, pattern: '^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
       responses:
         '200':
           description: Current operation catalog; no Provider, storage origin or Kernel type
@@ -81,6 +81,12 @@ paths:
         fieldKey and fileId; recordId is required. A successful response contains the
         existing short-lived FileDownloadResponse. The authorized client fetches the
         file directly; the URL is a bearer credential, not a durable File identity.
+        The explicit file_upload operation requires resources:read and resources:write.
+        Data selects phase begin (fieldKey, optional recordId, name, contentType, size)
+        or complete (uploadId). Begin returns the existing signed PUT session;
+        complete verifies the staged object and returns File metadata. Clients
+        transfer bytes directly; record attachment is a separate operation.
+        Multi-step upload does not support once-only Delegation.
         Current candidate accepts Agent Direct; exact User-delegated operation
         equivalence requires a separate hardened authorization gate.
       parameters:
@@ -161,6 +167,82 @@ paths:
         '404': { description: File, model or exact link unavailable }
         '422': { description: Invalid input }
         '503': { description: Transfer signing unavailable }
+  /api/v1/spaces/{spaceId}/models/{modelKey}/file-uploads:
+    post:
+      operationId: beginModelFileUploadForMcp
+      description: |
+        Exact model-scoped native upload session for authorized OAuth execution.
+        Both phases require current write Scope, Server operation, model authority
+        and (when represented) exact timed or until-revoked Delegation.
+        The authorized client PUTs bytes directly using the returned URL and headers.
+      parameters:
+        - $ref: '#/components/parameters/spaceId'
+        - name: modelKey
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        - name: X-LifeSpace-Delegation-Id
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fieldKey, name, contentType, size]
+              properties:
+                fieldKey: { type: string, maxLength: 63 }
+                recordId: { type: string, maxLength: 256, pattern: '^rec_[A-Za-z0-9_-]+$' }
+                name: { type: string, minLength: 1, maxLength: 512 }
+                contentType: { type: string, minLength: 1, maxLength: 255 }
+                size: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: Existing native File upload session; treat signed URL as secret
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: './openapi.yaml#/components/schemas/FileUploadSessionResponse' }
+        '403': { description: Insufficient current authority or configuration }
+        '405': { description: Unsupported native writable file field }
+        '413': { description: Canonical upload size limit }
+        '422': { description: Invalid request or unsupported once-only Delegation }
+  /api/v1/spaces/{spaceId}/models/{modelKey}/file-uploads/{uploadId}/complete:
+    post:
+      operationId: completeModelFileUploadForMcp
+      description: |
+        Rechecks current authority and exact model/Space/session binding before
+        reusing the canonical upload completion. No record mutation or binary
+        transfer is performed by the protocol adapter.
+      parameters:
+        - $ref: '#/components/parameters/spaceId'
+        - name: modelKey
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        - name: uploadId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^upl_[a-f0-9]{32}$' }
+        - name: X-LifeSpace-Delegation-Id
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Existing native File metadata after verification; use the returned File ID in a separately authorized record mutation
+          content:
+            application/json:
+              schema: { type: object }
+        '403': { description: Insufficient current authority or mismatched execution }
+        '404': { description: Session not available for the selected model and Space }
+        '409': { description: Incomplete, expired, mismatched or non-pending upload }
+        '422': { description: Unsupported once-only Delegation }
 components:
   securitySchemes:
     oauthAgentExecution:
@@ -186,7 +268,7 @@ components:
         display: { type: string, minLength: 1 }
         operation:
           type: string
-          pattern: '^(query|get|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$'
+          pattern: '^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$'
         operationRef: { type: string, pattern: '^op_[a-f0-9]{64}$' }
         requiredScopes:
           type: array

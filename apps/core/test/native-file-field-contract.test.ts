@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeCanonicalFieldValue } from "../src/generic-resource";
 import { validateModelDefinition } from "../src/model-definition";
 import { compilePhysicalSchema } from "../src/physical-schema";
-import { nativeFileReadFields } from "../src/file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields } from "../src/file-read-fields";
 
 const fileId = "fil_0123456789abcdef0123456789abcdef";
 
@@ -33,6 +33,11 @@ describe("Native File canonical field contract", () => {
     }})).toEqual(["attachment","evidence"]);
     expect(nativeFileReadFields({origin:"external",fields:{attachment:{type:"file"}}})).toEqual([]);
     expect(nativeFileReadFields({fields:{label:{type:"string"}}})).toEqual([]);
+  });
+
+  it("projects upload only for writable native file fields", () => {
+    expect(nativeFileUploadFields({fields:{a:{type:"file"},b:{type:"file_list",readOnly:true},c:{type:"file_ref_list"}}})).toEqual(["a"]);
+    expect(nativeFileUploadFields({origin:"external",fields:{a:{type:"file"}}})).toEqual([]);
   });
 
   it("rejects malformed and duplicate file identities", () => {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Account OAuth Consent Bridge
-  version: 0.3.0
+  version: 0.4.0
   description: >
     Candidate Account-only, user-session-bound OAuth consent confirmation.
     Core verifies current Space manage authority, then calls Identity through a
@@ -29,7 +29,7 @@ paths:
               required: [modelKey, operation, reason]
               properties:
                 modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
-                operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$' }
+                operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
                 reason: { type: string, minLength: 4, maxLength: 250 }
       responses:
         '201': { description: Pending arq and exact Account URL; no Delegation issued }
@@ -151,7 +151,7 @@ paths:
         - { in: query, name: agentId, required: true, schema: { type: string, pattern: '^agt_' } }
         - { in: query, name: resource, required: true, description: Exact current Core MCP Server HTTPS Resource URI from pending Identity OAuth request, schema: { type: string, format: uri } }
       responses:
-        '200': { description: Read-only, up to 50 currently eligible Native and Kernel Person projections, allowed operations (get/query/create/update/delete/file_read), and resourceCapabilityApplied=true; Account must narrow to requested OAuth Scopes }
+        '200': { description: Read-only, up to 50 currently eligible Native and Kernel Person projections, allowed operations (get/query/create/update/delete/file_read/file_upload), and resourceCapabilityApplied=true; Account must narrow to requested OAuth Scopes }
         '400': { description: Invalid or duplicate context selector }
         '403': { description: Account User or current Agent/Space eligibility missing }
         '503': { description: Identity Agent binding unavailable }

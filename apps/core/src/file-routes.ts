@@ -1,5 +1,5 @@
 import { AwsClient } from "aws4fetch";
-import { nativeFileReadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import type { Context, Hono } from "hono";
 import type { AuthorityD1Timing, Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
@@ -186,12 +186,32 @@ async function loadSession(env: Bindings, spaceId: string, uploadId: string): Pr
   return row;
 }
 
+async function requireMcpUploadField(context: Context<AppEnv>, modelKey: string, fieldKey: string) {
+  const principal = context.get("principal");
+  const execution = principal.oauthExecution;
+  if (principal.purpose !== "oauth_agent_execution" || !execution
+    || !principal.scopes.includes("resources:write")
+    || execution.spaceId !== context.req.param("spaceId")
+    || !execution.modelOperations?.[modelKey]?.includes("file_upload")) {
+    throw new ApiError("FORBIDDEN", "MCP file upload is unavailable", 403);
+  }
+  const model = await getRuntimeModel(context.env, modelKey);
+  if (!model || !nativeFileUploadFields(model.definition).includes(fieldKey)) {
+    throw new ApiError("FILE_UPLOAD_UNSUPPORTED", "Field does not support native file upload", 405);
+  }
+}
+
 async function createSession(context: Context<AppEnv>) {
   const input = object(await context.req.json<unknown>().catch(() => null));
-  onlyKeys(input, ["modelKey", "fieldKey", "recordId", "name", "contentType", "size"]);
-  const modelKey = bounded(input.modelKey, "modelKey", 63);
+  const routeModel = context.req.param("modelKey");
+  onlyKeys(input, routeModel ? ["fieldKey", "recordId", "name", "contentType", "size"] : ["modelKey", "fieldKey", "recordId", "name", "contentType", "size"]);
+  const modelKey = bounded(routeModel ?? input.modelKey, "modelKey", 63);
   const fieldKey = bounded(input.fieldKey, "fieldKey", 63);
   const recordId = input.recordId === undefined || input.recordId === null ? null : bounded(input.recordId, "recordId", 256);
+  if (routeModel) {
+    await requireMcpUploadField(context, modelKey, fieldKey);
+    if (recordId && !/^rec_[A-Za-z0-9_-]+$/u.test(recordId)) throw new ApiError("VALIDATION_ERROR", "Invalid recordId", 422);
+  }
   const name = bounded(input.name, "name", 512);
   const contentType = bounded(input.contentType, "contentType", 255).toLowerCase();
   if (!Number.isInteger(input.size) || Number(input.size) < 1) throw new ApiError("VALIDATION_ERROR", "size must be a positive integer", 422);
@@ -221,7 +241,7 @@ async function createSession(context: Context<AppEnv>) {
     id: uploadId,
     destination: target.destination,
     upload: { method: "PUT", url: uploadUrl, headers: { "content-type": contentType }, expiresAt },
-  }), 201);
+  }), 201, { "Cache-Control": "no-store" });
 }
 
 function verifyUploadedMetadata<T extends R2Object>(object: T | null, row: UploadSessionRow): T {
@@ -272,6 +292,21 @@ async function completeSession(context: Context<AppEnv>) {
   const spaceId = context.req.param("spaceId")!;
   const row = await measurePerformancePhase(context, "file.session_read", () =>
     loadSession(context.env, spaceId, context.req.param("uploadId")!));
+  const routeModel = context.req.param("modelKey");
+  // For an exposed MCP session, check current authority and matching execution
+  // before revealing status or performing expiry cleanup.
+  const authorize = async () => {
+    const target = await measurePerformancePhase(context, "file.authority", () =>
+      resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context), authorityD1Observer(context)));
+    if (target.destination !== row.destination || !sameExecution(row, target.decision.principal)) throw new ApiError("UPLOAD_AUTHORITY_CHANGED", "Upload execution authority no longer matches the session", 403);
+    return target;
+  };
+  let authorized: ResolvedTarget | undefined;
+  if (routeModel) {
+    if (row.model_key !== routeModel || row.destination !== "native") throw new ApiError("UPLOAD_NOT_FOUND", "Upload not found", 404);
+    await requireMcpUploadField(context, routeModel, row.field_key);
+    authorized = await authorize();
+  }
   if (row.status !== "pending") {
     if (row.status === "unknown" || row.status === "executing") throw new ApiError("EXTERNAL_WRITE_UNKNOWN", "Upload outcome is unknown and must not be retried blindly", 502);
     throw new ApiError("UPLOAD_STATE_CONFLICT", `Upload session is ${row.status}`, 409);
@@ -281,9 +316,7 @@ async function completeSession(context: Context<AppEnv>) {
     await context.env.ASSETS.delete(row.object_key).catch(() => undefined);
     throw new ApiError("UPLOAD_EXPIRED", "Upload session expired", 409);
   }
-  const target = await measurePerformancePhase(context, "file.authority", () =>
-    resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context), authorityD1Observer(context)));
-  if (target.destination !== row.destination || !sameExecution(row, target.decision.principal)) throw new ApiError("UPLOAD_AUTHORITY_CHANGED", "Upload execution authority no longer matches the session", 403);
+  const target = authorized ?? await authorize();
   const staged = await measurePerformancePhase(context, row.destination === "native" ? "file.stage_get" : "file.stage_head", () =>
     verifyStagedUpload(context.env, row));
   try {
@@ -573,6 +606,8 @@ export async function cleanupFileUploads(env: Bindings): Promise<void> {
 export function registerFileRoutes(app: App): void {
   app.post("/api/v1/spaces/:spaceId/file-uploads", createSession);
   app.post("/api/v1/spaces/:spaceId/file-uploads/:uploadId/complete", completeSession);
+  app.post("/api/v1/spaces/:spaceId/models/:modelKey/file-uploads", createSession);
+  app.post("/api/v1/spaces/:spaceId/models/:modelKey/file-uploads/:uploadId/complete", completeSession);
   app.post("/api/v1/spaces/:spaceId/file-downloads", createDownload);
   // An exact model/record path permits the OAuth middleware to bind the
   // configured operation and represented Delegation before reading a body.

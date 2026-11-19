@@ -2,7 +2,7 @@
 // Storage kind and source model are strictly Core-internal. The public DTO
 // contains no origin, provider, Person Directory identifier or route binding.
 import type { Context, Hono } from "hono";
-import { nativeFileReadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import { requirePersonDirectoryPermission } from "./authorization";
 import { getExternalModel, externalAuthorityModel } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
@@ -19,7 +19,7 @@ type AppEnv={Bindings:Bindings;Variables:Variables};
 type ContextApp=Context<AppEnv>;
 type Access="read"|"write";
 type Kind="native"|"external"|"person"|"action";
-type Operation="query"|"get"|"create"|"update"|"delete"|"file_read"|`action:${string}`;
+type Operation="query"|"get"|"create"|"update"|"delete"|"file_read"|"file_upload"|`action:${string}`;
 type Contract={ contractId?:string; modelKey:string; display:string; operation:Operation;
   operationRef:string; inputSchema:Record<string,unknown>; title:string; description:string;
   requiredScopes:string[]; };
@@ -128,7 +128,7 @@ function projectionFilter(c:ContextApp):ProjectionFilter|undefined{
   if([...params.keys()].some(key=>key!=="modelKey"&&key!=="operation")
     ||params.getAll("modelKey").length!==1||params.getAll("operation").length>1
     ||!modelKey||!MODEL.test(modelKey)
-    ||(operation!==null&&!/^(query|get|create|update|delete|file_read|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation)))
+    ||(operation!==null&&!/^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation)))
     throw new ApiError("INVALID_REQUEST","Invalid operation projection filter",400);
   return {modelKey,...(operation===null?{}:{operation})};
 }
@@ -168,6 +168,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
       if(validCrud(op)){
         if(await matches(external?"external":"native",key,op))configured.push(op);
       }else if(op==="file_read"&&!external&&nativeFileReadFields(model.definition).length&&await matches("native",key,op))configured.push(op);
+      else if(op==="file_upload"&&!external&&nativeFileUploadFields(model.definition).length&&await matches("native",key,op))configured.push(op);
       else if(!external&&op.startsWith("action:")&&await matches("action",key,op))configured.push(op);
     }
     if(!configured.length)continue;
@@ -179,7 +180,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
     const needed=new Set<Access>();
     for(const op of configured){
       if(op==="query"||op==="get"||op==="file_read")needed.add("read");
-      else if(validCrud(op))needed.add("write");
+      else if(validCrud(op)||op==="file_upload")needed.add("write");
       else{
         const action=semantic?.actions.find(a=>a.key===op.slice(7));
         if(action?.access==="read"||action?.access==="write")needed.add(action.access);
@@ -223,6 +224,8 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
         requiredScopes:access==="read"?["resources:read"]:["resources:read","resources:write"],
         description:operation==="file_read"
           ?"Request a short-lived download URL for the linked file. Fetch the file directly using the returned URL before expiry. Treat the URL as a secret; do not log, persist or share it. Current Core authority is revalidated at issuance."
+          :operation==="file_upload"
+          ?"Begin or complete a native file upload. Begin returns a temporary signed PUT URL and required headers; upload bytes directly and then complete with uploadId. Treat URL as secret. Completion returns a File ID; attach it using a separately authorized record create or update. Multi-step upload requires timed or until-revoked Delegation, not once-only."
           :"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
   };
   for(const {key,configured,model,bound,semantic} of candidates){
@@ -247,6 +250,20 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
           type:"object",additionalProperties:false,
           properties:{fieldKey:{type:"string",enum:fieldKeys},fileId:{type:"string",pattern:"^fil_[a-f0-9]{32}$"}},
           required:["fieldKey","fileId"],
+        });
+      }else if(op==="file_upload"){
+        const fieldKeys=nativeFileUploadFields(model.definition);
+        if(write&&fieldKeys.length)await push("native",key,names(semantic.display.singular),op,{
+          type:"object",additionalProperties:false,
+          properties:{phase:{type:"string",enum:["begin","complete"]},fieldKey:{type:"string",enum:fieldKeys},
+            recordId:{type:"string",pattern:"^rec_[A-Za-z0-9_-]+$",maxLength:256},
+            name:{type:"string",minLength:1,maxLength:512},contentType:{type:"string",minLength:1,maxLength:255},
+            size:{type:"integer",minimum:1},uploadId:{type:"string",pattern:"^upl_[a-f0-9]{32}$"}},
+          required:["phase"],
+          oneOf:[
+            {properties:{phase:{const:"begin"}},required:["fieldKey","name","contentType","size"],not:{required:["uploadId"]}},
+            {properties:{phase:{const:"complete"}},required:["uploadId"],not:{anyOf:["fieldKey","recordId","name","contentType","size"].map(key=>({required:[key]}))}},
+          ],
         });
       }else if(["query","get","create","update","delete"].includes(op)){
         if(!(op==="query"||op==="get"?read:write))continue;
@@ -344,6 +361,19 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
     const modelBase=base+"/models/"+encodeURIComponent(item.target)+"/records";
     if(op==="query"){method="POST";path=modelBase+"/query";body=data;}
     else if(op==="get"){path=modelBase+"/"+encodeURIComponent(refId as string);}
+    else if(op==="file_upload"){
+      const input=data as Record<string,unknown>;
+      const uploadBase=base+"/models/"+encodeURIComponent(item.target)+"/file-uploads";
+      method="POST";
+      if(input.phase==="begin"){
+        if(Object.keys(input).some(k=>!["phase","fieldKey","recordId","name","contentType","size"].includes(k)))throw denied();
+        const {phase,...payload}=input;
+        path=uploadBase;body=payload;
+      }else if(input.phase==="complete"){
+        if(Object.keys(input).some(k=>!["phase","uploadId"].includes(k))||typeof input.uploadId!=="string"||!/^upl_[a-f0-9]{32}$/u.test(input.uploadId))throw denied();
+        path=uploadBase+"/"+encodeURIComponent(input.uploadId)+"/complete";
+      }else throw denied();
+    }
     else if(op==="file_read"){method="POST";path=modelBase+"/"+encodeURIComponent(refId as string)+"/file-downloads";body=data;}
     else if(op.startsWith("action:")){method="POST";path=modelBase+"/"+encodeURIComponent(refId as string)
       +"/actions/"+encodeURIComponent(item.actionKey!);body=data;}

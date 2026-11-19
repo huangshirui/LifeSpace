@@ -39,6 +39,7 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
       || (method === "PATCH" || method === "DELETE") && !path.endsWith("/records");
   }
   if (method === "POST") {
+    if (write && new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/file-uploads(?:/upl_[a-f0-9]{32}/complete)?$", "u").test(path)) return true;
     if (new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/records/rec_[A-Za-z0-9_-]+/file-downloads$", "u").test(path)) return true;
     if (path === "/api/v1/spaces/" + escaped + "/_discovery/models/batch") return true;
     if (new RegExp("^/api/v1/spaces/" + escaped + "/_operations/op_[a-f0-9]{64}/invoke$", "u").test(path)) return true;

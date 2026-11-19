@@ -1,3 +1,7 @@
+## MCP File upload approval (candidate)
+
+An Account request for exact operation file_upload may be approved only with timed or until-revoked lifetime. Default/explicit once-only approval is rejected server-side, and Account disables that choice. Both begin and complete use the same exact model operation and require current write Scope and current represented authorization. Record creation/update is a different operation and is not included. This preserves canonical File API multi-step authority rather than allowing an OAuth approval to bypass it.
+
 ## 2026-11-09 · Account-selected third-party Delegation lifetimes / 第三方授权期限（三选一，开发待验收）
 
 User-selected **Account approval**, not Agent-requested escalation, now chooses one of:

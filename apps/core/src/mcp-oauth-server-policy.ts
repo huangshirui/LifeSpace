@@ -66,7 +66,7 @@ export function configuredMcpOAuthScopes(configJson: string): string[] {
     if (typeof row.modelKey !== "string" || !MODEL_KEY.test(row.modelKey)
       || !Array.isArray(row.operations) || !row.operations.length
       || row.operations.some(op => typeof op !== "string")) throw forbidden();
-    return row.operations.some(op => ["create", "update", "delete"].includes(op));
+    return row.operations.some(op => ["create", "update", "delete", "file_upload"].includes(op));
   });
   const resources = config.resources ?? [];
   const personWrites = (resources as unknown[]).some(entry => {
@@ -98,7 +98,7 @@ export function allowedMcpToolModels(configJson: string): string[] {
       || !Array.isArray(operations) || !operations.length
       || operations.some(op => typeof op !== "string")) throw forbidden();
     seen.add(modelKey);
-    if (operations.some(op => ["get","query","create","update","delete","file_read"].includes(op) || op.startsWith("action:"))) allowed.push(modelKey);
+    if (operations.some(op => ["get","query","create","update","delete","file_read","file_upload"].includes(op) || op.startsWith("action:"))) allowed.push(modelKey);
   }
   return allowed.sort();
 }
@@ -145,6 +145,11 @@ export async function currentMcpOAuthQueryPolicy(
     : method === "DELETE" && person[1] ? "delete" : null);
   if (personOp) {
     if (!personOperations.includes(personOp)) throw forbidden();
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
+  }
+  const fileUpload = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/file-uploads(?:\/upl_[a-f0-9]{32}\/complete)?$/u.exec(path);
+  if (method === "POST" && fileUpload) {
+    if (!modelOperations[fileUpload[1]]?.includes("file_upload")) throw forbidden();
     return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
   const fileRead = /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/models\/([a-z][a-z0-9_]{1,62})\/records\/rec_[A-Za-z0-9_-]+\/file-downloads$/u.exec(path);

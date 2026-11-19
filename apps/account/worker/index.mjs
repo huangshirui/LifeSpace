@@ -584,8 +584,8 @@ export async function accountFetch(req, env) {
       || projection.models.some((item) => !isObject(item) || !safeText(item.key, 80)
         || !safeText(item.name, 150) || !Array.isArray(item.access)
         || item.access.some((access) => !["read", "write", "manage"].includes(access))
-        || !Array.isArray(item.operations) || item.operations.length > 6
-        || item.operations.some((op) => !["get", "query", "create", "update", "delete", "file_read"].includes(op)))) {
+        || !Array.isArray(item.operations) || item.operations.length > 7
+        || item.operations.some((op) => !["get", "query", "create", "update", "delete", "file_read", "file_upload"].includes(op)))) {
       return fail(502, "CORE_INVALID_RESPONSE", "权限投影格式无效");
     }
     const scopes = new Set(requestInfo.requestedScopes);
