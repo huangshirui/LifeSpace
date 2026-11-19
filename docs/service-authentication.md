@@ -1,3 +1,7 @@
+## 2026-11-19 · OAuth MCP file read (candidate)
+
+The Identity-signed OAuth execution context is unchanged. Core adds only an exact selected-Space/model/record file transfer route and checks the current Server `file_read` capability before execution. Represented execution requires a signed matching Delegation selector and current exact approved operation; ordinary Agent API credentials continue using existing canonical File API authority. No broad credential or User bearer substitution. Signed file-transfer URLs remain secrets; do not persist or log them. Trusted Agent MCP authentication/selection is an independent compatibility gate, not assumed by this candidate.
+
 # Service and Automation Authentication
 
 ## Status
