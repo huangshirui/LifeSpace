@@ -703,6 +703,60 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect(await count()).toBe(beforeCount+1);
   });
 
+  it("separates non-authorizing delegation eligibility from independent direct Grant and current User authority",async()=>{
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    const discovery=base+"/_discovery/operations";
+    const eligibility=discovery+"?mode=delegation_request";
+    const now=new Date().toISOString();
+    f.setDelegationEnabled(true);
+    await f.setServerOperations(["query","get","create"]);
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),f.space,f.oauthUser,now,now),
+      f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'").bind(f.application),
+    ]);
+    const claims={oauth_allow_user_authorization:true};
+    const direct=await f.request("GET",discovery,claims);
+    expect(direct.status).toBe(200);
+    const old=(await direct.json() as {data:{operations:Array<{operation:string;operationRef:string}>}}).data.operations.find(op=>op.operation==="query")!;
+    expect(old).toBeDefined();
+    await f.db.prepare("DELETE FROM data_grants WHERE grantee_id=? AND grantee_type='agent'").bind(f.agent).run();
+    const without=await f.request("GET",discovery,claims);
+    expect(without.status).toBe(200);
+    expect((await without.json() as {data:{operations:unknown[]}}).data.operations).toEqual([]);
+    const preview=await f.request("GET",eligibility,claims);
+    expect(preview.status).toBe(200);
+    expect((await preview.json() as {data:unknown}).data).toEqual({eligibleOperations:[
+      {modelKey:"task",operation:"query",requiredScopes:["resources:read"]},
+      {modelKey:"task",operation:"get",requiredScopes:["resources:read"]},
+    ]});
+    expect((await f.request("POST",base+"/_operations/"+old.operationRef+"/invoke",claims,
+      {arguments:{spaceId:f.space,data:{page:{limit:1}}}})).status).toBe(404);
+    expect((await f.request("GET",eligibility+"&mode=delegation_request",claims)).status).toBe(400);
+    expect((await f.request("GET",eligibility+"&operation=query",claims)).status).toBe(400);
+    expect((await f.request("GET","/api/v1/spaces/"+f.other+"/_discovery/operations?mode=delegation_request",claims)).status).toBe(403);
+    const pending=await f.request("POST",base+"/oauth-delegation-requests",claims,{
+      modelKey:"task",operation:"query",reason:"Read under explicit User approval",
+    });
+    expect(pending.status).toBe(201);
+    const id=(await pending.json() as {data:{id:string}}).data.id;
+    const approved=await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+id+"/approve",{mode:"until_revoked"});
+    expect(approved.status).toBe(200);
+    const dlg=(await approved.json() as {data:{delegations:Array<{id:string}>}}).data.delegations[0]!.id;
+    const represented={...claims,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg};
+    const headers={"x-lifespace-delegation-id":dlg};
+    const query=base+"/models/task/records/query";
+    for(let i=0;i<2;i++)expect((await f.request("POST",query,represented,{page:{limit:1}},headers)).status).toBe(200);
+    expect((await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+dlg+"/revoke",{})).status).toBe(200);
+    expect((await f.request("POST",query,represented,{page:{limit:1}},headers)).status).toBe(404);
+    await f.db.prepare("UPDATE space_memberships SET deleted_at=? WHERE space_id=? AND user_id=?").bind(now,f.space,f.oauthUser).run();
+    const reduced=await f.request("GET",eligibility,claims);
+    expect(reduced.status).toBe(200);
+    expect((await reduced.json() as {data:unknown}).data).toEqual({eligibleOperations:[]});
+    f.setDelegationEnabled(false);
+    expect((await f.request("GET",eligibility)).status).toBe(404);
+  });
   it("Account User can grant bounded repeated / long-lived exact operation and revoke without OAuth consent", async () => {
     const f=await fixture();
     const base="/api/v1/spaces/"+f.space+"/models/task/records";
