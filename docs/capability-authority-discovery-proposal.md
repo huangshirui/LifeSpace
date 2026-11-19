@@ -1,0 +1,29 @@
+# Capability discovery and represented execution (proposed, #629)
+
+Status: implementation proposal; not an active runtime contract. Release together with #627/#630 and adapters #62/#64.
+
+## Source-verified gap
+
+- `apps/core/src/mcp-generic-operations.ts` manifest accepts only direct OAuth execution principals and filters by direct Agent model authority. Its target invoke resolves through that same manifest.
+- `apps/core/src/auth.ts` binds OAuth execution to its selected Space, live Server, route and exact signed Delegation; direct OAuth cannot add an arbitrary delegation selector.
+- `apps/core/src/model-authorization.ts` already resolves an opaque Agent API credential plus selected delegation chain to a represented Principal for batched model access. Reuse this, including canonical policy and consumption. Do not accept a User ID from an Agent as identity proof.
+- Adapter's existing `lifespace.execute_user_delegation` uses Identity's signed represented OAuth token and calls exact canonical routes. Keep this path and its exact operation binding; lack of generic catalog discovery is not proof this existing path is broken.
+
+## Ownership and contract proposal
+
+1. Separate current configured operation candidates (published model semantics, origin capabilities, active Space binding, Server allow-list) from authority evaluation. Candidate enumeration alone is internal and must never be returned as an unfiltered schema list.
+2. Preserve current direct-only discovery/invoke as the default compatibility contract. Introduce an explicit opt-in discovery projection for delegation eligibility. It must expose only operations for the currently authenticated binding that the caller is allowed to request; any verified User ceiling applies. Never use hypothetical User identity, assume approval, expose arbitrary model schemas or record content, or turn read-only OAuth scope into write execution.
+3. Each projected operation distinguishes direct executable, delegation request eligible, and represented executable under explicit selected authority. Final field names and versioning belong in reviewed OpenAPI before runtime rollout. An operation reference is an identifier, not a credential or capability token. An eligibility preview never grants authority; for OAuth, existing independent Account consent, current User and exact operation/scope checks apply. An absent or invalid selector must not silently fall back to direct authority.
+4. Resolve the target independently of the direct grant filter only for explicitly authorized paths. Use current Server configuration and existing canonical route authorization. Keep direct execution fail-closed. For OAuth, preserve signed represented token and exact request/route binding; do not broaden the auth middleware allow-list to arbitrary targets. Existing exact canonical delegated execution is the compatibility path; if generic represented invoke is exposed, prove an equivalent exact target binding before enabling it.
+5. For trusted Agent credentials, define how the enabled Server/Application/Space binding is established from authenticated configuration before advertising schemas (an Agent credential alone is not a Server binding). Accept explicit delegation context through the existing approved transport, resolve User from the chain, and run canonical checks using the same credential and selector. Trusted user authorization request remains distinct from OAuth Account approval. No OAuth-token substitution, synthetic grants or bypass. Person uses existing Person authority rules; external models use the same semantics with provider capability checks. Do not require separate origin-specific APIs.
+6. Adapter consumes Core's eligibility and represented-operation contracts; existing OAuth request/status/execute tools remain compatible. Trusted credential authentication/transport must be explicitly wired and tested, not inferred from OAuth support. ALOHA Agent Control supplies selected context, not authority. No persistent bearer URL, secret or delegation ID in logs or fixtures.
+7. Include file_read and file_upload as configured operations; file transfers remain direct signed GET/PUT. Upload begin and complete remain write-authorized; one-use upload is not supported; attaching is a separate record mutation.
+
+## Implementation gates
+
+- Core: review existing Server governance and trusted binding, then update protocol-neutral contract, OpenAPI validators, candidate projection, eligible scope evaluation, and exact target resolution. Preserve canonical authorization/consumption and existing direct-only behavior. Do not mutate authority during discovery.
+- Adapter: opt-in contract consumption and explicit delegation UX, separate trusted transport with no broadening of OAuth acceptance, preserve canonical delegated call route. Coordinate Account/Console only where actually needed.
+- Automated: zero direct grants + allowed eligibility; direct denied; explicit valid represented read; revoked/expired/consumed/wrong selector, wrong User/Agent/App/Space/Server/model/op, missing scope and disabled binding denied. Include one-time consumption only at canonical execution, existing OAuth delegation execution, Native/External/Person, file read/upload, write step-up, no unapproved schema disclosure. Batch authority reads; no per-operation waterfall; target invoke must not rebuild full catalog.
+- Live: synthetic zero-Grant Agent in Staging; independent OAuth approval and trusted Agent credential paths; signed file PUT/complete/attach/GET integrity, denial and revocation. Existing exact-SHA CI/release gates apply. Do not deploy file-only release while #629 remains incomplete.
+
+No new database, grant type, permission engine or MCP-only business authorization. This proposal does not claim the code, CI or deployment is complete.
