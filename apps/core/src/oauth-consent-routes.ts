@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { nativeFileReadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import type { Bindings, Variables } from "./env";
 import { requireScope } from "./auth";
 import { requireSpacePermission } from "./authorization";
@@ -199,7 +199,7 @@ export function registerOAuthConsentRoutes(app: App): void {
         || exposed.has(modelKey)) {
         throw new ApiError("OAUTH_SELECTION_DENIED", "MCP Server configuration is invalid", 403);
       }
-      exposed.set(modelKey, operations.filter(op => ["get", "query", "create", "update", "delete", "file_read"].includes(op)));
+      exposed.set(modelKey, operations.filter(op => ["get", "query", "create", "update", "delete", "file_read", "file_upload"].includes(op)));
     }
     const eligible = await candidates(c.env, spaceId);
     if (!eligible.some((r) => r.applicationId === appId && r.agentId === agentId)) {
@@ -234,6 +234,7 @@ export function registerOAuthConsentRoutes(app: App): void {
     const selected = visible.flatMap(({ model, access }) => {
       const operations = (exposed.get(model.key) ?? []).filter(op =>
         op === "file_read" ? access.includes("read") && nativeFileReadFields(model.definition).length > 0
+          : op === "file_upload" ? access.includes("write") && nativeFileUploadFields(model.definition).length > 0
           : ["get", "query"].includes(op) ? access.includes("read") : access.includes("write"));
       if (!operations.length) return [];
       return [{
