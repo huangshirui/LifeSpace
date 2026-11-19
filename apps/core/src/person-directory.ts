@@ -275,7 +275,7 @@ async function delegationRows(env: Bindings, delegationId: string): Promise<Dele
   return groupDelegationChainRows((result?.results ?? []) as DelegationChainRow[]).get(delegationId) ?? [];
 }
 
-async function requireDirectoryAccess(
+export async function requireDirectoryAccess(
   context: Context<AppEnv>,
   spaceId: string,
   required: "read" | "write",
