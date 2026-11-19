@@ -1,4 +1,5 @@
 import { AwsClient } from "aws4fetch";
+import { nativeFileReadFields } from "./file-read-fields";
 import type { Context, Hono } from "hono";
 import type { AuthorityD1Timing, Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
@@ -434,6 +435,10 @@ export async function findDownloadableNativeFile(
 
 async function createDownload(context: Context<AppEnv>) {
   const input = object(await context.req.json<unknown>().catch(() => null));
+  return downloadNativeFile(context, input);
+}
+
+async function downloadNativeFile(context: Context<AppEnv>, input: Body) {
   onlyKeys(input, ["modelKey", "recordId", "fieldKey", "fileId"]);
   const modelKey = bounded(input.modelKey, "modelKey", 63);
   const recordId = bounded(input.recordId, "recordId", 256);
@@ -459,7 +464,7 @@ async function createDownload(context: Context<AppEnv>) {
   const url = await presignR2Object(context.env, row.object_key, "GET", DOWNLOAD_TTL_SECONDS);
   const expiresAt = new Date(Date.now() + DOWNLOAD_TTL_SECONDS * 1000).toISOString();
   await consumeSingleUseRead(context.env, decision);
-  return context.json(success({ id: row.id, name: row.name, contentType: row.content_type, size: row.size_bytes, createdAt: row.created_at, url, expiresAt }));
+  return context.json(success({ id: row.id, name: row.name, contentType: row.content_type, size: row.size_bytes, createdAt: row.created_at, url, expiresAt }), 200, { "Cache-Control": "no-store" });
 }
 
 async function deleteNativeFile(context: Context<AppEnv>) {
@@ -569,5 +574,26 @@ export function registerFileRoutes(app: App): void {
   app.post("/api/v1/spaces/:spaceId/file-uploads", createSession);
   app.post("/api/v1/spaces/:spaceId/file-uploads/:uploadId/complete", completeSession);
   app.post("/api/v1/spaces/:spaceId/file-downloads", createDownload);
+  // An exact model/record path permits the OAuth middleware to bind the
+  // configured operation and represented Delegation before reading a body.
+  // Do not permit OAuth execution on the unbound canonical transfer route.
+  app.post("/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/file-downloads", async context => {
+    const principal = context.get("principal");
+    const modelKey = context.req.param("modelKey");
+    const recordId = context.req.param("recordId");
+    const execution = principal.oauthExecution;
+    if (principal.purpose !== "oauth_agent_execution" || !execution
+      || execution.spaceId !== context.req.param("spaceId")
+      || !execution.modelOperations?.[modelKey]?.includes("file_read")) {
+      throw new ApiError("FORBIDDEN", "MCP file read is unavailable", 403);
+    }
+    const input = object(await context.req.json<unknown>().catch(() => null));
+    onlyKeys(input, ["fieldKey", "fileId"]);
+    const model = await getRuntimeModel(context.env, modelKey);
+    if (!model || typeof input.fieldKey !== "string" || !nativeFileReadFields(model.definition).includes(input.fieldKey)) {
+      throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
+    }
+    return downloadNativeFile(context, { modelKey, recordId, fieldKey: input.fieldKey, fileId: input.fileId });
+  });
   app.delete("/api/v1/spaces/:spaceId/files/:fileId", deleteNativeFile);
 }
