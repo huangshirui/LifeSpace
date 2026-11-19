@@ -529,8 +529,19 @@ export async function accountFetch(req, env) {
     } });
   }
   if (path === "/api/oauth/choices") {
-    if (url.search) return fail(400, "INVALID_REQUEST", "候选选择不接受额外参数");
-    const upstream = await boundedUpstream(env, "CORE", "/api/v1/me/oauth/choices", linked.token);
+    const requestId=url.searchParams.get("request_id");
+    if(url.searchParams.size!==(requestId===null?0:1)||(requestId!==null&&!REQUEST.test(requestId)))
+      return fail(400,"INVALID_REQUEST","候选选择参数无效");
+    let target="/api/v1/me/oauth/choices";
+    if(requestId!==null){
+      const pending=await boundedUpstream(env,"IDENTITY","/api/v1/me/oauth/requests/"+encodedPath(requestId),linked.token);
+      if(!pending||!pending.ok)return fail(409,"OAUTH_REQUEST_EXPIRED","OAuth 授权请求已过期或不可用");
+      const info=await data(pending);
+      if(!info||info.id!==requestId||!safeText(info.resource,1024))
+        return fail(502,"IDENTITY_INVALID_RESPONSE","授权请求信息异常");
+      target+="?"+new URLSearchParams({resource:info.resource});
+    }
+    const upstream = await boundedUpstream(env, "CORE", target, linked.token);
     if (!upstream || !upstream.ok) return fail(upstream?.status === 403 ? 403 : 503,
       "OAUTH_CHOICES_UNAVAILABLE", "无法读取当前可用的应用与 Agent");
     const result = await data(upstream);
@@ -539,7 +550,8 @@ export async function accountFetch(req, env) {
     const choices = result.candidates.filter((r) => isObject(r)
       && SPACE.test(r.spaceId || "") && APPLICATION.test(r.applicationId || "")
       && AGENT.test(r.agentId || "") && typeof r.spaceName === "string"
-      && typeof r.agentName === "string" && typeof r.applicationName === "string");
+      && typeof r.agentName === "string" && typeof r.applicationName === "string"
+      && (r.requiresUserAuthorization===undefined||typeof r.requiresUserAuthorization==="boolean"));
     if (choices.length !== result.candidates.length) {
       return fail(502, "CORE_INVALID_RESPONSE", "候选授权数据异常");
     }
@@ -547,6 +559,7 @@ export async function accountFetch(req, env) {
       spaceId: r.spaceId, spaceName: r.spaceName,
       applicationId: r.applicationId, applicationName: r.applicationName,
       agentId: r.agentId, agentName: r.agentName,
+      ...(r.requiresUserAuthorization===true?{requiresUserAuthorization:true}:{}),
     })) } });
   }
   if (path === "/api/oauth/capabilities") {
