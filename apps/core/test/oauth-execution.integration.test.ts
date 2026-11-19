@@ -749,7 +749,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const query=base+"/models/task/records/query";
     for(let i=0;i<2;i++)expect((await f.request("POST",query,represented,{page:{limit:1}},headers)).status).toBe(200);
     expect((await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+dlg+"/revoke",{})).status).toBe(200);
-    expect((await f.request("POST",query,represented,{page:{limit:1}},headers)).status).toBe(404);
+    expect((await f.request("POST",query,represented,{page:{limit:1}},headers)).status).toBe(403);
     await f.db.prepare("UPDATE space_memberships SET deleted_at=? WHERE space_id=? AND user_id=?").bind(now,f.space,f.oauthUser).run();
     const reduced=await f.request("GET",eligibility,claims);
     expect(reduced.status).toBe(200);
