@@ -10,7 +10,9 @@ for(const p of get.parameters.filter(p=>p.in==="query"&&p.name!=="mode")) {
   assert.equal(p.required,false);
   assert.ok(new RegExp(p.schema.pattern).test(p.name==="modelKey"?"task":"action:complete"));
 }
-assert.deepEqual(get.parameters.find(p=>p.name==="mode").schema.enum,["delegation_request"]);
+assert.deepEqual(get.parameters.find(p=>p.name==="mode").schema.enum,["delegation_request","configuration"]);
+const catalog=get.responses["200"].content["application/json"].schema.properties.data.oneOf;
+assert.deepEqual(catalog.map(c=>c.required[0]),["operations","eligibleOperations","configuredOperations"]);
 const eligible=doc.components.schemas.DelegationEligibility;
 assert.deepEqual(Object.keys(eligible.properties).sort(),["modelKey","operation","requiredScopes"]);
 assert.equal(eligible.additionalProperties,false);
