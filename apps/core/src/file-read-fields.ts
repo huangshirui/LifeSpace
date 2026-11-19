@@ -13,3 +13,11 @@ export function nativeFileReadFields(definition: unknown): string[] {
     return type === "file" || type === "file_list";
   }).map(([key]) => key).sort();
 }
+
+// Upload uses the same published native field eligibility and excludes read-only fields.
+export function nativeFileUploadFields(definition: unknown): string[] {
+  const keys = nativeFileReadFields(definition);
+  if (!keys.length) return [];
+  const fields = (definition as { fields: Record<string, { readOnly?: unknown }> }).fields;
+  return keys.filter(key => fields[key]?.readOnly !== true);
+}
