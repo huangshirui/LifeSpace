@@ -4,6 +4,8 @@
 import type { Context, Hono } from "hono";
 import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import { requirePersonDirectoryPermission } from "./authorization";
+import { requireDirectoryAccess } from "./person-directory";
+import { requireTrustedMcpContext } from "./mcp-delegation-contexts";
 import { getExternalModel, externalAuthorityModel } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
 import { evaluateModelAccessMany, type ModelAccessRequest, type ModelAuthorityTarget } from "./model-authorization";
@@ -121,27 +123,42 @@ export async function projectMcpPersonOperations(env:Bindings,p:Principal,spaceI
   return choices.filter(op=>["query","get"].includes(op)?read:write);
 }
 type ProjectionFilter={modelKey:string;operation?:string};
-function projectionFilter(c:ContextApp):ProjectionFilter|undefined{
+type ProjectionOptions={filter?:ProjectionFilter;eligibility:boolean};
+function projectionOptions(c:ContextApp):ProjectionOptions{
   const params=new URL(c.req.url).searchParams;
-  if(!params.size)return undefined;
-  const modelKey=params.get("modelKey"),operation=params.get("operation");
-  if([...params.keys()].some(key=>key!=="modelKey"&&key!=="operation")
-    ||params.getAll("modelKey").length!==1||params.getAll("operation").length>1
-    ||!modelKey||!MODEL.test(modelKey)
-    ||(operation!==null&&!/^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation)))
+  const modelKey=params.get("modelKey"),operation=params.get("operation"),mode=params.get("mode");
+  if([...params.keys()].some(key=>key!=="modelKey"&&key!=="operation"&&key!=="mode")
+    ||params.getAll("modelKey").length>1||params.getAll("operation").length>1||params.getAll("mode").length>1
+    ||(mode!==null&&mode!=="delegation_request")
+    ||(modelKey!==null&&!MODEL.test(modelKey))
+    ||(operation!==null&&(!modelKey||!/^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation))))
     throw new ApiError("INVALID_REQUEST","Invalid operation projection filter",400);
-  return {modelKey,...(operation===null?{}:{operation})};
+  return {eligibility:mode==="delegation_request",...(modelKey?{filter:{modelKey,...(operation===null?{}:{operation})}}:{})};
 }
-async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter):Promise<Entry[]>{
+async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,eligibility=false):Promise<Entry[]>{
   const principal=c.get("principal"),execution=principal.oauthExecution;
   const spaceId=c.req.param("spaceId");
-  if(principal.purpose!=="oauth_agent_execution"||!execution||execution.spaceId!==spaceId
-    ||principal.actor)throw denied();
-  // authenticate() has already resolved the live Server policy on this
-  // request. Never reuse it across requests or treat it as data authority.
-  if(!execution.serverId||!execution.modelOperations||!execution.personOperations)throw denied();
-  const policy={serverId:execution.serverId,modelOperations:execution.modelOperations,
-    personOperations:execution.personOperations};
+  if(!spaceId)throw denied();
+  const trusted=principal.purpose==="agent_api"&&principal.type==="agent"&&!principal.actor;
+  const selector=trusted?c.req.header("x-lifespace-delegation-id"):undefined;
+  const trustedResource=trusted?c.req.header("x-lifespace-mcp-resource"):undefined;
+  if(!trusted&&(principal.purpose!=="oauth_agent_execution"||!execution||execution.spaceId!==spaceId
+    ||principal.actor||!execution.serverId||!execution.modelOperations||!execution.personOperations))throw denied();
+  if(trusted&&eligibility)throw denied();
+  // OAuth has an authenticated live policy; trusted Agent API uses an explicit
+  // configured Server/Application/Space/Agent tuple plus selected Delegation.
+  const policy=trusted?await requireTrustedMcpContext(c.env,principal,spaceId,trustedResource,selector)
+    :{serverId:execution!.serverId!,modelOperations:execution!.modelOperations!,
+      personOperations:execution!.personOperations!};
+  // Eligibility is an explicit, non-executing projection of the intended
+  // User's current authority, using only the live Identity-bound OAuth User.
+  // It never accepts a caller-supplied User, mints a token, selects a Delegation
+  // or changes the authenticated Principal used for invocation.
+  if(eligibility&&(targetRef||!execution?.allowUserAuthorization||!execution.userId
+    ||principal.type!=="agent"||!principal.scopes.includes("resources:read")))throw denied();
+  const projectedPrincipal:Principal=eligibility
+    ?{type:"user",id:execution!.userId!,clientId:principal.clientId,tokenId:principal.tokenId,scopes:[...principal.scopes]}
+    :trusted?principal:discoveryPrincipal(principal,"write");
   const out:Entry[]=[];
   const operationRef=(kind:Kind,key:string,op:string)=>ref([policy.serverId,spaceId,key,op,kind].join(":"));
   const matches=async(kind:Kind,key:string,op:string)=>
@@ -187,15 +204,16 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
       }
     }
     for(const access of needed){
+      if((eligibility||trusted)&&!principal.scopes.includes("resources:"+access))continue;
       requested.push({key,access});
-      requests.push({model:authority,required:access,observeAuthorityBatch:authorityD1Observer(c)});
+      requests.push({model:authority,required:access,...(trusted?{selector:{delegationId:selector}}:{}),observeAuthorityBatch:authorityD1Observer(c)});
     }
   }
   const permissions=new Map<string,{read:boolean;write:boolean}>();
   if(principal.scopes.includes("resources:read")&&requests.length){
     // The hypothetical write Scope only controls discoverability, never
     // invocation. Both levels read the same current base-Authority snapshot.
-    const evaluated=await evaluateModelAccessMany(c.env,discoveryPrincipal(principal,"write"),spaceId,requests);
+    const evaluated=await evaluateModelAccessMany(c.env,projectedPrincipal,spaceId,requests);
     evaluated.forEach((result,i)=>{
       if(!result.ok&&![403,404,405].includes(result.error.status))throw result.error;
       const {key,access}=requested[i]!;
@@ -216,7 +234,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
     if(out.length>=MAX_OPERATIONS)throw new ApiError("OPERATION_LIMIT","Too many configured MCP operations",413);
     const opRef=await operationRef(kind,modelKey,operation);
     if(targetRef&&opRef!==targetRef)return;
-    const dataSchema=operationSchema(spaceId,operation,data);
+    const dataSchema=eligibility?{}:operationSchema(spaceId,operation,data);
     const toolOp=operation.startsWith("action:")?"action":operation;
     out.push({kind,target:modelKey,actionKey,
       dto:{modelKey,display,operation,operationRef:opRef,
@@ -267,6 +285,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
         });
       }else if(["query","get","create","update","delete"].includes(op)){
         if(!(op==="query"||op==="get"?read:write))continue;
+        if(eligibility){await push("native",key,names(semantic.display.singular),op as Operation);continue;}
         let schema:JsonSchema={type:"object",additionalProperties:false};
         if(op==="delete")schema={type:"object",additionalProperties:false,properties:{version},required:["version"]};
         else if(op==="query"||op==="create"||op==="update"){
@@ -318,9 +337,20 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter)
   const choices:string[]=[];
   for(const op of policy.personOperations){
     const normalized=op==="list"?"query":op;
-    if(validCrud(normalized)&&await matches("person","person",normalized))choices.push(normalized);
+    if(validCrud(normalized)&&(!(eligibility||trusted)||principal.scopes.includes("resources:"+(["query","get"].includes(normalized)?"read":"write")))
+      &&await matches("person","person",normalized))choices.push(normalized);
   }
-  for(const normalized of await projectMcpPersonOperations(c.env,principal,spaceId,choices)){
+  let personChoices:string[];
+  if(trusted){
+    const may=async(access:Access)=>{
+      try{await requireDirectoryAccess(c,spaceId,access);return true;}
+      catch(error){if(error instanceof ApiError&&[403,404,405].includes(error.status))return false;throw error;}
+    };
+    const [read,write]=await Promise.all([choices.some(op=>["query","get"].includes(op))?may("read"):false,
+      choices.some(op=>!["query","get"].includes(op))?may("write"):false]);
+    personChoices=choices.filter(op=>["query","get"].includes(op)?read:write);
+  }else personChoices=await projectMcpPersonOperations(c.env,eligibility?projectedPrincipal:principal,spaceId,choices);
+  for(const normalized of personChoices){
     await push("person","person","Person",normalized as Operation,personData(normalized as Operation));
   }
   return out;
@@ -384,8 +414,17 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
 }
 export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
   app.get("/api/v1/spaces/:spaceId/_discovery/operations",async c=>{
+    const options=projectionOptions(c);
     const all=await measurePerformancePhase(c,"operation.discovery",
-      ()=>manifest(c,undefined,projectionFilter(c)));
+      ()=>manifest(c,undefined,options.filter,options.eligibility));
+    if(options.eligibility){
+      // Deliberately different envelope and no schemas, operationRef or
+      // executable tool bindings. The existing independent Account approval
+      // and exact represented execution are still required.
+      return c.json(success({eligibleOperations:all.map(({dto})=>({
+        modelKey:dto.modelKey,operation:dto.operation,requiredScopes:dto.requiredScopes,
+      }))}),200,{"cache-control":"no-store"});
+    }
     return c.json(success({operations:all.map(e=>e.dto)}),200,{"cache-control":"no-store"});
   });
   app.post("/api/v1/spaces/:spaceId/_operations/:operationRef/invoke",async c=>{
@@ -411,6 +450,8 @@ export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
       accept:"application/json",...(body===undefined?{}:{"content-type":"application/json"})});
     const selector=c.req.header("x-lifespace-delegation-id");
     if(selector)headers.set("x-lifespace-delegation-id",selector);
+    const resource=c.req.header("x-lifespace-mcp-resource");
+    if(c.get("principal").purpose==="agent_api"&&resource)headers.set("x-lifespace-mcp-resource",resource);
     // Call the same Core Worker app, never a remote Provider/Adapter directly.
     // The inner canonical route independently rechecks full current authority.
     const response=await measurePerformancePhase(c,"operation.canonical_execution",

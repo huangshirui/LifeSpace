@@ -22,9 +22,13 @@ async function api(path, options = {}) {
   return body.data;
 }
 function updateButton() {
-  const selected = state.choices.some((item) =>
+  const selected = state.choices.find((item) =>
     item.applicationId === controls.application.value
     && item.spaceId === controls.space.value && item.agentId === controls.agent.value);
+  const requiresUserAuthorization=selected?.requiresUserAuthorization===true;
+  $("direct").disabled=requiresUserAuthorization;
+  if(requiresUserAuthorization)$("allow").checked=true;
+  show("delegation-note",$("allow").checked);
   $("approve").disabled = !selected || !state.csrf || state.busy || !state.previewLoaded;
 }
 function resetCapabilities() {
@@ -54,7 +58,7 @@ async function refreshCapabilities() {
     node.replaceChildren();
     if (!projection.models.length) {
       const p = document.createElement("p");
-      p.textContent = "此 MCP Server 暂无当前 Agent 可执行的操作。";
+      p.textContent = "此 Agent 暂无独立的数据权限。若允许申请用户授权，仍需你单独确认 Delegation，才可代表你执行相应操作。";
       node.append(p);
     } else {
       for (const model of projection.models) {
@@ -126,7 +130,7 @@ async function initialize() {
     const [session, oauth, choices] = await Promise.all([
       api("/api/session"),
       api("/api/oauth/request?request_id=" + encodeURIComponent(requestId)),
-      api("/api/oauth/choices"),
+      api("/api/oauth/choices?request_id=" + encodeURIComponent(requestId)),
     ]);
     if (!session?.csrfToken || !oauth?.client || !Array.isArray(choices?.candidates)) {
       throw new Error("缺少授权上下文");
@@ -152,7 +156,7 @@ controls.application.addEventListener("change", updateSpaces);
 controls.space.addEventListener("change", updateAgents);
 controls.agent.addEventListener("change", refreshCapabilities);
 document.querySelectorAll('input[name="mode"]').forEach((el) =>
-  el.addEventListener("change", () => show("delegation-note", $("allow").checked)));
+  el.addEventListener("change", updateButton));
 $("retry").addEventListener("click", initialize);
 $("cancel").addEventListener("click", async () => {
   if (state.busy) return;

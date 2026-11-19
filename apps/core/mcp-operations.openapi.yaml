@@ -4,13 +4,15 @@ info:
   version: 0.5.0
   description: |
     Protocol-neutral, authenticated operation projection for the current OAuth
-    MCP Agent execution context. This contract is Core-owned. Internal Native,
+    MCP Agent execution context or opaque Agent credential with explicit current
+    Delegation and configured MCP Server context. This contract is Core-owned. Internal Native,
     Space Person and External Provider resolution is never a consumer contract.
     An operationRef is not an authority grant or bearer credential.
 servers:
   - url: https://core.example.com
 security:
   - oauthAgentExecution: []
+  - trustedAgentCredential: []
 paths:
   /api/v1/spaces/{spaceId}/_discovery/operations:
     get:
@@ -29,8 +31,18 @@ paths:
         Optional exact modelKey and operation filters narrow this current projection
         before authority/schema hydration. operation requires modelKey; no match
         returns an empty operations array, including hidden or revoked operations.
+        mode=delegation_request opts into a separate non-authorizing eligibility
+        preview of the Identity-bound intended User's current authority with
+        the actual OAuth scopes. It returns only model/operation/scope metadata,
+        never executable descriptors, operationRef, input schemas or records.
+        Independent Account approval and exact represented execution remain required.
+        Trusted Agent credentials require the exact X-LifeSpace-MCP-Resource and
+        X-LifeSpace-Delegation-Id headers; no direct fallback or eligibility preview.
+        Discovery validates the selected current Delegation without consuming it.
       parameters:
         - $ref: '#/components/parameters/spaceId'
+        - $ref: '#/components/parameters/trustedMcpResource'
+        - $ref: '#/components/parameters/trustedDelegationId'
         - name: modelKey
           in: query
           required: false
@@ -40,9 +52,14 @@ paths:
           required: false
           description: Requires modelKey; exact operation, not an authority claim.
           schema: { type: string, pattern: '^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
+        - name: mode
+          in: query
+          required: false
+          description: Explicit delegation eligibility preview; requires live consent enabling User Delegation.
+          schema: { type: string, enum: [delegation_request] }
       responses:
         '200':
-          description: Current operation catalog; no Provider, storage origin or Kernel type
+          description: Current direct operation catalog or non-authorizing eligibility preview; no Provider, storage origin or Kernel type
           headers:
             Cache-Control:
               schema: { type: string, enum: [no-store] }
@@ -54,12 +71,23 @@ paths:
                 properties:
                   data:
                     type: object
-                    required: [operations]
-                    properties:
-                      operations:
-                        type: array
-                        maxItems: 128
-                        items: { $ref: '#/components/schemas/OperationDescriptor' }
+                    oneOf:
+                      - type: object
+                        required: [operations]
+                        additionalProperties: false
+                        properties:
+                          operations:
+                            type: array
+                            maxItems: 128
+                            items: { $ref: '#/components/schemas/OperationDescriptor' }
+                      - type: object
+                        required: [eligibleOperations]
+                        additionalProperties: false
+                        properties:
+                          eligibleOperations:
+                            type: array
+                            maxItems: 128
+                            items: { $ref: '#/components/schemas/DelegationEligibility' }
         '400': { description: Malformed or duplicate projection filter }
         '401': { description: Invalid, expired or revoked signed OAuth execution proof }
         '403': { description: Selected Space, Scope or current MCP Server is unavailable }
@@ -87,10 +115,15 @@ paths:
         complete verifies the staged object and returns File metadata. Clients
         transfer bytes directly; record attachment is a separate operation.
         Multi-step upload does not support once-only Delegation.
-        Current candidate accepts Agent Direct; exact User-delegated operation
-        equivalence requires a separate hardened authorization gate.
+        OAuth Agent Direct retains its current contract. OAuth represented execution
+        uses the separate exact approved canonical operation. Trusted Agent credentials
+        may execute via this generic route only with an explicitly selected, current
+        trusted-channel Delegation and exact configured Server context. Canonical
+        handlers independently recheck authority and consume single-use when required.
       parameters:
         - $ref: '#/components/parameters/spaceId'
+        - $ref: '#/components/parameters/trustedMcpResource'
+        - $ref: '#/components/parameters/trustedDelegationId'
         - name: operationRef
           in: path
           required: true
@@ -121,7 +154,8 @@ paths:
     post:
       operationId: downloadRecordFileForMcp
       description: |
-        OAuth execution only; selected Space, explicit file_read Server operation
+        OAuth execution or trusted Agent credential with explicit current Delegation
+        and configured Server context; selected Space, explicit file_read Server operation
         and (for represented execution) exact current User Delegation are checked.
         Reuses the existing native File authority, record link and read policy.
         The result is private and contains a short-lived bearer URL for direct
@@ -136,6 +170,7 @@ paths:
           in: path
           required: true
           schema: { type: string, pattern: '^rec_[A-Za-z0-9_-]+$' }
+        - $ref: '#/components/parameters/trustedMcpResource'
         - name: X-LifeSpace-Delegation-Id
           in: header
           required: false
@@ -171,7 +206,8 @@ paths:
     post:
       operationId: beginModelFileUploadForMcp
       description: |
-        Exact model-scoped native upload session for authorized OAuth execution.
+        Exact model-scoped native upload session for authorized OAuth execution
+        or trusted Agent credential with explicit current Delegation and configured Server context.
         Both phases require current write Scope, Server operation, model authority
         and (when represented) exact timed or until-revoked Delegation.
         The authorized client PUTs bytes directly using the returned URL and headers.
@@ -181,6 +217,7 @@ paths:
           in: path
           required: true
           schema: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        - $ref: '#/components/parameters/trustedMcpResource'
         - name: X-LifeSpace-Delegation-Id
           in: header
           required: false
@@ -229,6 +266,7 @@ paths:
           in: path
           required: true
           schema: { type: string, pattern: '^upl_[a-f0-9]{32}$' }
+        - $ref: '#/components/parameters/trustedMcpResource'
         - name: X-LifeSpace-Delegation-Id
           in: header
           required: false
@@ -252,13 +290,44 @@ components:
       description: |
         Private, Identity-signed <=60s OAuth MCP Core execution JWT.
         The third-party OAuth access token must never be forwarded to Core.
+    trustedAgentCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: lsp_agt_ opaque Agent API credential
+      description: Current Identity-introspected Agent credential; exact configured context and selected trusted User Delegation are mandatory.
   parameters:
+    trustedMcpResource:
+      name: X-LifeSpace-MCP-Resource
+      in: header
+      required: false
+      schema: { type: string, format: uri }
+      description: Required for trusted Agent transport; exact canonical enabled MCP Server Resource.
+    trustedDelegationId:
+      name: X-LifeSpace-Delegation-Id
+      in: header
+      required: false
+      schema: { type: string, pattern: '^dlg_[A-Za-z0-9_-]{1,128}$' }
+      description: Required for trusted Agent transport; explicit selected trusted-channel User Delegation.
     spaceId:
       name: spaceId
       in: path
       required: true
       schema: { type: string, pattern: '^spc_[A-Za-z0-9_-]+$' }
   schemas:
+    DelegationEligibility:
+      type: object
+      additionalProperties: false
+      required: [modelKey, operation, requiredScopes]
+      properties:
+        modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        operation: { type: string, pattern: '^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
+        requiredScopes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: { type: string, enum: ['resources:read', 'resources:write'] }
+      description: Non-authorizing eligibility to request independent User approval; not an executable operation or authority proof.
     OperationDescriptor:
       type: object
       additionalProperties: false
