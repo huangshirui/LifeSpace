@@ -14,7 +14,7 @@ if (!choices?.security?.some((entry) => entry.accountUserBearer)
   throw new Error("OAuth choices must require verified Account User");
 }
 const path = document.paths?.["/api/v1/me/oauth/requests/{requestId}/confirm"]?.post;
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.3.0" || !path
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0" || !path
   || !path.security?.some((entry) => entry.accountUserBearer)
   || !String(path.description ?? "").includes("manage")
   || path.requestBody?.content?.["application/json"]?.schema?.additionalProperties !== false
