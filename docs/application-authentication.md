@@ -392,3 +392,7 @@ Migration 0013 preserves established principal IDs, migrates 0012 declarations i
 ## Staging Eventing must not mutate Application policy for acceptance
 
 The canonical Smoke Application is provisioned with `spaces:manage`, `grants:manage`, `resources:read` and `resources:write` as explicit initial ceilings. The Eventing and principal-revocation Golden Flow scripts inspect that current Application's metadata through its own valid `lsa_*` and **fail closed** when its active trust state or required scopes differ. Acceptance never uses Bootstrap to silently widen and then restore policy. This is a CI/operations behavior change, not a new data or administration authorization mechanism.
+
+### Application-governed OAuth delegation confirmation (candidate, #629)
+
+Identity owns `oauthDelegationApproval` on Application: `account` (default, including migrated Applications) or `application` (requires `trustedBackend=true`). Only platform administration or explicit bootstrap recovery may change it. Application self-read exposes the policy but cannot mutate it. The private exact OAuth Authorization introspection returns the current policy for active matching authorizations; it is not an approval grant. Core must implement independently authenticated same-Application user approval and retain existing Account behavior until coordinated rollout. No OAuth client-selected channel or change to existing trusted workflows.
