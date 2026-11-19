@@ -390,3 +390,7 @@ Candidate Kernel 0.55.0 and Platform Admin 0.9.0 expose the same model-ceiling g
 ### Opaque Agent MCP discovery and execution correction (candidate)
 
 The authenticated Agent and current configured MCP Server/Space/Application/Agent context are sufficient to connect. A missing `dlg_*` selects only direct Agent authority; zero direct Grants yield no executable business operations. An explicit invalid/revoked/expired selector is rejected and never falls back to direct authority. Configuration-only discovery exposes bounded operation metadata, not User-specific eligibility or authority, from the same Server, published capability, Application Model Access and credential Scope. It does not disclose record data or operation schemas. Actual User eligibility requires a verified intended User context, and independent human approval remains necessary for represented authority. This change adds no Grant or approval path.
+
+### OAuth delegation approval channel (candidate, #629)
+
+Application approval hosting is a platform-governed policy, not a user/Agent permission, Grant or Delegation. Only trusted Applications may opt in. OAuth Agent execution alone is never sufficient to approve a request. The upcoming Core path must independently verify current User, Application, matching pending request and live authorization; existing Account confirmation and trusted workflows remain unchanged in this Identity policy slice.
