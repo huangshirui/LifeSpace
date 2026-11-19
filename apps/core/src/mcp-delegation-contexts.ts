@@ -52,15 +52,17 @@ export async function currentMcpDelegationContexts(env:Bindings,resource:string)
 // The exact tuple is revalidated for each discovery and canonical file call.
 export async function requireTrustedMcpContext(env:Bindings,principal:Principal,spaceId:string,resource:string|undefined,selector:string|undefined){
   if(principal.type!=="agent"||principal.purpose!=="agent_api"||principal.actor
-    ||!resource||!selector||!/^dlg_[A-Za-z0-9_-]{1,128}$/u.test(selector)
+    ||!resource||(selector!==undefined&&!/^dlg_[A-Za-z0-9_-]{1,128}$/u.test(selector))
     ||!principal.scopes.includes("resources:read"))
-    throw new ApiError("FORBIDDEN","Trusted MCP requires explicit Agent and Delegation context",403);
+    throw new ApiError("FORBIDDEN","Agent MCP requires authenticated Agent and valid explicit context",403);
   const configured=await currentMcpDelegationContexts(env,resource);
   if(!includesMcpDelegationContext(configured,{spaceId,applicationId:principal.clientId,agentId:principal.id}))
     throw new ApiError("FORBIDDEN","Trusted MCP context unavailable",403);
-  const [result]=await env.DB.batch<Record<string,unknown>>([delegationChainStatement(env,[selector])]);
-  const rows=groupDelegationChainRows((result?.results??[]) as DelegationChainRow[]).get(selector)??[];
-  const represented=resolveAgentApiDelegatedPrincipal(principal,spaceId,selector,rows);
-  validateStructuralDelegationChain(represented,spaceId,selector,rows);
+  if(selector!==undefined){
+    const [result]=await env.DB.batch<Record<string,unknown>>([delegationChainStatement(env,[selector])]);
+    const rows=groupDelegationChainRows((result?.results??[]) as DelegationChainRow[]).get(selector)??[];
+    const represented=resolveAgentApiDelegatedPrincipal(principal,spaceId,selector,rows);
+    validateStructuralDelegationChain(represented,spaceId,selector,rows);
+  }
   return currentMcpOAuthQueryPolicy(env.DB,resource,"GET","/api/v1/spaces/"+spaceId+"/_discovery/operations");
 }

@@ -118,7 +118,26 @@ describe("opaque Agent API credential execution", () => {
     const headers={authorization:"Bearer lsp_agt_test_credential","x-lifespace-mcp-resource":resource,"x-lifespace-delegation-id":dlg};
     const discover=()=>request(base+"/_discovery/operations",{headers},publicKey,identity);
     expect((await request(base+"/_discovery/operations",{headers:{...headers,"x-lifespace-delegation-id":"dlg_invalid"}},publicKey,identity)).status).toBe(403);
-    expect((await request(base+"/_discovery/operations",{headers:{authorization:headers.authorization,"x-lifespace-mcp-resource":resource}},publicKey,identity)).status).toBe(403);
+    const directHeaders={authorization:headers.authorization,"x-lifespace-mcp-resource":resource};
+    const directDiscover=()=>request(base+"/_discovery/operations",{headers:directHeaders},publicKey,identity);
+    const direct=await directDiscover();
+    expect(direct.status).toBe(200);
+    expect(await jsonData(direct)).toEqual({operations:[]});
+    const configuration=await request(base+"/_discovery/operations?mode=configuration",{headers:directHeaders},publicKey,identity);
+    expect(configuration.status).toBe(200);
+    expect(await jsonData(configuration)).toEqual({configuredOperations:[
+      {modelKey:"event",operation:"query",requiredScopes:["resources:read"]},
+      {modelKey:"event",operation:"get",requiredScopes:["resources:read"]},
+    ]});
+    expect((await request(base+"/_discovery/operations?mode=delegation_request",{headers:directHeaders},publicKey,identity)).status).toBe(404);
+    expect((await request(base+"/_discovery/operations?mode=configuration",{headers},publicKey,identity)).status).toBe(404);
+    expect((await request(base+"/_discovery/operations",{headers:{...directHeaders,"x-lifespace-delegation-id":""}},publicKey,identity)).status).toBe(403);
+    expect((await request(base+"/_discovery/operations",{headers:{...directHeaders,"x-lifespace-mcp-resource":resource.replace(serverId,"mcp_"+"0".repeat(32))}},publicKey,identity)).status).toBe(403);
+    const foreignSpace="spc_other_"+uuid;
+    expect((await request("/api/v1/spaces/"+foreignSpace+"/_discovery/operations",{headers:directHeaders},publicKey,identity)).status).toBe(403);
+    state.active=false;
+    expect((await directDiscover()).status).toBe(401);
+    state.active=true;
     const listed=await discover();
     expect(listed.status).toBe(200);
     const operations=(await jsonData(listed)).operations;
@@ -127,6 +146,19 @@ describe("opaque Agent API credential execution", () => {
       body:JSON.stringify({arguments:{spaceId,data:{page:{limit:1}}}})},publicKey,identity);
     expect((await invoke()).status).toBe(200);
     expect((await invoke()).status).toBe(200);
+    const directInvoke=()=>request(base+"/_operations/"+operations[0].operationRef+"/invoke",{method:"POST",headers:{...directHeaders,"content-type":"application/json"},
+      body:JSON.stringify({arguments:{spaceId,data:{page:{limit:1}}}})},publicKey,identity);
+    expect((await directInvoke()).status).toBe(404);
+    const grantId="grt_"+uuid;
+    await db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(?,?, 'agent',?, 'model','event','read',?,?)")
+      .bind(grantId,spaceId,agentId,userId,now).run();
+    expect((await jsonData(await directDiscover())).operations.map((row:{operation:string})=>row.operation)).toEqual(["query","get"]);
+    expect((await directInvoke()).status).toBe(200);
+    // An explicitly bad selector is not silently replaced by the valid direct Grant.
+    expect((await request(base+"/_discovery/operations",{headers:{...headers,"x-lifespace-delegation-id":"dlg_invalid"}},publicKey,identity)).status).toBe(403);
+    await db.prepare("UPDATE data_grants SET revoked_at=? WHERE id=?").bind(now,grantId).run();
+    expect(await jsonData(await directDiscover())).toEqual({operations:[]});
+    expect((await directInvoke()).status).toBe(404);
     await db.prepare("UPDATE mcp_server_definitions SET enabled=0 WHERE id=?").bind(serverId).run();
     expect((await invoke()).status).toBe(403);
     await db.prepare("UPDATE mcp_server_definitions SET enabled=1 WHERE id=?").bind(serverId).run();

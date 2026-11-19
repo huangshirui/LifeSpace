@@ -18,7 +18,7 @@ const scopeForAccess: Record<ModelAccess, string> = {
 };
 const semanticDetailPathTemplate = "/api/v1/me/_discovery/models/{modelKey}" as const;
 
-function configurationAccess(
+export function configurationAccess(
   principal: Principal,
   model: PublishedModel,
   catalogAccess: ModelAccess,
@@ -46,7 +46,7 @@ function inventoryModel(model: PublishedModel, access: ModelAccess[]) {
   };
 }
 
-async function applicationModelCatalog(env: Bindings, applicationId: string): Promise<Map<string, ModelAccess>> {
+export async function applicationModelCatalog(env: Bindings, applicationId: string): Promise<Map<string, ModelAccess>> {
   const result = await env.DB.prepare(`SELECT model_key,max_access FROM application_model_access
     WHERE application_id=?`).bind(applicationId).all<CatalogRow>();
   return new Map((result.results ?? []).map((row) => [row.model_key, row.max_access]));
