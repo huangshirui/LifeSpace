@@ -149,6 +149,16 @@ describe("opaque Agent API credential execution", () => {
     const directInvoke=()=>request(base+"/_operations/"+operations[0].operationRef+"/invoke",{method:"POST",headers:{...directHeaders,"content-type":"application/json"},
       body:JSON.stringify({arguments:{spaceId,data:{page:{limit:1}}}})},publicKey,identity);
     expect((await directInvoke()).status).toBe(404);
+    const grantId="grt_"+uuid;
+    await db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(?,?, 'agent',?, 'model','event','read',?,?)")
+      .bind(grantId,spaceId,agentId,userId,now).run();
+    expect((await jsonData(await directDiscover())).operations.map((row:{operation:string})=>row.operation)).toEqual(["query","get"]);
+    expect((await directInvoke()).status).toBe(200);
+    // An explicitly bad selector is not silently replaced by the valid direct Grant.
+    expect((await request(base+"/_discovery/operations",{headers:{...headers,"x-lifespace-delegation-id":"dlg_invalid"}},publicKey,identity)).status).toBe(403);
+    await db.prepare("UPDATE data_grants SET revoked_at=? WHERE id=?").bind(now,grantId).run();
+    expect(await jsonData(await directDiscover())).toEqual({operations:[]});
+    expect((await directInvoke()).status).toBe(404);
     await db.prepare("UPDATE mcp_server_definitions SET enabled=0 WHERE id=?").bind(serverId).run();
     expect((await invoke()).status).toBe(403);
     await db.prepare("UPDATE mcp_server_definitions SET enabled=1 WHERE id=?").bind(serverId).run();
