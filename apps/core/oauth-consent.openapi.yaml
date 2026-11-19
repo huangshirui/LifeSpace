@@ -126,8 +126,15 @@ paths:
         '404': { description: Not found or not owned by Account User }
   /api/v1/me/oauth/choices:
     get:
-      description: Account Application's authenticated manager User sees Application-first, Space/Agent candidate combinations derived from current memberships/Agent Data Grants and active Identity bindings. Read-only; not executable capability projection.
+      description: >-
+        Account Application's authenticated manager User sees current membership
+        and Agent Data Grant candidates, plus explicitly configured delegation
+        enrollment contexts when the exact enabled MCP Resource is selected.
+        Zero-Grant candidates require explicit User authorization mode; this
+        selection never creates a Grant or Delegation.
       security: [{ accountUserBearer: [] }]
+      parameters:
+        - { in: query, name: resource, required: false, schema: { type: string, format: uri }, description: Exact enabled MCP Resource for additional delegation enrollment candidates }
       responses:
         '200': { description: Bounded current candidate choices (at most 100 pairs) }
         '403': { description: Non-Account or insufficient scope }
