@@ -1,6 +1,6 @@
-import type { Bindings } from "./env";
+import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
-import { oauthMcpServerId } from "./mcp-oauth-server-policy";
+import { oauthMcpServerId, currentMcpOAuthQueryPolicy } from "./mcp-oauth-server-policy";
 import { expectedOrigin } from "./mcp-resource-ingress";
 
 // Explicit protocol exposure/enrollment configuration, not a Data Grant.
@@ -45,4 +45,17 @@ export async function currentMcpDelegationContexts(env:Bindings,resource:string)
   }catch{
     throw new ApiError("OAUTH_SELECTION_DENIED","Invalid MCP Server configuration",403);
   }
+}
+
+// A trusted Agent credential alone is not a Server or Space selection.
+// The exact tuple is revalidated for each discovery and canonical file call.
+export async function requireTrustedMcpContext(env:Bindings,principal:Principal,spaceId:string,resource:string|undefined,selector:string|undefined){
+  if(principal.type!=="agent"||principal.purpose!=="agent_api"||principal.actor
+    ||!resource||!selector||!/^dlg_[A-Za-z0-9_-]{1,128}$/u.test(selector)
+    ||!principal.scopes.includes("resources:read"))
+    throw new ApiError("FORBIDDEN","Trusted MCP requires explicit Agent and Delegation context",403);
+  const configured=await currentMcpDelegationContexts(env,resource);
+  if(!includesMcpDelegationContext(configured,{spaceId,applicationId:principal.clientId,agentId:principal.id}))
+    throw new ApiError("FORBIDDEN","Trusted MCP context unavailable",403);
+  return currentMcpOAuthQueryPolicy(env.DB,resource,"GET","/api/v1/spaces/"+spaceId+"/_discovery/operations");
 }
