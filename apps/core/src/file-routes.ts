@@ -1,3 +1,4 @@
+import { requireTrustedMcpContext } from "./mcp-delegation-contexts";
 import { AwsClient } from "aws4fetch";
 import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import type { Context, Hono } from "hono";
@@ -189,10 +190,13 @@ async function loadSession(env: Bindings, spaceId: string, uploadId: string): Pr
 async function requireMcpUploadField(context: Context<AppEnv>, modelKey: string, fieldKey: string) {
   const principal = context.get("principal");
   const execution = principal.oauthExecution;
-  if (principal.purpose !== "oauth_agent_execution" || !execution
+  const trusted=principal.purpose==="agent_api";
+  const policy=trusted?await requireTrustedMcpContext(context.env,principal,context.req.param("spaceId")!,
+    context.req.header("x-lifespace-mcp-resource"),context.req.header("x-lifespace-delegation-id")):execution;
+  if ((!trusted&&(principal.purpose !== "oauth_agent_execution" || !execution
+    || execution.spaceId !== context.req.param("spaceId")))
     || !principal.scopes.includes("resources:write")
-    || execution.spaceId !== context.req.param("spaceId")
-    || !execution.modelOperations?.[modelKey]?.includes("file_upload")) {
+    || !policy?.modelOperations?.[modelKey]?.includes("file_upload")) {
     throw new ApiError("FORBIDDEN", "MCP file upload is unavailable", 403);
   }
   const model = await getRuntimeModel(context.env, modelKey);
@@ -617,9 +621,12 @@ export function registerFileRoutes(app: App): void {
     const modelKey = context.req.param("modelKey");
     const recordId = context.req.param("recordId");
     const execution = principal.oauthExecution;
-    if (principal.purpose !== "oauth_agent_execution" || !execution
-      || execution.spaceId !== context.req.param("spaceId")
-      || !execution.modelOperations?.[modelKey]?.includes("file_read")) {
+    const trusted=principal.purpose==="agent_api";
+    const policy=trusted?await requireTrustedMcpContext(context.env,principal,context.req.param("spaceId")!,
+      context.req.header("x-lifespace-mcp-resource"),context.req.header("x-lifespace-delegation-id")):execution;
+    if ((!trusted&&(principal.purpose !== "oauth_agent_execution" || !execution
+      || execution.spaceId !== context.req.param("spaceId")))
+      || !policy?.modelOperations?.[modelKey]?.includes("file_read")) {
       throw new ApiError("FORBIDDEN", "MCP file read is unavailable", 403);
     }
     const input = object(await context.req.json<unknown>().catch(() => null));
