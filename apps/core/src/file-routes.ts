@@ -293,9 +293,19 @@ async function completeSession(context: Context<AppEnv>) {
   const row = await measurePerformancePhase(context, "file.session_read", () =>
     loadSession(context.env, spaceId, context.req.param("uploadId")!));
   const routeModel = context.req.param("modelKey");
+  // For an exposed MCP session, check current authority and matching execution
+  // before revealing status or performing expiry cleanup.
+  const authorize = async () => {
+    const target = await measurePerformancePhase(context, "file.authority", () =>
+      resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context), authorityD1Observer(context)));
+    if (target.destination !== row.destination || !sameExecution(row, target.decision.principal)) throw new ApiError("UPLOAD_AUTHORITY_CHANGED", "Upload execution authority no longer matches the session", 403);
+    return target;
+  };
+  let authorized: ResolvedTarget | undefined;
   if (routeModel) {
     if (row.model_key !== routeModel || row.destination !== "native") throw new ApiError("UPLOAD_NOT_FOUND", "Upload not found", 404);
     await requireMcpUploadField(context, routeModel, row.field_key);
+    authorized = await authorize();
   }
   if (row.status !== "pending") {
     if (row.status === "unknown" || row.status === "executing") throw new ApiError("EXTERNAL_WRITE_UNKNOWN", "Upload outcome is unknown and must not be retried blindly", 502);
@@ -306,9 +316,7 @@ async function completeSession(context: Context<AppEnv>) {
     await context.env.ASSETS.delete(row.object_key).catch(() => undefined);
     throw new ApiError("UPLOAD_EXPIRED", "Upload session expired", 409);
   }
-  const target = await measurePerformancePhase(context, "file.authority", () =>
-    resolveTarget(context.env, context.get("principal"), spaceId, row.model_key, row.field_key, row.record_id, delegationId(context), authorityD1Observer(context)));
-  if (target.destination !== row.destination || !sameExecution(row, target.decision.principal)) throw new ApiError("UPLOAD_AUTHORITY_CHANGED", "Upload execution authority no longer matches the session", 403);
+  const target = authorized ?? await authorize();
   const staged = await measurePerformancePhase(context, row.destination === "native" ? "file.stage_get" : "file.stage_head", () =>
     verifyStagedUpload(context.env, row));
   try {
