@@ -170,7 +170,11 @@ export function registerOAuthExecutionRoutes(app: App) {
       && selected.space_id === v.spaceId);
     return c.json({ data: {
       active,
-      ...(active ? { scopes: scopeList(selected!.scopes) } : {}),
+      ...(active ? {
+        scopes: scopeList(selected!.scopes),
+        oauthDelegationApproval: selected!.trustedBackend === 1 && selected!.oauthDelegationApproval === "application"
+          ? "application" : "account",
+      } : {}),
     } }, 200, { "cache-control": "no-store" });
   });
 
