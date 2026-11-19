@@ -5,11 +5,15 @@ const doc=parse(readFileSync(new URL("../mcp-operations.openapi.yaml",import.met
 assert.equal(doc.openapi,"3.1.0");
 assert.equal(doc.info.version,"0.5.0");
 const get=doc.paths["/api/v1/spaces/{spaceId}/_discovery/operations"].get;
-assert.deepEqual(get.parameters.filter(p=>p.in==="query").map(p=>p.name),["modelKey","operation"]);
-for(const p of get.parameters.filter(p=>p.in==="query")) {
+assert.deepEqual(get.parameters.filter(p=>p.in==="query").map(p=>p.name),["modelKey","operation","mode"]);
+for(const p of get.parameters.filter(p=>p.in==="query"&&p.name!=="mode")) {
   assert.equal(p.required,false);
   assert.ok(new RegExp(p.schema.pattern).test(p.name==="modelKey"?"task":"action:complete"));
 }
+assert.deepEqual(get.parameters.find(p=>p.name==="mode").schema.enum,["delegation_request"]);
+const eligible=doc.components.schemas.DelegationEligibility;
+assert.deepEqual(Object.keys(eligible.properties).sort(),["modelKey","operation","requiredScopes"]);
+assert.equal(eligible.additionalProperties,false);
 assert.ok(get.responses["400"]);
 const descriptor=doc.components.schemas.OperationDescriptor;
 assert.deepEqual(Object.keys(descriptor.properties).sort(),[...descriptor.required].sort());
