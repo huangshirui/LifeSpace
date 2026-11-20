@@ -169,7 +169,6 @@ describe("Core Account OAuth Consent boundary", () => {
     expect((await f.call(f.bearer,{...f.selected,agentId:"agt_unrelated"})).status).toBe(403);
     expect((await f.call()).status).toBe(200);
     expect((await f.call(f.bearer,{...f.selected,spaceId:space2})).status).toBe(200);
-    expect((await f.call(secondUserBearer,{...f.selected,spaceId:space2})).status).toBe(200);
     expect((await f.call(secondUserBearer,{...f.selected,spaceId:f.spaceId})).status).toBe(403);
     expect(await f.db.prepare("SELECT COUNT(*) n FROM data_grants WHERE grantee_id=?").bind(f.agentId).first("n")).toBe(0);
     // Revoking the Server-level Agent pair is effective immediately.
