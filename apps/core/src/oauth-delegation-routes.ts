@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
@@ -10,13 +10,16 @@ import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues
 
 // This is a transport-specific pending-approval bridge, NOT a second
 // Delegation authority. Trusted in-app / WeCom arq_* routes are untouched.
-type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
+type AppEnv = { Bindings: Bindings; Variables: Variables };
+type App = Hono<AppEnv>;
+type ApprovalChannel = "account" | "application";
 type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | `action:${string}`;
 type Access = "read" | "write";
 type Binding = {
   channel: "oauth_mcp"; authorizationId: string; clientId: string;
   resource: string; modelKey: string; operation: Op; reason: string;
   requestedAccess?: Access;
+  approvalChannel?: ApprovalChannel; // Older requests without this tag use Account.
 };
 type RequestRow = {
   id: string; application_id: string; requesting_agent_id: string;
@@ -170,7 +173,9 @@ async function load(env: Bindings, id: string) {
     || typeof binding.resource !== "string" || !oauthMcpServerId(binding.resource)
     || typeof binding.clientId !== "string"
     || typeof binding.modelKey !== "string" || !MODEL.test(binding.modelKey)
-    || !validOp(binding.operation) || typeof binding.reason !== "string") throw fail();
+    || !validOp(binding.operation) || typeof binding.reason !== "string"
+    || (binding.approvalChannel !== undefined && binding.approvalChannel !== "account"
+      && binding.approvalChannel !== "application")) throw fail();
   const details = await env.DB.prepare(
     "SELECT ordinal,target_type,target_id,max_access,max_uses,delegation_expires_at,remaining_redelegation_depth " +
     "FROM authorization_request_items WHERE request_id=? ORDER BY ordinal"
@@ -194,6 +199,7 @@ function summary(row: RequestRow, binding: Binding, delegation: string|null, ite
     agentId:row.requesting_agent_id, spaceId:row.source_space_id, resource:binding.resource,
     clientId:binding.clientId, modelKey:binding.modelKey, operation:binding.operation,
     reason:binding.reason, expiresAt:row.expires_at,
+    approvalChannel:binding.approvalChannel ?? "account",
     ...(delegation ? {delegationId:delegation,
       lifetime:{mode:item?.max_uses===1?"once":item?.delegation_expires_at?"timed":"until_revoked",
         maxUses:item?.max_uses??null,expiresAt:item?.delegation_expires_at??null}} : {}) };
@@ -212,15 +218,19 @@ async function liveConsent(env: Bindings, row: RequestRow, binding: Binding) {
       }),
     });
   } catch { throw new ApiError("OAUTH_UNAVAILABLE", "Current OAuth authorization cannot be verified", 503); }
-  const result = response.ok ? await response.json<{data?:{active?:boolean;scopes?:unknown}}>().catch(()=>null) : null;
+  const result = response.ok ? await response.json<{data?:{active?:boolean;scopes?:unknown;oauthDelegationApproval?:unknown}}>().catch(()=>null) : null;
   const scopes = result?.data?.scopes;
   if (result?.data?.active !== true || !Array.isArray(scopes)
     || !scopes.includes("resources:" + accessOf(binding.operation,binding.requestedAccess))) {
     throw new ApiError("OAUTH_AUTHORIZATION_REVOKED", "OAuth authorization is unavailable", 403);
   }
+  const approvalChannel = result?.data?.oauthDelegationApproval ?? "account";
+  if (approvalChannel !== "account" && approvalChannel !== "application") {
+    throw new ApiError("OAUTH_UNAVAILABLE", "Invalid current OAuth approval policy", 503);
+  }
   const current=await serverOperation(env,binding.resource,row.source_space_id,binding.modelKey,binding.operation);
   if (current !== accessOf(binding.operation,binding.requestedAccess)) throw fail();
-  return scopes as string[];
+  return { scopes: scopes as string[], approvalChannel };
 }
 function assertAgentOwner(principal: Principal, row: RequestRow, binding: Binding) {
   const x=agent(principal);
@@ -363,7 +373,6 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const requestedAccess=await serverOperation(c.env,x.resource,spaceId,modelKey,operation);
     if (!principal.scopes.includes("resources:"+requestedAccess))
       throw new ApiError("FORBIDDEN","Client did not request the operation's OAuth Scope",403);
-    const origin=approvalOrigin(c.env);
     const now=new Date();
     const count=await c.env.DB.prepare(
       "SELECT COUNT(*) AS n FROM authorization_requests r LEFT JOIN authorization_request_transitions t ON t.request_id=r.id "+
@@ -375,6 +384,12 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const delegationExpiresAt=new Date(now.getTime()+DELEGATION_TIMEOUT_MINUTES*60000).toISOString();
     const binding:Binding={channel:"oauth_mcp",authorizationId:x.authorizationId,clientId:x.clientId,
       resource:x.resource,modelKey,operation,requestedAccess,reason:v.reason.trim()};
+    const admission=await liveConsent(c.env, {
+      application_id:principal.clientId,requesting_agent_id:x.agentId,
+      intended_user_id:x.userId,source_space_id:spaceId,
+    } as RequestRow,binding);
+    binding.approvalChannel=admission.approvalChannel;
+    const origin=binding.approvalChannel==="account"?approvalOrigin(c.env):null;
     await c.env.DB.batch([
       c.env.DB.prepare(
         "INSERT INTO authorization_requests(id,application_id,requesting_agent_id,intended_user_id,source_space_id,"+
@@ -388,7 +403,8 @@ export function registerOAuthDelegationRoutes(app: App): void {
       ).bind(requestId,delegationTarget(modelKey),requestedAccess,delegationExpiresAt),
     ]);
     c.header("Cache-Control","no-store");
-    return c.json(success({id:requestId,status:"pending",approvalUrl:origin+"/delegation?request_id="+requestId,
+    return c.json(success({id:requestId,status:"pending",approvalChannel:binding.approvalChannel,
+      ...(origin?{approvalUrl:origin+"/delegation?request_id="+requestId}:{}),
       expiresAt:expiration,modelKey,operation}),201);
   });
   app.get("/api/v1/spaces/:spaceId/oauth-delegation-requests/:requestId",async c=>{
@@ -403,7 +419,9 @@ export function registerOAuthDelegationRoutes(app: App): void {
   app.get("/api/v1/me/oauth/delegation-requests/:requestId",async c=>{
     const loaded=await load(c.env,c.req.param("requestId"));
     assertAccountOwner(c.get("principal"),c.env,loaded.row);
-    await liveConsent(c.env,loaded.row,loaded.binding);
+    if ((loaded.binding.approvalChannel??"account")!=="account") throw fail();
+    const admission=await liveConsent(c.env,loaded.row,loaded.binding);
+    if (admission.approvalChannel!=="account") throw fail();
     c.header("Cache-Control","no-store");
     return c.json(success(summary(loaded.row,loaded.binding,
       statusOf(loaded.row)==="approved"?await delegationId(c.env,loaded.row.id):null,loaded.item)));
