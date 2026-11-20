@@ -230,7 +230,7 @@ async function liveConsent(env: Bindings, row: RequestRow, binding: Binding) {
   }
   const current=await serverOperation(env,binding.resource,row.source_space_id,binding.modelKey,binding.operation);
   if (current !== accessOf(binding.operation,binding.requestedAccess)) throw fail();
-  return { scopes: scopes as string[], approvalChannel };
+  return { scopes: scopes as string[], approvalChannel: approvalChannel as ApprovalChannel };
 }
 function assertAgentOwner(principal: Principal, row: RequestRow, binding: Binding) {
   const x=agent(principal);
@@ -326,7 +326,9 @@ export async function requireOAuthMcpDelegatedOperation(
 }
 
 async function decideOAuth(c: Context<AppEnv>, channel: ApprovalChannel) {
-    const loaded=await load(c.env,c.req.param("requestId"));
+    const requestId=c.req.param("requestId");
+    if (!requestId) throw fail();
+    const loaded=await load(c.env,requestId);
     const principal=c.get("principal");
     const userId=channel==="account"?account(principal,c.env):applicationUser(principal);
     if (channel==="application"&&principal.clientId!==loaded.row.application_id) throw fail();
