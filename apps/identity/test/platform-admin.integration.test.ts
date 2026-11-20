@@ -342,16 +342,19 @@ describe("Identity Platform Admin API", () => {
       method: "POST", headers: { "content-type": "application/json", "x-lifespace-internal-secret": secret },
       body: JSON.stringify(body),
     }, pair);
-    expect((await read("incorrect", { applicationId: appId })).status).toBe(401);
+    expect((await read("incorrect", { applicationId: appId, userId: console.userId })).status).toBe(401);
     expect((await read("synthetic-core-approval-secret", { applicationId: appId, userId: console.userId })).status).toBe(400);
-    const active = await read("synthetic-core-approval-secret", { applicationId: appId });
+    expect((await read("synthetic-core-approval-secret", { applicationId: appId })).status).toBe(400);
+    const active = await read("synthetic-core-approval-secret", { applicationId: appId, userId: console.userId });
     expect((await active.json() as any).data).toEqual({ active: true, approvalChannel: "application" });
     await request("/internal/v1/platform-admin/applications/" + appId, {
       method: "PATCH", headers: admin, body: JSON.stringify({ status: "disabled" }),
     }, pair);
-    const disabled = await read("synthetic-core-approval-secret", { applicationId: appId });
+    const disabled = await read("synthetic-core-approval-secret", { applicationId: appId, userId: console.userId });
     expect((await disabled.json() as any).data).toEqual({ active: false, approvalChannel: "account" });
-    const missing = await read("synthetic-core-approval-secret", { applicationId: "app_missing" });
+    const wrongUser = await read("synthetic-core-approval-secret", { applicationId: appId, userId: "usr_missing" });
+    expect((await wrongUser.json() as any).data).toEqual({ active: false, approvalChannel: "account" });
+    const missing = await read("synthetic-core-approval-secret", { applicationId: "app_missing", userId: console.userId });
     expect((await missing.json() as any).data).toEqual({ active: false, approvalChannel: "account" });
   });
 
