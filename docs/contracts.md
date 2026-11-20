@@ -477,3 +477,8 @@ Identity application contract 0.20.0 and platform administration contract 0.7.0 
 ### OAuth Delegation Application confirmation companion (candidate, #629)
 
 Core OAuth Consent 0.5.0 adds direct Application User-scoped pending request list/get/decision to the existing arq_*/dlg_* consent companion. Identity 0.20.0 / Platform Admin 0.7.0 governs trusted Application opt-in and private current-state approval-channel queries. The server chooses one approval channel when an OAuth request is created, binds it in its canonical correlation state and compares it to current Identity policy before confirmation; changing channel never silently reassigns an outstanding request. The pending list is bounded Context Projection, not business-data or execution authority. MCP protocol projects URL elicitation only for the Account channel and plain pending status for app channel. All source contracts remain separately versioned; no ordinary Model Contract or Kernel CRUD changes and no production claim.
+
+
+### Core Platform Admin 0.12.0 — OAuth MCP Agent enrollment (candidate)
+
+The versioned MCP Server Configuration adds optional `delegationAgents` (max 32, exact `{applicationId,agentId}`, no Space) in addition to existing `delegationContexts`. Core treats each pair as non-authorizing eligibility for an individual User's subsequent OAuth Space selection; no ordinary Kernel Model Contract, Identity schema or Agent credential format changes. Canonical Config validation is Core-owned, and Console projects only Application/Agent selection. Exact legacy contexts continue to govern trusted opaque Agent MCP. The Account OAuth consent user journey gains multi-Space per-User choice without weakening explicit Space binding of each `oaz_*` and independent User Delegation.
