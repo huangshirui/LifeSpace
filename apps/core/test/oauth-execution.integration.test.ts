@@ -608,7 +608,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.applicationRequest("GET",queue+"/"+pending.id,undefined,"usr_unrelated")).status).toBe(404);
     expect((await f.applicationRequest("POST",approval,{},f.oauthUser,"app_unrelated")).status).toBe(404);
     expect((await f.applicationRequest("POST",approval,{},f.oauthUser,f.application,"resources:read")).status).toBe(403);
-    expect((await f.applicationRequest("POST",approval,{},f.oauthUser,f.application,"profile:read","agent_execution")).status).toBe(403);
+    expect((await f.applicationRequest("POST",approval,{},f.oauthUser,f.application,"profile:read","agent_execution")).status).toBe(401);
     f.setApprovalChannel("account");
     expect((await f.applicationRequest("GET",queue)).status).toBe(403);
     expect((await f.applicationRequest("POST",approval,{})).status).toBe(404);
