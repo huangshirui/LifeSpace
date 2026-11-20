@@ -89,6 +89,8 @@ async function fixture() {
   let active = true, checks = 0, lastBody: unknown;
   let delegationEnabled = false;
   let consentScopes = ["resources:read"];
+  let approvalChannel: "account" | "application" = "account";
+  let currentUserActive = true;
   const bindings = {
     ENVIRONMENT: "staging", DB: countedDb, ASSETS: (env as unknown as TestEnv).ASSETS, IDENTITY_PUBLIC_KEY: publicKey,
     CORE_IDENTITY_SHARED_SECRET: "synthetic-core-to-identity-shared-secret",
@@ -103,14 +105,20 @@ async function fixture() {
         return Response.json({data:{active:true,audience:"lifespace-core",principal:{type:"agent",id:agent,clientId:application,tokenId:"agc_synthetic",purpose:"agent_api",scopes:["resources:read","resources:write"]}}});
       }
       expect(["/introspection/v1/oauth-executions",
-        "/introspection/v1/oauth-delegation-authorizations"]).toContain(pathname);
+        "/introspection/v1/oauth-delegation-authorizations",
+        "/introspection/v1/oauth-approval-applications"]).toContain(pathname);
       expect(new Headers(init.headers).get("x-lifespace-internal-secret"))
         .toBe("synthetic-core-to-identity-shared-secret");
       lastBody = JSON.parse(String(init.body));
+      if (pathname === "/introspection/v1/oauth-approval-applications") {
+        return Response.json({ data: { active: active && currentUserActive,
+          approvalChannel } });
+      }
       return Response.json({ data: {
         active: active && (pathname !== "/introspection/v1/oauth-delegation-authorizations"
           || delegationEnabled), scopes: consentScopes, userId: oauthUser,
         allowUserAuthorization: delegationEnabled,
+        oauthDelegationApproval: approvalChannel,
       } });
     } },
   };
@@ -154,11 +162,24 @@ async function fixture() {
         ...(body===undefined?{}:{"content-type":"application/json"})},
       ...(body===undefined?{}:{body:JSON.stringify(body)}),
     },bindings);
+  const applicationRequest = async (method:string,path:string,body?:unknown,
+    userId=oauthUser,appId=application,scope="profile:read",purpose?:string) =>
+    createApp().request("http://localhost"+path,{
+      method,headers:{authorization:"Bearer "+await sign({
+        iss:"lifespace-identity",aud:"lifespace-core",sub:userId,
+        azp:appId,principal_type:"user",scope,
+        ...(purpose?{purpose}:{}),
+        iat:now,exp:now+600,jti:"tok_application_"+uuid,
+      },key,"RS256"),...(body===undefined?{}:{"content-type":"application/json"})},
+      ...(body===undefined?{}:{body:JSON.stringify(body)}),
+    },bindings);
   return {
     agent, application, space, other, claims, jwt, request, publicKey, serverId,
-    accountRequest, trustedRequest, opaqueAgentRequest, oauthUser, accountApp, authId, client, resource,
+    accountRequest, applicationRequest, trustedRequest, opaqueAgentRequest, oauthUser, accountApp, authId, client, resource,
     db, setConsentScopes: (v: string[]) => { consentScopes = v; },
     setDelegationEnabled: (enabled: boolean) => { delegationEnabled = enabled; },
+    setApprovalChannel: (value: "account" | "application") => { approvalChannel = value; },
+    setCurrentUserActive: (value: boolean) => { currentUserActive = value; },
     setEnvironment: (v: string) => { bindings.ENVIRONMENT = v; },
     setActive: (value: boolean) => { active = value; },
     setServerEnabled: async (enabled: boolean) => {
@@ -542,6 +563,78 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     // then ordinary record-level access determines whether the record exists.
     expect((await f.request("GET",
       "/api/v1/spaces/" + f.space + "/models/task/records/rec_missing")).status).toBe(404);
+  });
+
+  it("requires real same-Application User for application-hosted OAuth approval and preserves exact delegated authority", async () => {
+    const f=await fixture();
+    const url="/api/v1/spaces/"+f.space+"/oauth-delegation-requests";
+    const queue="/api/v1/me/oauth/application-delegation-requests";
+    const base="/api/v1/spaces/"+f.space+"/models/task/records";
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    f.setApprovalChannel("application");
+    await f.setServerOperations(["query","create"]);
+    const timestamp=new Date().toISOString();
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),f.space,f.oauthUser,timestamp,timestamp),
+      f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'")
+        .bind(f.application),
+    ]);
+    const execution={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    const created=await f.request("POST",url,execution,{modelKey:"task",operation:"create",reason:"User asked to create one task"});
+    expect(created.status).toBe(201);
+    const pending=(await created.json() as {data:{id:string;approvalChannel:string;approvalUrl?:string}}).data;
+    expect(pending.approvalChannel).toBe("application");
+    expect(pending.approvalUrl).toBeUndefined();
+    expect((await f.request("GET",queue,execution)).status).toBe(403);
+    expect((await f.trustedRequest("POST","/api/v1/spaces/"+f.space+"/authorization-requests/"+pending.id+"/confirm",{
+      principalUserId:f.oauthUser,
+    })).status).toBe(404);
+    expect((await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+pending.id)).status).toBe(404);
+    expect((await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+pending.id+"/approve",{})).status).toBe(404);
+
+    const listing=await f.applicationRequest("GET",queue+"?authorizationId="+f.authId);
+    expect(listing.status).toBe(200);
+    const list=(await listing.json() as {data:{items:Array<{id:string}>;nextOffset:number|null}}).data;
+    expect(list.items.map(x=>x.id)).toContain(pending.id);
+    expect((await f.applicationRequest("GET",queue+"?authorizationId=oaz_other")).status).toBe(200);
+    expect((await f.applicationRequest("GET",queue+"?authorizationId="+f.authId+"&authorizationId="+f.authId)).status).toBe(400);
+    const wrongUser=await f.applicationRequest("GET",queue,undefined,"usr_unrelated");
+    expect((await wrongUser.json() as {data:{items:unknown[]}}).data.items).toEqual([]);
+    const wrongApp=await f.applicationRequest("GET",queue,undefined,f.oauthUser,"app_unrelated");
+    expect((await wrongApp.json() as {data:{items:unknown[]}}).data.items).toEqual([]);
+    const approval=queue+"/"+pending.id+"/approve";
+    expect((await f.applicationRequest("GET",queue+"/"+pending.id,undefined,"usr_unrelated")).status).toBe(404);
+    expect((await f.applicationRequest("POST",approval,{},f.oauthUser,"app_unrelated")).status).toBe(404);
+    expect((await f.applicationRequest("POST",approval,{},f.oauthUser,f.application,"resources:read")).status).toBe(403);
+    expect((await f.applicationRequest("POST",approval,{},f.oauthUser,f.application,"profile:read","agent_execution")).status).toBe(403);
+    f.setApprovalChannel("account");
+    expect((await f.applicationRequest("GET",queue)).status).toBe(403);
+    expect((await f.applicationRequest("POST",approval,{})).status).toBe(404);
+    // A channel change never transfers a pending request to a different approver.
+    expect((await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+pending.id+"/approve",{})).status).toBe(404);
+    f.setApprovalChannel("application");
+    f.setCurrentUserActive(false);
+    expect((await f.applicationRequest("GET",queue)).status).toBe(403);
+    f.setCurrentUserActive(true);
+    f.setActive(false);
+    expect((await f.applicationRequest("POST",approval,{})).status).toBe(403);
+    f.setActive(true);
+    const decided=await f.applicationRequest("POST",approval,{mode:"until_revoked"});
+    expect(decided.status).toBe(200);
+    const dlg=(await decided.json() as {data:{delegations:Array<{id:string}>}}).data.delegations[0]!.id;
+    expect(dlg).toMatch(/^dlg_/u);
+    expect((await f.applicationRequest("POST",approval,{})).status).toBe(409);
+    const represented={...execution,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg};
+    const record=await f.request("POST",base,represented,{name:"Application-approved task"},
+      {"x-lifespace-delegation-id":dlg});
+    expect(record.status).toBe(201);
+    expect((await f.request("POST",base,execution,{name:"Agent-direct cannot borrow authority"})).status).toBe(403);
+    const revoke=await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+dlg+"/revoke",{});
+    expect(revoke.status).toBe(200);
+    expect((await f.request("POST",base,represented,{name:"Revoked application approval"},
+      {"x-lifespace-delegation-id":dlg})).status).toBe(403);
   });
 
   it("third-party OAuth Account confirms only intended User, trusted Agent API remains isolated, Delegation consumes once", async () => {
