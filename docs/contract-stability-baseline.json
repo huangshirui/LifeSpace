@@ -116,7 +116,7 @@
     {
       "id": "identity-application",
       "source": "apps/identity/openapi.yaml",
-      "operationSetSha256": "sha256:00dd54cc2f54a46dd03decb5c1c85364a2d0d2ccebc4a59f3206a7f8dd5cd3ca",
+      "operationSetSha256": "sha256:e0fd0983ae52787b349c8befefb91ebd0c7cc3a83c01b95ba1a36ec0bbc615b7",
       "groups": [
         {
           "id": "identity-operational",
@@ -257,6 +257,13 @@
           "visibility": "internal",
           "operationPattern": "^(GET /api/v1/me/oauth/authorizations(?:/\\{authorizationId\\})?|POST /api/v1/me/oauth/authorizations/\\{authorizationId\\}/revoke)$",
           "commitment": "An Account User can manage own Authorization ID, revocation invalidates tokens without disabling any shared Agent."
+        },
+        {
+          "id": "identity-oauth-application-approval-admission",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^POST /introspection/v1/oauth-approval-applications$",
+          "commitment": "Core-only current trusted Application and direct User eligibility for application-hosted OAuth approval; no User Delegation or bearer capability is issued."
         }
       ]
     },
@@ -443,7 +450,7 @@
     {
       "id": "core-account-oauth-consent",
       "source": "apps/core/oauth-consent.openapi.yaml",
-      "operationSetSha256": "sha256:1a15ae182fbb822dc05f9212d69a9465f13406197c9926e350f3a3bf8ba546f2",
+      "operationSetSha256": "sha256:6180eddd76749ae1909ba78f940a8010a934475ad5e33290be9fde89df03f9ca",
       "groups": [
         {
           "id": "core-account-consent-confirm",
@@ -476,6 +483,13 @@
           "maturity": "candidate",
           "visibility": "internal",
           "commitment": "Account User alone may list/revoke own third-party OAuth Delegation independently of current OAuth consent and without affecting trusted channels."
+        },
+        {
+          "id": "core-application-oauth-delegation-approval",
+          "maturity": "candidate",
+          "visibility": "internal",
+          "operationPattern": "^(GET /api/v1/me/oauth/application-delegation-requests(?:/\\{requestId\\})?|POST /api/v1/me/oauth/application-delegation-requests/\\{requestId\\}/\\{decision\\})$",
+          "commitment": "Authenticated direct Application User may inspect and decide same-Application pending OAuth requests only after current Identity approval policy and live exact Consent checks."
         }
       ]
     },
