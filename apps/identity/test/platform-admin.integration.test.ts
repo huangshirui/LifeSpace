@@ -29,6 +29,7 @@ async function request(path: string, options: RequestInit, pair: Awaited<ReturnT
     TOKEN_PRIVATE_KEY: pair.privateKey,
     TOKEN_PUBLIC_KEY: pair.publicKey,
     ENVIRONMENT: "test",
+    CORE_IDENTITY_SHARED_SECRET: "synthetic-core-approval-secret",
   });
 }
 
@@ -324,6 +325,34 @@ describe("Identity Platform Admin API", () => {
     expect((await own.json() as any).data.oauthDelegationApproval).toBe("application");
     const disabled = await patch(trusted.id, { oauthDelegationApproval: "account" });
     expect((await disabled.json() as any).data.oauthDelegationApproval).toBe("account");
+  });
+
+  it("exposes current application approval admission only through a Core-private bound check", async () => {
+    const pair = await keys();
+    const console = await provisionConsole(pair);
+    const admin = { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" };
+    const created = await request("/internal/v1/platform-admin/applications", {
+      method: "POST", headers: admin,
+      body: JSON.stringify({ name: "Approval host", trustedBackend: true, oauthDelegationApproval: "application" }),
+    }, pair);
+    expect(created.status).toBe(201);
+    const appId = (await created.json() as any).data.id;
+    const route = "/introspection/v1/oauth-approval-applications";
+    const read = (secret: string, body: object) => request(route, {
+      method: "POST", headers: { "content-type": "application/json", "x-lifespace-internal-secret": secret },
+      body: JSON.stringify(body),
+    }, pair);
+    expect((await read("incorrect", { applicationId: appId })).status).toBe(401);
+    expect((await read("synthetic-core-approval-secret", { applicationId: appId, userId: console.userId })).status).toBe(400);
+    const active = await read("synthetic-core-approval-secret", { applicationId: appId });
+    expect((await active.json() as any).data).toEqual({ active: true, approvalChannel: "application" });
+    await request("/internal/v1/platform-admin/applications/" + appId, {
+      method: "PATCH", headers: admin, body: JSON.stringify({ status: "disabled" }),
+    }, pair);
+    const disabled = await read("synthetic-core-approval-secret", { applicationId: appId });
+    expect((await disabled.json() as any).data).toEqual({ active: false, approvalChannel: "account" });
+    const missing = await read("synthetic-core-approval-secret", { applicationId: "app_missing" });
+    expect((await missing.json() as any).data).toEqual({ active: false, approvalChannel: "account" });
   });
 
   it("reads and updates an existing semantic application id while new application creation remains app_*", async () => {
