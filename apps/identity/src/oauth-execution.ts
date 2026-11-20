@@ -140,6 +140,30 @@ export function registerOAuthExecutionRoutes(app: App) {
     } }, 200, { "cache-control": "no-store", pragma: "no-cache" });
   });
 
+  // Private current Application admission for the application-owned approval queue.
+  // The caller is Core, but the User identity is still verified by Core's
+  // independently signed direct User JWT. This is NOT a confirmation credential.
+  app.post("/introspection/v1/oauth-approval-applications", async (c: Context<AppEnv>) => {
+    if (!await secretMatches(c.req.header("x-lifespace-internal-secret") || "", c.env.CORE_IDENTITY_SHARED_SECRET)) {
+      return oauthFailure(401, "invalid_client");
+    }
+    const value = await c.req.json<unknown>().catch(() => null);
+    if (!value || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).length !== 1
+      || typeof (value as { applicationId?: unknown }).applicationId !== "string"
+      || !/^app_[A-Za-z0-9_-]+$/u.test((value as { applicationId: string }).applicationId)) {
+      return oauthFailure(400, "invalid_request");
+    }
+    const row = await c.env.DB.prepare(
+      "SELECT status,trusted_backend,oauth_delegation_approval FROM applications WHERE id=?"
+    ).bind((value as { applicationId: string }).applicationId)
+      .first<{status:string;trusted_backend:number;oauth_delegation_approval:string}>();
+    const active = row?.status === "active";
+    const approvalChannel = active && row.trusted_backend === 1 && row.oauth_delegation_approval === "application"
+      ? "application" : "account";
+    return c.json({ data: { active, approvalChannel } }, 200, { "cache-control": "no-store" });
+  });
+
   // Private Core-only lookup for an immutable arq_* ↔ OAuth grant binding.
   // No public Account or Agent may call this endpoint; the shared secret
   // authenticates the calling Core Worker, not the end-user approver.
