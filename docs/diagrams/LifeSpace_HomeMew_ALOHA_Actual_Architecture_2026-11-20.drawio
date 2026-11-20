@@ -1,0 +1,708 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mxfile host="app.diagrams.net" modified="2026-11-20T14:50:00.000Z" agent="ChatGPT GPT-6" version="24.7.17" type="device" compressed="false">
+  <diagram id="01_产品全局关系" name="01 产品全局关系">
+    <mxGraphModel dx="2140" dy="1390" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2140" pageHeight="1390" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="a_home" value="HomeMew · 家庭生活产品 · 一个 LifeSpace Application" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#E9F8F1;fillOpacity=48;strokeColor=#3A9E78;strokeWidth=2;fontColor=#136A50;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="165" width="635" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="a_aloha" value="ALOHA · 个人助理产品 · 一个 LifeSpace Application" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EAF4FF;fillOpacity=48;strokeColor=#4E91C9;strokeWidth=2;fontColor=#205F96;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="740" y="165" width="675" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="a_clients" value="外部 Agent / Protocol Client / Provider" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#F4EEFF;fillOpacity=48;strokeColor=#8B70C0;strokeWidth=2;fontColor=#5A3D92;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="1455" y="165" width="620" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="a_life" value="LifeSpace · 共享身份、授权、数据与关系平台" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EEF2FF;fillOpacity=48;strokeColor=#5B6CAE;strokeWidth=2;fontColor=#283B75;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="695" width="2010" height="580" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_1" value="same-origin" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.6;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="h_web" target="h_webbff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_2" value="Mini API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.6;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="h_mini" target="h_webbff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_3" value="Service Binding" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.6;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="h_webbff" target="h_back">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_4" value="展示状态" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.6;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_he" target="al_do">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_5" value="持久化" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.6;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_set" target="al_do">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_6" value="MCP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9575C8;strokeWidth=1.6;fontColor=#9575C8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="cli_agent" target="cli_adapters">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_7" value="工具调用" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9575C8;strokeWidth=1.6;fontColor=#9575C8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="cli_other" target="cli_adapters">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_8" value="Access 交换" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.6;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="h_webbff" target="ls_id">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_9" value="业务请求" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.6;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="h_webbff" target="ls_core">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_10" value="微信身份" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.6;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="h_back" target="ls_id">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_11" value="健康 CRUD" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.6;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_he" target="ls_core">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_12" value="用户验证" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.6;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_set" target="ls_id">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_13" value="Run 身份" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.6;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_as" target="ls_id">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_14" value="Operations" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9575C8;strokeWidth=1.6;fontColor=#9575C8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="cli_adapters" target="ls_core">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_15" value="身份/OAuth" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6675A8;strokeWidth=1.6;fontColor=#6675A8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="ls_acc" target="ls_id">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_16" value="授权请求" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6675A8;strokeWidth=1.6;fontColor=#6675A8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="ls_acc" target="ls_core">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_17" value="控制面" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6675A8;strokeWidth=1.6;fontColor=#6675A8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="ls_console" target="ls_core">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6675A8;strokeWidth=1.6;fontColor=#6675A8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="ls_core" target="ls_cdb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_19" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6675A8;strokeWidth=1.6;fontColor=#6675A8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="ls_id" target="ls_iddb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_20" value="文件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6675A8;strokeWidth=1.6;fontColor=#6675A8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="ls_core" target="ls_r2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_21" value="事件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6675A8;strokeWidth=1.6;fontColor=#6675A8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="ls_core" target="ls_queue">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_22" value="密钥" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6675A8;strokeWidth=1.6;fontColor=#6675A8;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="ls_ext" target="ls_vault">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_title" value="01 产品全局关系" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#FFFFFF;fontColor=#172B4D;fontSize=31;fontFamily=Arial;fontStyle=1;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="55" y="26" width="2030" height="58" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_sub" value="现有代码与已核验生产部署 · 实线：当前存在的调用/所有权；虚线：开发中或尚未贯通。业务数据以 LifeSpace 为权威。" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#475467;fontSize=15;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="92" width="2025" height="34" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_web" value="&lt;b&gt;HomeMew Web&lt;/b&gt;&lt;br/&gt;React SPA / 家庭管理 / 足球 / 健康" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="90" y="250" width="276" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_mini" value="&lt;b&gt;微信小程序&lt;/b&gt;&lt;br/&gt;首页 · 日程 · 待办 · 更多" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="392" y="250" width="272" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_webbff" value="&lt;b&gt;Web Worker + Mini BFF&lt;/b&gt;&lt;br/&gt;同一 Worker / 固定产品 API" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="90" y="392" width="276" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_back" value="&lt;b&gt;Backend Worker&lt;/b&gt;&lt;br/&gt;微信登录 / 家庭目录 / 外部系统" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="392" y="392" width="272" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_as" value="&lt;b&gt;Assistant PWA&lt;/b&gt;&lt;br/&gt;Gateway → Agent Control → n8n" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="766" y="250" width="290" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_he" value="&lt;b&gt;Health PWA + BFF&lt;/b&gt;&lt;br/&gt;七模型健康数据 · 文件 · 趋势" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="250" width="302" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_set" value="&lt;b&gt;Settings Worker&lt;/b&gt;&lt;br/&gt;个人 Space 创建/绑定 · Hub" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="766" y="392" width="290" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_do" value="&lt;b&gt;ALOHA 专属 DO 状态&lt;/b&gt;&lt;br/&gt;Workspace / Health UI / Conversation" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="392" width="302" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli_agent" value="&lt;b&gt;ChatGPT / Claude / Hermes&lt;/b&gt;&lt;br/&gt;OAuth 连接或 Agent 凭据" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F4EEFF;strokeColor=#8B70C0;fontColor=#5A3D92;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1485" y="250" width="258" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli_other" value="&lt;b&gt;n8n / 外部服务&lt;/b&gt;&lt;br/&gt;Service 或 Agent 执行者" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F4EEFF;strokeColor=#8B70C0;fontColor=#5A3D92;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1768" y="250" width="270" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli_adapters" value="&lt;b&gt;LifeSpace MCP Adapter&lt;/b&gt;&lt;br/&gt;协议适配 / 工具发现 / 代表执行" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F4EEFF;strokeColor=#8B70C0;fontColor=#5A3D92;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1485" y="392" width="553" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_id" value="&lt;b&gt;Identity&lt;/b&gt;&lt;br/&gt;usr_* · Application · Agent · Credential&lt;br/&gt;OAuth / Access 映射" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="112" y="791" width="365" height="142" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_core" value="&lt;b&gt;Core&lt;/b&gt;&lt;br/&gt;Space / Person / Grant / Delegation&lt;br/&gt;Registry / Generic Runtime / Capability" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="513" y="791" width="503" height="142" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_acc" value="&lt;b&gt;Account&lt;/b&gt;&lt;br/&gt;账户 · 空间 · 授权确认" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="791" width="300" height="142" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_console" value="&lt;b&gt;Console&lt;/b&gt;&lt;br/&gt;平台配置 · 模型 · 权限 · 凭据" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1381" y="791" width="342" height="142" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_ext" value="&lt;b&gt;External Model Adapter&lt;/b&gt;&lt;br/&gt;Notion 连接 / provider 权威" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1754" y="791" width="284" height="142" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_iddb" value="Identity D1" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="130" y="1020" width="265" height="79" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_cdb" value="Core D1&lt;br/&gt;模型/授权/审计" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1020" width="340" height="79" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_r2" value="R2&lt;br/&gt;附件" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="855" y="1020" width="252" height="79" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_queue" value="Queue / Webhook&lt;br/&gt;Eventing" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1163" y="1020" width="330" height="79" as="geometry"/>
+        </mxCell>
+        <mxCell id="ls_vault" value="Adapter DO Vault&lt;br/&gt;加密连接凭据" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1560" y="1020" width="360" height="79" as="geometry"/>
+        </mxCell>
+        <mxCell id="global_note" value="&lt;b&gt;跨产品共有：&lt;/b&gt;同一个 global usr_*；不同的 Application Context 和授权边界。&lt;br/&gt;&lt;b&gt;数据关系：&lt;/b&gt;HomeMew 使用家庭 Space；ALOHA 以个人选定 Space 为工作范围。授权后可访问其它有权 Space，但不会复制权威记录。" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="119" y="1168" width="1870" height="75" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="02_LifeSpace_内" name="02 LifeSpace 内部架构">
+    <mxGraphModel dx="2300" dy="1550" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2300" pageHeight="1550" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="li_ingress" value="输入：不同主体与认证方式" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#F2F4F7;fillOpacity=48;strokeColor=#98A2B3;strokeWidth=2;fontColor=#475467;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="165" width="2170" height="178" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_id_area" value="Identity Worker · auth.aisr.online" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EEF2FF;fillOpacity=48;strokeColor=#5B6CAE;strokeWidth=2;fontColor=#283B75;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="415" width="685" height="775" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_core_area" value="Core Worker · core.aisr.online" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EEF2FF;fillOpacity=48;strokeColor=#5B6CAE;strokeWidth=2;fontColor=#283B75;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="795" y="415" width="955" height="775" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_adap_area" value="协议适配与外部来源" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#F4EEFF;fillOpacity=48;strokeColor=#8B70C0;strokeWidth=2;fontColor=#5A3D92;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="1795" y="415" width="440" height="775" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_1" value="assertion" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_web" target="li_access">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_2" value="lsa_*" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_mini" target="li_app">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_3" value="PKCE" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_oauth" target="li_oauthserver">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_4" value="Credential" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_svc" target="li_app">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_5" value="管理入口" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;strokeWidth=1.6;fontColor=#667085;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_ops" target="li_admin">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_6" value="映射" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_access" target="li_identity">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_7" value="OAuth 状态" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_oauthserver" target="li_key">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_key" target="li_iddb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_9" value="Authority" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#BD7C32;strokeWidth=1.6;fontColor=#BD7C32;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_space" target="li_auth">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_10" value="Model Descriptor" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_reg" target="li_runtime">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_11" value="授权通过" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#BD7C32;strokeWidth=1.6;fontColor=#BD7C32;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_auth" target="li_runtime">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_12" value="能力贡献" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_caps" target="li_runtime">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_13" value="native storage" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_runtime" target="li_cdb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_14" value="附件/事件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.6;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_file" target="li_store">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_15" value="authenticated context" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#8B70C0;strokeWidth=1.6;fontColor=#8B70C0;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_mcp" target="li_auth">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_16" value="secret" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#8B70C0;strokeWidth=1.6;fontColor=#8B70C0;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_notion" target="li_vault">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_17" value="external Query" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#8B70C0;strokeWidth=1.6;fontColor=#8B70C0;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_runtime" target="li_notion">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_18" value="授权流程" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;strokeWidth=1.6;fontColor=#667085;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_admin" target="li_oauthserver">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_19" value="控制面" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#667085;strokeWidth=1.6;fontColor=#667085;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="li_admin" target="li_space">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_title" value="02 LifeSpace 内部架构" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#FFFFFF;fontColor=#172B4D;fontSize=31;fontFamily=Arial;fontStyle=1;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="55" y="26" width="2190" height="58" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_sub" value="Core 和 Identity 是两套权威服务及各自 D1；Account/Console 为管理客户端；MCP、外部数据和 Eventing 是独立协议/集成边界。" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#475467;fontSize=15;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="92" width="2185" height="34" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_web" value="Web / PWA&lt;br/&gt;Cloudflare Access" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="96" y="227" width="340" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_mini" value="HomeMew 微信端&lt;br/&gt;provider → BFF" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="492" y="227" width="340" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_oauth" value="第三方 Agent&lt;br/&gt;OAuth2 + PKCE / CIMD" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="899" y="227" width="376" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_svc" value="Service / Agent&lt;br/&gt;lsp_svc_* / lsp_agt_*" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1345" y="227" width="375" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_ops" value="Account / Console&lt;br/&gt;平台治理" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1804" y="227" width="360" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_identity" value="&lt;b&gt;Global Identity&lt;/b&gt;&lt;br/&gt;User usr_* / profile / avatar / email" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="99" y="492" width="303" height="117" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_app" value="&lt;b&gt;Application / Credential&lt;/b&gt;&lt;br/&gt;lsa_* · Service · Agent Registry" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="426" y="492" width="288" height="117" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_access" value="&lt;b&gt;Access Assertion 交换&lt;/b&gt;&lt;br/&gt;(iss,sub) → usr_* / App Audience" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="99" y="650" width="303" height="117" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_oauthserver" value="&lt;b&gt;OAuth2 Authorization Server&lt;/b&gt;&lt;br/&gt;DCR/CIMD · Code/PKCE · Refresh&lt;br/&gt;Client admission / Token introspection" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="426" y="650" width="288" height="117" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_key" value="&lt;b&gt;用户与客户端现态&lt;/b&gt;&lt;br/&gt;凭据撤销、应用状态、OAuth 绑定" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="99" y="815" width="615" height="96" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_iddb" value="&lt;b&gt;Identity D1&lt;/b&gt;&lt;br/&gt;用户/应用/凭据/OAuth" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="184" y="984" width="432" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_space" value="&lt;b&gt;Kernel &amp; Authority&lt;/b&gt;&lt;br/&gt;Space · Membership · Person Directory&lt;br/&gt;Data Grant · Delegation · Actor/Principal" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="833" y="490" width="417" height="145" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_auth" value="&lt;b&gt;授权判定&lt;/b&gt;&lt;br/&gt;Scope ∩ Application×Model ∩&lt;br/&gt;成员/Grant ∩ Policy ∩ 当前委托" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFF2E4;strokeColor=#EBA14D;fontColor=#9B5B1A;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="490" width="420" height="145" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_reg" value="&lt;b&gt;Model Registry&lt;/b&gt;&lt;br/&gt;Schema / Model Contract mct_*&lt;br/&gt;Native / External Model Catalog" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="833" y="690" width="417" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_runtime" value="&lt;b&gt;Generic Runtime&lt;/b&gt;&lt;br/&gt;Canonical Query · CRUD · Batch/Bulk&lt;br/&gt;Optimistic Lock · Actions" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="690" width="420" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_caps" value="&lt;b&gt;共享能力&lt;/b&gt;&lt;br/&gt;Relation / Recurrence / Calendar&lt;br/&gt;Temporal / Check-in / Workflow" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="833" y="858" width="417" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_file" value="&lt;b&gt;File + Eventing + Audit&lt;/b&gt;&lt;br/&gt;上传/下载/引用 · Outbox/Queue&lt;br/&gt;变更归因 / Webhook" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="858" width="420" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_cdb" value="&lt;b&gt;Core D1&lt;/b&gt;&lt;br/&gt;Typed data · Registry · Grants · Audit" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="832" y="1050" width="429" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_store" value="&lt;b&gt;R2 + Queue&lt;/b&gt;&lt;br/&gt;文件对象 · 事件投递 / DLQ" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="1050" width="420" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_mcp" value="&lt;b&gt;Private MCP Adapter&lt;/b&gt;&lt;br/&gt;协议 / operation projection&lt;br/&gt;真实调用必须通过 Core 判权" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F4EEFF;strokeColor=#8B70C0;fontColor=#5A3D92;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1830" y="500" width="370" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_notion" value="&lt;b&gt;Notion Provider Adapter&lt;/b&gt;&lt;br/&gt;External Connection / Query&lt;br/&gt;provider 保持数据权威" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F4EEFF;strokeColor=#8B70C0;fontColor=#5A3D92;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1830" y="700" width="370" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_vault" value="&lt;b&gt;Adapter DO Vault&lt;/b&gt;&lt;br/&gt;加密 provider credential&lt;br/&gt;Core 仅保存 cnx_* 引用" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1830" y="902" width="370" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_admin" value="&lt;b&gt;Account / Console Worker&lt;/b&gt;&lt;br/&gt;用户确认 / 控制面调用&lt;br/&gt;不拥有第三份权威数据" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1830" y="1050" width="370" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_note" value="&lt;b&gt;读取路径：&lt;/b&gt;已验证应用身份 / Scope → 当前 Space 或 User-Delegation Authority → Model 权限/Policy → Generic Runtime → D1/R2 或 external provider。&lt;br/&gt;&lt;b&gt;边界：&lt;/b&gt;协议发现和配置不会生成授权；所有变更由 Core 写入审计与事件。" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="86" y="1265" width="2110" height="94" as="geometry"/>
+        </mxCell>
+        <mxCell id="li_dev" value="&lt;b&gt;main 中但尚未发布到生产：&lt;/b&gt;#629 MCP 配置发现 / delegation 选择；MCP 文件 read/upload。&lt;b&gt;PR #634（Draft）&lt;/b&gt;：可信 Application 选择站内授权确认渠道；不属于现有生产 Identity/Core。" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;fillColor=#FFF6D9;strokeColor=#D29D31;fontColor=#805D0D;fontSize=15;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="86" y="1388" width="2110" height="70" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="03_HomeMew_内部架" name="03 HomeMew 内部架构">
+    <mxGraphModel dx="2160" dy="1500" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2160" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="hm_clients" value="用户界面" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#E9F8F1;fillOpacity=48;strokeColor=#3A9E78;strokeWidth=2;fontColor=#136A50;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="175" width="1980" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_bff_area" value="Worker #1 · homemew-web-production（Web Static Assets + BFF）" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#E9F8F1;fillOpacity=48;strokeColor=#3A9E78;strokeWidth=2;fontColor=#136A50;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="452" width="1980" height="280" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_backend_area" value="Worker #2 · homemew-backend-production（产品特有 Provider 与状态）" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#E9F8F1;fillOpacity=48;strokeColor=#3A9E78;strokeWidth=2;fontColor=#136A50;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="805" width="995" height="455" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_life_area" value="LifeSpace · 统一身份 / 家庭 Space / 模型数据" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EEF2FF;fillOpacity=48;strokeColor=#5B6CAE;strokeWidth=2;fontColor=#283B75;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="805" width="945" height="455" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_1" value="Web /api/*" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_web" target="hm_web_bff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_2" value="Mini 产品 API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_mini" target="hm_mini_bff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_3" value="Service Binding" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_web_bff" target="hm_backend">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_4" value="微信 Provider" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_mini_bff" target="hm_backend">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_5" value="DO" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_backend" target="hm_do">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_6" value="Access exchange" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_web_bff" target="hm_lid">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_7" value="LifeSpace user token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_mini_bff" target="hm_lid">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_8" value="微信 openid 关联" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_backend" target="hm_lid">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_9" value="Canonical API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_web_bff" target="hm_lcore">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_10" value="Canonical API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=1.8;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_mini_bff" target="hm_lcore">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_11" value="runtime" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.8;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_lcore" target="hm_models">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_12" value="runtime" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=1.8;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="hm_lcore" target="hm_special">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_title" value="03 HomeMew 内部架构" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#FFFFFF;fontColor=#172B4D;fontSize=31;fontFamily=Arial;fontStyle=1;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="55" y="26" width="2050" height="58" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_sub" value="一个 HomeMew Application；Web + 微信小程序共用现有 HomeMew Worker 产品契约；家庭真实业务记录存 LifeSpace。" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#475467;fontSize=15;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="92" width="2045" height="34" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_web" value="&lt;b&gt;HomeMew Web&lt;/b&gt;&lt;br/&gt;React 19 + Vite SPA&lt;br/&gt;家庭/日程/待办/生活/足球/健康" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="118" y="257" width="850" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_mini" value="&lt;b&gt;微信小程序&lt;/b&gt;&lt;br/&gt;首页 / 日程 / 待办 / 更多&lt;br/&gt;微信端登录与原生预览" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="257" width="870" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_web_bff" value="&lt;b&gt;Web same-origin BFF&lt;/b&gt;&lt;br/&gt;CF Access assertion → App Session（HttpOnly）&lt;br/&gt;身份交换、固定 Core API 转发、文件预览" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="106" y="536" width="880" height="142" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_mini_bff" value="&lt;b&gt;Mini BFF（同一个 Worker）&lt;/b&gt;&lt;br/&gt;固定 Mini 产品 API / DTO → LifeSpace 契约&lt;br/&gt;业务适配 / release-lag 屏障 / 无任意 URL 代理" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1103" y="536" width="880" height="142" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_backend" value="&lt;b&gt;Backend Worker&lt;/b&gt;&lt;br/&gt;微信 code→openid / 家庭加入协调&lt;br/&gt;微信小程序码 / 外部系统管理" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="880" width="905" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_do" value="&lt;b&gt;六类 Durable Objects&lt;/b&gt;&lt;br/&gt;WechatIdentity · MemberActivity · FamilyCatalog&lt;br/&gt;FamilyJoinCoordinator · ExternalSystemCatalog · RecentPlaces" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="1035" width="905" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_lid" value="&lt;b&gt;Identity&lt;/b&gt;&lt;br/&gt;usr_* / lsa_* / Access 交换 / 登录邮箱" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1142" y="888" width="391" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_lcore" value="&lt;b&gt;Core&lt;/b&gt;&lt;br/&gt;Space / Person / Grant / Canonical API" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1578" y="888" width="420" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_models" value="&lt;b&gt;家庭模型（部分示例）&lt;/b&gt;&lt;br/&gt;Event · Task · DayRecord · Wish · Activity&lt;br/&gt;Anniversary · Goal · Habit · PersonGroup" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1142" y="1053" width="412" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_special" value="&lt;b&gt;专用领域，同一 Core&lt;/b&gt;&lt;br/&gt;FootballMatch / FootballPerformance&lt;br/&gt;HealthMetric / Observation / Event / Document" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1578" y="1053" width="420" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="hm_notes" value="&lt;b&gt;产品数据边界：&lt;/b&gt;家庭 = LifeSpace Space；成员 = User + Space Person；HomeMew DO 保存微信身份映射、家庭目录、使用状态及外部连接容器，不保存家庭业务模型的权威副本。&lt;br/&gt;&lt;b&gt;外部系统：&lt;/b&gt;Web 管理 Service / Agent / Data Grants / Eventing；小程序仍使用固定 Mini BFF API。" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="1320" width="1895" height="95" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="04_ALOHA_内部架构" name="04 ALOHA 内部架构">
+    <mxGraphModel dx="2200" dy="1580" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1580" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="al_clients_area" value="ALOHA 产品界面（共享 Hub / Design Tokens；非共享业务后台）" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EAF4FF;fillOpacity=48;strokeColor=#4E91C9;strokeWidth=2;fontColor=#205F96;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="166" width="2060" height="253" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_run_area" value="Assistant Agent 链路（已有 Worker 与协议）" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EAF4FF;fillOpacity=48;strokeColor=#4E91C9;strokeWidth=2;fontColor=#205F96;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="470" width="985" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_data_area" value="Health / Settings 结构化业务链路" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EAF4FF;fillOpacity=48;strokeColor=#4E91C9;strokeWidth=2;fontColor=#205F96;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="470" width="1035" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_life_area" value="底层 LifeSpace（所有 PWA 共用一个 ALOHA Application Context）" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#EEF2FF;fillOpacity=48;strokeColor=#5B6CAE;strokeWidth=2;fontColor=#283B75;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="1220" width="2060" height="244" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_1" value="现有 root / API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_assistant" target="al_gateway">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_2" value="interaction protocol" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_gateway" target="al_ctrl">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_3" value="保存 Run" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_ctrl" target="al_conv">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_4" value="runtime adapter" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_ctrl" target="al_n8n">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_5" value="执行工具" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_n8n" target="al_tools">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_6" value="/health/api" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_health" target="al_healthbff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_7" value="/settings/api" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_settings" target="al_settingsbff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_8" value="私有 UI state" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_healthbff" target="al_hp">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_9" value="绑定 pointer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_settingsbff" target="al_ws">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_10" value="只读 Service Binding" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_healthbff" target="al_ws">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_11" value="Access exchange" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_settingsbff" target="al_lidentity">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_12" value="健康 CRUD" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_healthbff" target="al_lcore">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_13" value="身份交换" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_healthbff" target="al_lidentity">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_14" value="Run Identity" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_ctrl" target="al_lidentity">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_15" value="Space 变更" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_settingsbff" target="al_lcore">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_16" value="跳转账户中心" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#3C8EC7;strokeWidth=1.7;fontColor=#3C8EC7;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="al_settingsbff" target="al_account">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_17" value="未来功能" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#B88B28;strokeWidth=1.7;fontColor=#B88B28;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1" source="al_healthbff" target="al_policy">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_title" value="04 ALOHA 内部架构" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#FFFFFF;fontColor=#172B4D;fontSize=31;fontFamily=Arial;fontStyle=1;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="55" y="26" width="2090" height="58" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_sub" value="一个 ALOHA Application；独立 PWA / Worker 部署；Assistant 运行链和 Health 结构化业务链不是同一个后端。" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#475467;fontSize=15;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="92" width="2085" height="34" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_assistant" value="&lt;b&gt;Assistant PWA&lt;/b&gt;&lt;br/&gt;Agent 对话入口&lt;br/&gt;当前仍由 root Gateway 承载" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="108" y="242" width="460" height="122" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_health" value="&lt;b&gt;Health PWA&lt;/b&gt;&lt;br/&gt;七健康模型 · 趋势/文档&lt;br/&gt;AI 抽屉尚未接通" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="621" y="242" width="460" height="122" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_settings" value="&lt;b&gt;Settings / Hub&lt;/b&gt;&lt;br/&gt;个人 Space 创建或绑定&lt;br/&gt;公共用户资料入口" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1135" y="242" width="460" height="122" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_future" value="&lt;b&gt;Finance / Things&lt;/b&gt;&lt;br/&gt;独立 PWA 骨架&lt;br/&gt;业务数据契约未完成" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFF6D9;strokeColor=#D29D31;fontColor=#805D0D;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=1;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1647" y="242" width="436" height="122" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_gateway" value="&lt;b&gt;Gateway Worker&lt;/b&gt;&lt;br/&gt;HTTP/SSE /v1/interactions&lt;br/&gt;同源入口 / Runtime capability" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="105" y="550" width="376" height="112" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_ctrl" value="&lt;b&gt;Agent Control Worker&lt;/b&gt;&lt;br/&gt;Run admission / Identity / Policy&lt;br/&gt;Canonical Run Envelope" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="550" y="550" width="441" height="112" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_conv" value="&lt;b&gt;Conversation/Run SQLite DO&lt;/b&gt;&lt;br/&gt;AlohaConversationState&lt;br/&gt;Run 生命周期状态" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="550" y="742" width="441" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_n8n" value="&lt;b&gt;n8n Runtime Adapter&lt;/b&gt;&lt;br/&gt;Canonical Envelope → webhook&lt;br/&gt;n8n Agent workflow (MVP)" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="105" y="742" width="376" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_tools" value="&lt;b&gt;Runtime Tools&lt;/b&gt;&lt;br/&gt;可选 LifeSpace MCP、n8n workflow&lt;br/&gt;独立授权，不因 ALOHA 调用获得权限" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F4EEFF;strokeColor=#8B70C0;fontColor=#5A3D92;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="112" y="915" width="879" height="116" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_healthbff" value="&lt;b&gt;Health Worker + same-origin BFF&lt;/b&gt;&lt;br/&gt;Access token exchange / 七模型 CRUD&lt;br/&gt;文件上传·下载 / Snapshot / Relations" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1125" y="550" width="446" height="134" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_settingsbff" value="&lt;b&gt;Settings Worker + BFF&lt;/b&gt;&lt;br/&gt;User Profile / Space list / Create or bind&lt;br/&gt;独立部署、不是 LifeSpace Account" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EAF4FF;strokeColor=#4E91C9;fontColor=#205F96;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1635" y="550" width="445" height="134" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_hp" value="&lt;b&gt;HealthPresentation DO&lt;/b&gt;&lt;br/&gt;每用户显示偏好 / 人体图坐标 / 注意程度&lt;br/&gt;不存健康业务事实" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1125" y="761" width="446" height="128" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_ws" value="&lt;b&gt;WorkspaceState DO&lt;/b&gt;&lt;br/&gt;每 user 当前 Space pointer&lt;br/&gt;Health 通过只读 Service Binding 获取" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F2F4F7;strokeColor=#98A2B3;fontColor=#475467;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1635" y="761" width="445" height="128" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_policy" value="&lt;b&gt;Health 的 Agent 功能&lt;/b&gt;&lt;br/&gt;Hermes Health Agent 端到端尚未接通&lt;br/&gt;Draft #58 站内 OAuth 审批箱尚未合并" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFF6D9;strokeColor=#D29D31;fontColor=#805D0D;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=1;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="965" width="879" height="112" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_lidentity" value="&lt;b&gt;Identity&lt;/b&gt;&lt;br/&gt;usr_* / Access / App / Agent Actor" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="108" y="1294" width="562" height="106" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_lcore" value="&lt;b&gt;Core&lt;/b&gt;&lt;br/&gt;个人 Space / Person / 七健康模型 / Grant" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="735" y="1294" width="766" height="106" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_account" value="&lt;b&gt;Account Center&lt;/b&gt;&lt;br/&gt;account.aisr.online / 通用身份与授权" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1574" y="1294" width="503" height="106" as="geometry"/>
+        </mxCell>
+        <mxCell id="al_note" value="&lt;b&gt;禁止误读：&lt;/b&gt;Health 的 Core 数据调用不经 Agent Control；WorkspaceState 和 HealthPresentation 不是新的 LifeSpace Model；Finance / Things 只是骨架；#58 审批箱不代表 Hermes 已能自动恢复 Run。" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=15;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="93" y="1480" width="1980" height="64" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="05_三条跨系统调用链" name="05 三条跨系统调用链">
+    <mxGraphModel dx="2310" dy="1500" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2310" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="fl_web_area" value="A · Web / PWA：Cloudflare Access + 同源 BFF" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#E9F8F1;fillOpacity=48;strokeColor=#3A9E78;strokeWidth=2;fontColor=#136A50;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="67" y="165" width="2180" height="318" as="geometry"/>
+        </mxCell>
+        <mxCell id="fl_mini_area" value="B · 微信小程序：Provider 身份 + HomeMew 固定契约" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#E9F8F1;fillOpacity=48;strokeColor=#3A9E78;strokeWidth=2;fontColor=#136A50;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="67" y="527" width="2180" height="330" as="geometry"/>
+        </mxCell>
+        <mxCell id="fl_agent_area" value="C · 第三方 Agent：OAuth/MCP vs 可信 Agent Credential" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#F4EEFF;fillOpacity=48;strokeColor=#8B70C0;strokeWidth=2;fontColor=#5A3D92;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="67" y="905" width="2180" height="390" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_1" value="登录" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=2.0;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_browser" target="f_access">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_2" value="Access assertion" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=2.0;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_access" target="f_bff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_3" value="短期 app token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=2.0;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_bff" target="f_identity">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_4" value="受限作用域/权限" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=2.0;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_identity" target="f_core">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_5" value="Mini 请求" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=2.0;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_mini" target="f_minibff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_6" value="Login/provider" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=2.0;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_minibff" target="f_hbackend">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_7" value="关联 usr_*" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#339976;strokeWidth=2.0;fontColor=#339976;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_hbackend" target="f_miniident">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_8" value="Bearer / API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#5368AB;strokeWidth=2.0;fontColor=#5368AB;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_miniident" target="f_minicore">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_9" value="Auth Code / PKCE" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#8B70C0;strokeWidth=2.0;fontColor=#8B70C0;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_agent" target="f_oauth">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_10" value="approval / consent" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#8B70C0;strokeWidth=2.0;fontColor=#8B70C0;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_oauth" target="f_account">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_11" value="授权后执行" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#8B70C0;strokeWidth=2.0;fontColor=#8B70C0;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_account" target="f_adapter">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_12" value="Operation" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#8B70C0;strokeWidth=2.0;fontColor=#8B70C0;fontFamily=Arial;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=0;" edge="1" parent="1" source="f_adapter" target="f_authcore">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_title" value="05 三条跨系统调用链" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#FFFFFF;fontColor=#172B4D;fontSize=31;fontFamily=Arial;fontStyle=1;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="55" y="26" width="2200" height="58" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_sub" value="这里画的是已经存在的请求路径；虚线单独说明尚未发布的 Agent Delegation 扩展，不会把 UI、身份、实际 Authority 混为一谈。" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#475467;fontSize=15;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="92" width="2195" height="34" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_browser" value="浏览器 / Web PWA" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="104" y="272" width="330" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_access" value="Cloudflare Access&lt;br/&gt;登录 + JWT" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFF2E4;strokeColor=#EBA14D;fontColor=#9B5B1A;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="505" y="272" width="329" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_bff" value="HomeMew Web BFF&lt;br/&gt;或 ALOHA Health/Settings BFF" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="910" y="272" width="411" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_identity" value="LifeSpace Identity&lt;br/&gt;验证 issuer/aud → usr_*" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1393" y="272" width="342" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_core" value="LifeSpace Core&lt;br/&gt;数据与权限实时判定" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1812" y="272" width="374" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_mini" value="微信小程序&lt;br/&gt;wx.login code" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="104" y="639" width="322" height="99" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_minibff" value="HomeMew Mini BFF&lt;br/&gt;稳定业务 API / DTO" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="477" y="639" width="379" height="99" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_hbackend" value="HomeMew Backend&lt;br/&gt;WeChat openid / DO map" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E9F8F1;strokeColor=#3A9E78;fontColor=#136A50;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="904" y="639" width="382" height="99" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_miniident" value="LifeSpace Identity&lt;br/&gt;user token 交换" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1338" y="639" width="362" height="99" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_minicore" value="LifeSpace Core&lt;br/&gt;业务模型读写" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1761" y="639" width="419" height="99" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_agent" value="ChatGPT / Hermes&lt;br/&gt;OAuth Client" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F4EEFF;strokeColor=#8B70C0;fontColor=#5A3D92;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="105" y="1025" width="302" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_oauth" value="Identity OAuth Server&lt;br/&gt;CIMD / PKCE / Token" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="470" y="1025" width="365" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_account" value="Account 用户确认&lt;br/&gt;Authorization Request → dlg_*" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="888" y="1025" width="403" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_adapter" value="Private MCP Adapter&lt;br/&gt;Operation tools / Invoke" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#F4EEFF;strokeColor=#8B70C0;fontColor=#5A3D92;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1345" y="1025" width="380" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_authcore" value="Core 实时授权&lt;br/&gt;App/Agent/Space/Delegation" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#EEF2FF;strokeColor=#5B6CAE;fontColor=#283B75;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1780" y="1025" width="414" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_agent_alt" value="&lt;b&gt;并行已有模式：&lt;/b&gt;可信 Agent 可用 &lt;b&gt;lsp_agt_*&lt;/b&gt; 凭据直接调用；代表 User 时必须有有效、明确指定的 &lt;b&gt;dlg_*&lt;/b&gt;。凭据不是 Data Grant，Client 传来的 User ID 不是授权。" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="111" y="1190" width="2060" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="f_draft" value="&lt;b&gt;开发中（非生产）：&lt;/b&gt;main 的 #629 配置发现/明确委托上下文 + MCP 文件 read/upload；Draft #634 将确认渠道改为可信 Application 级配置，ALOHA Draft #58 才提供站内审批 Inbox。" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;fillColor=#FFF6D9;strokeColor=#D29D31;fontColor=#805D0D;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="111" y="1330" width="2060" height="76" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="06_状态与核验依据" name="06 状态与核验依据">
+    <mxGraphModel dx="2200" dy="1500" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="st_prod" value="生产已部署（有成功 Workflow 证据）" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#E8F7EA;fillOpacity=48;strokeColor=#62A670;strokeWidth=2;fontColor=#226B39;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="70" y="180" width="2050" height="450" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_main" value="main 有代码，尚无对应生产部署证据" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#FFF6D9;fillOpacity=48;strokeColor=#D29D31;strokeWidth=2;fontColor=#805D0D;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="70" y="680" width="2050" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_pr" value="开放 Draft：不能画成既有产品运行链" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#F4EEFF;fillOpacity=48;strokeColor=#8B70C0;strokeWidth=2;fontColor=#5A3D92;fontSize=22;fontStyle=1;spacingTop=18;spacingLeft=18;fontFamily=Arial;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="70" y="990" width="2050" height="255" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_title" value="06 状态与核验依据" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#FFFFFF;fontColor=#172B4D;fontSize=31;fontFamily=Arial;fontStyle=1;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="55" y="26" width="2090" height="58" as="geometry"/>
+        </mxCell>
+        <mxCell id="h_sub" value="截至 2026-11-20 · 本图按「已部署的 Worker」「main 中尚未部署」「开放 Draft PR」分开标注。生产验证是 CI 成功记录，不是每个交互路径都完成真实用户 E2E。" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#475467;fontSize=15;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;strokeWidth=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="92" width="2085" height="34" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_life" value="&lt;b&gt;LifeSpace Core + Identity&lt;/b&gt;&lt;br/&gt;2026-11-18 · fce1d434…&lt;br/&gt;Production #44244215052" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E8F7EA;strokeColor=#62A670;fontColor=#226B39;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="269" width="605" height="133" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_lifeui" value="&lt;b&gt;LifeSpace Account + Console&lt;/b&gt;&lt;br/&gt;2026-11-17 · 5da9a06…&lt;br/&gt;Account / Console 分别成功" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E8F7EA;strokeColor=#62A670;fontColor=#226B39;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="780" y="269" width="605" height="133" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_hm" value="&lt;b&gt;HomeMew Web + Backend&lt;/b&gt;&lt;br/&gt;Web 11-19 · 21a57f15…&lt;br/&gt;Backend 10-31 · 3fff99ce…" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E8F7EA;strokeColor=#62A670;fontColor=#226B39;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1452" y="269" width="606" height="133" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_aloha" value="&lt;b&gt;ALOHA Health + Settings&lt;/b&gt;&lt;br/&gt;Health 11-19 · 0ea9e0f…&lt;br/&gt;Settings 11-18 · b84ed98…" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E8F7EA;strokeColor=#62A670;fontColor=#226B39;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="451" width="936" height="124" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_assis" value="&lt;b&gt;ALOHA Assistant / Gateway + Agent Control&lt;/b&gt;&lt;br/&gt;现存运行路径；生产工作流最后可见成功 10-30 · 4729e4c…" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#E8F7EA;strokeColor=#62A670;fontColor=#226B39;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="451" width="936" height="124" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_mcpdev" value="&lt;b&gt;LifeSpace main 高于生产 4 个 commits&lt;/b&gt;&lt;br/&gt;MCP Native File read / upload session · 发现与明确委托（#629）&lt;br/&gt;不要写成生产 MCP 通用文件能力" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFF6D9;strokeColor=#D29D31;fontColor=#805D0D;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="758" width="1928" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_pr634" value="&lt;b&gt;LifeSpace PR #634&lt;/b&gt;&lt;br/&gt;Application 可信确认策略 / Space-independent Agent enrollment" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFF6D9;strokeColor=#D29D31;fontColor=#805D0D;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=1;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="1073" width="600" height="112" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_pr58" value="&lt;b&gt;ALOHA PR #58&lt;/b&gt;&lt;br/&gt;Health 独立待审批箱；未接 Hermes Run / Resume" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFF6D9;strokeColor=#D29D31;fontColor=#805D0D;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=1;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="777" y="1073" width="604" height="112" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_pr69" value="&lt;b&gt;lifespace-adapters PR #69&lt;/b&gt;&lt;br/&gt;MCP application-hosted 审批 UX 协议适配" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fillColor=#FFF6D9;strokeColor=#D29D31;fontColor=#805D0D;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=1;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="1073" width="601" height="112" as="geometry"/>
+        </mxCell>
+        <mxCell id="st_foot" value="&lt;b&gt;核验来源：&lt;/b&gt;GitHub 仓库 main 的代码 / wrangler.jsonc / 生产 Actions；LifeSpace Production Feature Matrix 的旧冻结版本用于交叉验证，但不能覆盖 11 月 18 日发布事实。&lt;br/&gt;&lt;b&gt;说明：&lt;/b&gt;微信小程序代码已存在，实际微信版本发布号未通过本次 GitHub CI 验证；ALOHA Health/Settings 的外部自定义路由是否处于活跃状态需要 Cloudflare 侧另行核验。" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=#D0D5DD;fontColor=#1D2939;fontSize=16;fontFamily=Arial;fontStyle=0;spacing=8;strokeWidth=1.5;dashed=0;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="106" y="1302" width="1997" height="130" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
