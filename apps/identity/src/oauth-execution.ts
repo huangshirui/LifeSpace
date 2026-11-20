@@ -149,16 +149,19 @@ export function registerOAuthExecutionRoutes(app: App) {
     }
     const value = await c.req.json<unknown>().catch(() => null);
     if (!value || typeof value !== "object" || Array.isArray(value)
-      || Object.keys(value).length !== 1
+      || Object.keys(value).length !== 2
       || typeof (value as { applicationId?: unknown }).applicationId !== "string"
-      || !/^app_[A-Za-z0-9_-]+$/u.test((value as { applicationId: string }).applicationId)) {
+      || typeof (value as { userId?: unknown }).userId !== "string"
+      || !/^app_[A-Za-z0-9_-]+$/u.test((value as { applicationId: string }).applicationId)
+      || !/^usr_[A-Za-z0-9_-]+$/u.test((value as { userId: string }).userId)) {
       return oauthFailure(400, "invalid_request");
     }
     const row = await c.env.DB.prepare(
-      "SELECT status,trusted_backend,oauth_delegation_approval FROM applications WHERE id=?"
-    ).bind((value as { applicationId: string }).applicationId)
-      .first<{status:string;trusted_backend:number;oauth_delegation_approval:string}>();
-    const active = row?.status === "active";
+      "SELECT a.status appStatus,a.trusted_backend,a.oauth_delegation_approval,u.status userStatus " +
+      "FROM applications a JOIN users u ON u.id=? WHERE a.id=?"
+    ).bind((value as { userId: string }).userId,(value as { applicationId: string }).applicationId)
+      .first<{appStatus:string;userStatus:string;trusted_backend:number;oauth_delegation_approval:string}>();
+    const active = row?.appStatus === "active" && row.userStatus === "active";
     const approvalChannel = active && row.trusted_backend === 1 && row.oauth_delegation_approval === "application"
       ? "application" : "account";
     return c.json({ data: { active, approvalChannel } }, 200, { "cache-control": "no-store" });
