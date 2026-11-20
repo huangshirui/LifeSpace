@@ -328,7 +328,8 @@ export async function requireOAuthMcpDelegatedOperation(
 async function decideOAuth(c: Context<AppEnv>, channel: ApprovalChannel) {
     const loaded=await load(c.env,c.req.param("requestId"));
     const principal=c.get("principal");
-    const userId=channel==="account"?account(principal,c.env):applicationUser(principal,loaded.row.application_id);
+    const userId=channel==="account"?account(principal,c.env):applicationUser(principal);
+    if (channel==="application"&&principal.clientId!==loaded.row.application_id) throw fail();
     if ((loaded.binding.approvalChannel??"account")!==channel) throw fail();
     if (loaded.row.intended_user_id!==userId) throw fail();
     if (c.req.param("decision")!=="approve" && c.req.param("decision")!=="deny") throw fail();
@@ -558,7 +559,8 @@ export function registerOAuthDelegationRoutes(app: App): void {
   app.get("/api/v1/me/oauth/application-delegation-requests/:requestId",async c=>{
     const loaded=await load(c.env,c.req.param("requestId"));
     const principal=c.get("principal");
-    if (applicationUser(principal,loaded.row.application_id)!==loaded.row.intended_user_id
+    if (applicationUser(principal)!==loaded.row.intended_user_id
+      || principal.clientId!==loaded.row.application_id
       || (loaded.binding.approvalChannel??"account")!=="application") throw fail();
     const admission=await liveConsent(c.env,loaded.row,loaded.binding);
     if (admission.approvalChannel!=="application") throw fail();
