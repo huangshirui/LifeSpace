@@ -472,3 +472,8 @@ Candidate Core Kernel `0.55.0` adds the Space member Model Access Ceiling GET/PU
 ### Application approval policy (candidate, #629)
 
 Identity application contract 0.20.0 and platform administration contract 0.7.0 add Application `oauthDelegationApproval` (`account` / `application`). Default `account`; application hosting requires trusted backend. Existing OAuth authorization shape and user consent are unchanged. The private Core introspection supplies the current policy; Core and Adapter confirmation routing are separate pending slices.
+
+
+### OAuth Delegation Application confirmation companion (candidate, #629)
+
+Core OAuth Consent 0.5.0 adds direct Application User-scoped pending request list/get/decision to the existing arq_*/dlg_* consent companion. Identity 0.20.0 / Platform Admin 0.7.0 governs trusted Application opt-in and private current-state approval-channel queries. The server chooses one approval channel when an OAuth request is created, binds it in its canonical correlation state and compares it to current Identity policy before confirmation; changing channel never silently reassigns an outstanding request. The pending list is bounded Context Projection, not business-data or execution authority. MCP protocol projects URL elicitation only for the Account channel and plain pending status for app channel. All source contracts remain separately versioned; no ordinary Model Contract or Kernel CRUD changes and no production claim.
