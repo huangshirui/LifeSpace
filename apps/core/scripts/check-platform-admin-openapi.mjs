@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.11.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.12.0") {
   throw new Error("Core Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -62,6 +62,8 @@ const createSchema = document.components?.schemas?.CreateMcpServerRequest;
 const updateSchema = document.components?.schemas?.UpdateMcpServerRequest;
 const responseSchema = document.components?.schemas?.McpServerDefinition;
 const resourceSchema = document.components?.schemas?.McpKernelResourceSelection;
+const enrollmentSchema = document.components?.schemas?.McpDelegationAgent;
+const serverConfigurationSchema = document.components?.schemas?.McpServerConfiguration;
 if (!mcp?.get || !mcp?.post || !mcpDetail?.get || !mcpDetail?.patch
   || document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}/publish"]
   || document.paths?.["/api/v1/platform-admin/mcp-servers/{serverId}/revisions"]
@@ -75,6 +77,9 @@ if (!createSchema?.required?.includes("configuration") || createSchema?.properti
   || !responseSchema?.required?.includes("configuration")
   || responseSchema?.properties?.draftRevision || responseSchema?.properties?.publishedRevision
   || !resourceSchema?.properties?.resourceKey?.enum?.includes("person_directory")
+  || !enrollmentSchema?.required?.includes("applicationId") || !enrollmentSchema?.required?.includes("agentId")
+  || enrollmentSchema?.additionalProperties !== false
+  || serverConfigurationSchema?.properties?.delegationAgents?.maxItems !== 32
   || !String(responseSchema?.properties?.id?.pattern ?? "").includes("mcp_")) {
   throw new Error("MCP Server uses canonical IDs, current configuration and independent Kernel Person capability");
 }
