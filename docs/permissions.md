@@ -394,3 +394,8 @@ The authenticated Agent and current configured MCP Server/Space/Application/Agen
 ### OAuth delegation approval channel (candidate, #629)
 
 Application approval hosting is a platform-governed policy, not a user/Agent permission, Grant or Delegation. Only trusted Applications may opt in. OAuth Agent execution alone is never sufficient to approve a request. The upcoming Core path must independently verify current User, Application, matching pending request and live authorization; existing Account confirmation and trusted workflows remain unchanged in this Identity policy slice.
+
+
+### Application-owned OAuth User Delegation decisions (candidate, #629)
+
+The OAuth Agent requests one exact operation; Core stores a non-authorizing arq_* with a server-chosen approvalChannel, defaulting to Account. Identity owns current Application trust and the current opt-in channel. An application-hosted approval requires a direct, Identity-signed User principal in the same configured Application, current active User/Application, a matching immutable User/Agent/Space/Client/Authorization/Resource request, and the current OAuth consent, scope, Server operation and User Authority. The OAuth execution token, opaque Agent credential, request ID or delegated selector cannot approve. Core reuses existing atomic Delegation issuance; change of current channel cannot transfer an existing pending request into another channel. The Application backend must independently authenticate the human confirmation and protect the user-facing endpoint against CSRF; LifeSpace does not infer human interaction from the signed User credential alone. Account and trusted n8n/WeCom flows remain unchanged. This is a candidate, not deployed.
