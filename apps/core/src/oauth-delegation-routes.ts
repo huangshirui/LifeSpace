@@ -567,58 +567,5 @@ export function registerOAuthDelegationRoutes(app: App): void {
       statusOf(loaded.row)==="approved"?await delegationId(c.env,loaded.row.id):null,loaded.item)));
   });
   app.post("/api/v1/me/oauth/delegation-requests/:requestId/:decision",c=>decideOAuth(c,"account"));
-  app.post("/api/v1/me/oauth/application-delegation-requests/:requestId/:decision",c=>decideOAuth(c,"application"));nel!=="account") throw fail();
-    c.header("Cache-Control","no-store");
-    return c.json(success(summary(loaded.row,loaded.binding,
-      statusOf(loaded.row)==="approved"?await delegationId(c.env,loaded.row.id):null,loaded.item)));
-  });
-  app.post("/api/v1/me/oauth/delegation-requests/:requestId/:decision",async c=>{
-    const loaded=await load(c.env,c.req.param("requestId"));
-    const principal=c.get("principal"),userId=account(principal,c.env);
-    if (loaded.row.intended_user_id!==userId) throw fail();
-    if (c.req.param("decision")!=="approve" && c.req.param("decision")!=="deny") throw fail();
-    const body=await c.req.text();
-    const isApprove=c.req.param("decision")==="approve";
-    if (!isApprove && body!=="{}") throw new ApiError("INVALID_REQUEST","Deny accepts no options",400);
-    // The authenticated Account User chooses the lifetime, never the OAuth Agent.
-    // Legacy "{}" approvals retain the safe once-only default.
-    const lifetime=isApprove ? approvalLifetime(body,new Date()) : null;
-    if (isApprove && loaded.binding.operation==="file_upload" && lifetime?.mode==="once") {
-      throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED","Multi-step upload requires timed or until-revoked Delegation",422);
-    }
-    const current=statusOf(loaded.row);
-    if (current!=="pending") throw new ApiError("AUTHORIZATION_REQUEST_NOT_PENDING","Approval is no longer pending",409);
-    const scopes=await liveConsent(c.env,loaded.row,loaded.binding);
-    const now=new Date().toISOString();
-    if (!isApprove) {
-      await c.env.DB.prepare(
-        "INSERT INTO authorization_request_transitions(request_id,status,transitioned_at,actor_type,actor_id) VALUES(?,'denied',?,'user',?)"
-      ).bind(loaded.row.id,now,userId).run();
-      return c.json(success({id:loaded.row.id,status:"denied"}));
-    }
-    const delegated:Principal={type:"user",id:userId,clientId:loaded.row.application_id,
-      scopes,tokenId:principal.tokenId};
-    const constraints={...(lifetime!.maxUses===1?{maxUses:1 as const}:{}),
-      ...(lifetime!.expiresAt?{expiresAt:lifetime!.expiresAt}:{}),remainingRedelegationDepth:0};
-    const issues=await prepareDelegationIssues(c.env,delegated,loaded.row.source_space_id,[{
-      actor:{type:"agent",id:loaded.row.requesting_agent_id},
-      scope:{target:{type:"model",id:delegationTarget(loaded.binding.modelKey)},maxAccess:loaded.item.max_access},
-      constraints,
-    }],{type:"user",id:userId});
-    const issue=issues[0]!;
-    await c.env.DB.batch([
-      c.env.DB.prepare(
-        "INSERT INTO authorization_request_transitions(request_id,status,transitioned_at,actor_type,actor_id) VALUES(?,'approved',?,'user',?)"
-      ).bind(loaded.row.id,now,userId),
-      c.env.DB.prepare("UPDATE authorization_request_items SET max_uses=?,delegation_expires_at=? WHERE request_id=? AND ordinal=0")
-        .bind(lifetime!.maxUses,lifetime!.expiresAt,loaded.row.id),
-      ...delegationIssueStatements(c.env,delegated,loaded.row.source_space_id,issues),
-      c.env.DB.prepare(
-        "INSERT INTO authorization_request_delegations(request_id,ordinal,delegation_id) VALUES(?,0,?)"
-      ).bind(loaded.row.id,issue.delegationId),
-    ]);
-    c.header("Cache-Control","no-store");
-    return c.json(success({id:loaded.row.id,status:"approved",
-      delegations:delegationIssueDtos(delegated,loaded.row.source_space_id,issues)}));
-  });
+  app.post("/api/v1/me/oauth/application-delegation-requests/:requestId/:decision",c=>decideOAuth(c,"application"));
 }
