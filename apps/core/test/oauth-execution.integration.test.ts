@@ -598,7 +598,7 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect(listing.status).toBe(200);
     const list=(await listing.json() as {data:{items:Array<{id:string}>;nextOffset:number|null}}).data;
     expect(list.items.map(x=>x.id)).toContain(pending.id);
-    expect((await f.applicationRequest("GET",queue+"?authorizationId=oaz_other")).status).toBe(200);
+    expect((await f.applicationRequest("GET",queue+"?authorizationId=oaz_"+"a".repeat(32))).status).toBe(200);
     expect((await f.applicationRequest("GET",queue+"?authorizationId="+f.authId+"&authorizationId="+f.authId)).status).toBe(400);
     const wrongUser=await f.applicationRequest("GET",queue,undefined,"usr_unrelated");
     expect((await wrongUser.json() as {data:{items:unknown[]}}).data.items).toEqual([]);
