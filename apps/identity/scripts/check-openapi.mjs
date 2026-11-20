@@ -40,6 +40,7 @@ for (const path of [
   "/oauth/execution-tokens",
   "/introspection/v1/oauth-executions",
   "/oauth/revoke",
+  "/introspection/v1/oauth-approval-applications",
   "/introspection/v1/service-tokens",
   "/introspection/v1/agent-credentials",
 ]) {
