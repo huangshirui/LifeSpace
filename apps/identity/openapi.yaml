@@ -703,6 +703,39 @@ paths:
         '200': { description: Active boolean with current Identity verification or false on revoked and mismatched scope }
         '400': { description: Invalid execution context }
         '401': { description: Core-only internal service proof required }
+  /introspection/v1/oauth-approval-applications:
+    post:
+      description: Core-only current Application approval-channel admission; active trusted backend opt-in is required for application-hosted confirmation. Caller must still authenticate the real direct User and exact OAuth Authorization independently.
+      security: [{ internalServiceSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [applicationId]
+              properties:
+                applicationId: { type: string, pattern: '^app_' }
+      responses:
+        '200':
+          description: Current Application state; account is the safe default.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [active, approvalChannel]
+                    properties:
+                      active: { type: boolean }
+                      approvalChannel: { type: string, enum: [account, application] }
+        '400': { description: Invalid Application selector }
+        '401': { description: Private Core service proof missing }
   /introspection/v1/oauth-delegation-authorizations:
     post:
       description: Core-only check binding a User Delegation approval to the exact live OAuth Authorization and selected User, Client, Application, Agent, Space, MCP Resource; requires allowUserAuthorization and active identities, never grants a Delegation on its own.
