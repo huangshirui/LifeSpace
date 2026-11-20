@@ -5,6 +5,8 @@ import {
   hashApplicationSecret,
   newApplicationSecret,
   validApplicationTokenTtl,
+  validOAuthDelegationApproval,
+  type OAuthDelegationApproval,
 } from "./application-admin";
 import type { Bindings, UserPrincipal, Variables } from "./env";
 import { requirePlatformAdminActor } from "./platform-admin-auth";
@@ -17,6 +19,7 @@ type ApplicationRow = {
   name: string;
   allowed_scopes: string;
   trusted_backend: number;
+  oauth_delegation_approval: OAuthDelegationApproval;
   access_token_ttl_seconds: number;
   status: "active" | "disabled";
   created_at: string;
@@ -64,6 +67,7 @@ function applicationDto(row: ApplicationRow) {
     name: row.name,
     allowedScopes: parseScopes(row.allowed_scopes),
     trustedBackend: row.trusted_backend === 1,
+    oauthDelegationApproval: row.oauth_delegation_approval,
     accessTokenTtlSeconds: row.access_token_ttl_seconds,
     status: row.status,
     createdAt: row.created_at,
@@ -95,7 +99,7 @@ function audienceDto(row: AudienceRow) {
 }
 
 async function loadApplication(db: D1Database, applicationId: string): Promise<ApplicationRow | null> {
-  return db.prepare(`SELECT id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
+  return db.prepare(`SELECT id,name,allowed_scopes,trusted_backend,oauth_delegation_approval,access_token_ttl_seconds,status,created_at,updated_at
     FROM applications WHERE id=?`).bind(applicationId).first<ApplicationRow>();
 }
 
@@ -136,7 +140,7 @@ export function registerPlatformAdminRoutes(app: App): void {
   app.get("/internal/v1/platform-admin/applications", async (c) => {
     const actor = await admin(c);
     if (actor instanceof Response) return actor;
-    const rows = await c.env.DB.prepare(`SELECT id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,status,created_at,updated_at
+    const rows = await c.env.DB.prepare(`SELECT id,name,allowed_scopes,trusted_backend,oauth_delegation_approval,access_token_ttl_seconds,status,created_at,updated_at
       FROM applications ORDER BY created_at,id`).all<ApplicationRow>();
     return c.json(ok(rows.results.map(applicationDto)));
   });
@@ -146,7 +150,7 @@ export function registerPlatformAdminRoutes(app: App): void {
     if (actor instanceof Response) return actor;
     const body = await jsonBody(c);
     if (!body) return c.json(fail("INVALID_REQUEST", "JSON body is required", c.get("requestId")), 400);
-    const allowedKeys = new Set(["name", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds"]);
+    const allowedKeys = new Set(["name", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds", "oauthDelegationApproval"]);
     if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
       return c.json(fail("INVALID_REQUEST", "Application request contains unsupported fields", c.get("requestId")), 400);
     }
@@ -165,11 +169,15 @@ export function registerPlatformAdminRoutes(app: App): void {
 
     const applicationId = id("app");
     const trustedBackend = body.trustedBackend === true;
+    const oauthDelegationApproval = body.oauthDelegationApproval === undefined ? "account" : body.oauthDelegationApproval;
+    if (!validOAuthDelegationApproval(oauthDelegationApproval, trustedBackend)) {
+      return c.json(fail("VALIDATION_ERROR", "Application approval requires trustedBackend", c.get("requestId")), 422);
+    }
     const clientSecret = trustedBackend ? newApplicationSecret() : null;
     const timestamp = now();
     const statements: D1PreparedStatement[] = [
-      c.env.DB.prepare(`INSERT INTO applications(id,name,allowed_scopes,trusted_backend,access_token_ttl_seconds,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?)`).bind(applicationId, body.name.trim(), JSON.stringify(scopes), trustedBackend ? 1 : 0, ttl, timestamp, timestamp),
+      c.env.DB.prepare(`INSERT INTO applications(id,name,allowed_scopes,trusted_backend,oauth_delegation_approval,access_token_ttl_seconds,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)`).bind(applicationId, body.name.trim(), JSON.stringify(scopes), trustedBackend ? 1 : 0, oauthDelegationApproval, ttl, timestamp, timestamp),
     ];
     let credential: CredentialRow | null = null;
     if (clientSecret) {
@@ -178,7 +186,7 @@ export function registerPlatformAdminRoutes(app: App): void {
         VALUES(?,?,?,?,?,?,NULL)`).bind(credential.id, applicationId, await hashApplicationSecret(clientSecret), credential.secret_suffix, "active", timestamp));
     }
     statements.push(auditStatement(c.env, actor, c.get("currentApplicationId"), c.get("requestId"), "application.create", "application", applicationId, {
-      name: body.name.trim(), allowedScopes: scopes, trustedBackend, accessTokenTtlSeconds: ttl,
+      name: body.name.trim(), allowedScopes: scopes, trustedBackend, oauthDelegationApproval, accessTokenTtlSeconds: ttl,
     }));
     await c.env.DB.batch(statements);
     const row = await loadApplication(c.env.DB, applicationId);
@@ -208,8 +216,8 @@ export function registerPlatformAdminRoutes(app: App): void {
     const body = await jsonBody(c);
     if (!body) return c.json(fail("INVALID_REQUEST", "JSON body is required", c.get("requestId")), 400);
     const keys = Object.keys(body);
-    if (!keys.length || keys.some((key) => !["name", "allowedScopes", "accessTokenTtlSeconds", "status"].includes(key))) {
-      return c.json(fail("INVALID_REQUEST", "Only name, allowedScopes, accessTokenTtlSeconds and status may be updated", c.get("requestId")), 400);
+    if (!keys.length || keys.some((key) => !["name", "allowedScopes", "accessTokenTtlSeconds", "status", "oauthDelegationApproval"].includes(key))) {
+      return c.json(fail("INVALID_REQUEST", "Only name, allowedScopes, accessTokenTtlSeconds, status and oauthDelegationApproval may be updated", c.get("requestId")), 400);
     }
     const name = body.name === undefined ? previous.name : typeof body.name === "string" && body.name.trim() && body.name.trim().length <= 100 ? body.name.trim() : null;
     if (!name) return c.json(fail("VALIDATION_ERROR", "name must contain 1-100 characters", c.get("requestId")), 422);
@@ -219,12 +227,17 @@ export function registerPlatformAdminRoutes(app: App): void {
     if (typeof ttl !== "number" || !validApplicationTokenTtl(ttl)) return c.json(fail("VALIDATION_ERROR", "accessTokenTtlSeconds must be an integer between 300 and 3600", c.get("requestId")), 422);
     const status = body.status === undefined ? previous.status : body.status;
     if (status !== "active" && status !== "disabled") return c.json(fail("VALIDATION_ERROR", "status must be active or disabled", c.get("requestId")), 422);
+    const approval = body.oauthDelegationApproval;
+    if (approval !== undefined && !validOAuthDelegationApproval(approval, previous.trusted_backend === 1)) {
+      return c.json(fail("VALIDATION_ERROR", "Application approval requires trustedBackend", c.get("requestId")), 422);
+    }
     const timestamp = now();
     await c.env.DB.batch([
-      c.env.DB.prepare("UPDATE applications SET name=?,allowed_scopes=?,access_token_ttl_seconds=?,status=?,updated_at=? WHERE id=?")
-        .bind(name, JSON.stringify(scopes), ttl, status, timestamp, applicationId),
+      c.env.DB.prepare("UPDATE applications SET name=?,allowed_scopes=?,access_token_ttl_seconds=?,status=?,oauth_delegation_approval=COALESCE(?,oauth_delegation_approval),updated_at=? WHERE id=?")
+        .bind(name, JSON.stringify(scopes), ttl, status, approval ?? null, timestamp, applicationId),
       auditStatement(c.env, actor, c.get("currentApplicationId"), c.get("requestId"), "application.update", "application", applicationId, {
         name, allowedScopes: scopes, accessTokenTtlSeconds: ttl, status,
+        ...(approval === undefined ? {} : { oauthDelegationApproval: approval }),
       }),
     ]);
     const updated = await loadApplication(c.env.DB, applicationId);

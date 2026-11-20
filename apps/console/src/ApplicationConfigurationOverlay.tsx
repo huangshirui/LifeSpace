@@ -108,6 +108,7 @@ function ApplicationSummary({ application }: { application: Application }) {
   return <div className="acp-summary">
     <div><span>Application ID</span><code>{application.id}</code></div>
     <div><span>Trusted backend</span><strong>{application.trustedBackend ? "Yes" : "No"}</strong></div>
+    <div><span>OAuth Delegation 确认</span><strong>{application.oauthDelegationApproval === "application" ? "可信应用内确认" : "LifeSpace Account"}</strong></div>
     <div><span>Status</span><strong>{application.status}</strong></div>
   </div>;
 }
@@ -160,6 +161,7 @@ function ApplicationSettingsDialog({ applicationId, onClose }: { applicationId: 
   const [scopes, setScopes] = useState("");
   const [ttl, setTtl] = useState(900);
   const [status, setStatus] = useState<"active" | "disabled">("active");
+  const [oauthDelegationApproval, setOauthDelegationApproval] = useState<"account" | "application">("account");
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -174,6 +176,7 @@ function ApplicationSettingsDialog({ applicationId, onClose }: { applicationId: 
       setScopes(scopeText(value.application.allowedScopes));
       setTtl(value.application.accessTokenTtlSeconds);
       setStatus(value.application.status === "disabled" ? "disabled" : "active");
+      setOauthDelegationApproval(value.application.oauthDelegationApproval === "application" ? "application" : "account");
       setLoading(false);
     }, (cause) => { if (active) { setError(cause); setLoading(false); } });
     return () => { active = false; };
@@ -185,8 +188,9 @@ function ApplicationSettingsDialog({ applicationId, onClose }: { applicationId: 
     return name.trim() !== current.name
       || JSON.stringify(parseScopes(scopes)) !== JSON.stringify(current.allowedScopes)
       || ttl !== current.accessTokenTtlSeconds
-      || status !== current.status;
-  }, [detail, name, scopes, ttl, status]);
+      || status !== current.status
+      || oauthDelegationApproval !== (current.oauthDelegationApproval === "application" ? "application" : "account");
+  }, [detail, name, scopes, ttl, status, oauthDelegationApproval]);
 
   async function save() {
     if (!detail || !changed || !confirmed) return;
@@ -197,13 +201,14 @@ function ApplicationSettingsDialog({ applicationId, onClose }: { applicationId: 
         allowedScopes: parseScopes(scopes),
         accessTokenTtlSeconds: ttl,
         status,
+        oauthDelegationApproval,
         confirmApplicationId: applicationId,
       });
       window.location.reload();
     } catch (cause) { setError(cause); setBusy(false); }
   }
 
-  return <DialogShell title="Application settings" description="只修改 Identity 合同允许变更的字段：name、allowedScopes、token TTL、status。trustedBackend 信任分类不可变。" onClose={onClose}>
+  return <DialogShell title="Application settings" description="在此管理 Application 配置与 OAuth 委托确认渠道。默认由 LifeSpace Account 确认，只有 trustedBackend 才能启用应用内确认；不改变现有用户授权。" onClose={onClose}>
     <div className="cp-dialog-body">
       {loading ? <div className="cp-loading">正在读取 Application…</div> : detail && <>
         <ApplicationSummary application={detail.application} />
@@ -213,6 +218,7 @@ function ApplicationSettingsDialog({ applicationId, onClose }: { applicationId: 
           <label className="cp-field cp-compact"><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value as "active" | "disabled"); setConfirmed(false); }}><option value="active">active</option><option value="disabled">disabled</option></select></label>
         </div>
         <label className="cp-field"><span>Allowed scopes</span><textarea className="acp-scopes" value={scopes} onChange={(event) => { setScopes(event.target.value); setConfirmed(false); }} spellCheck={false} /></label>
+        <label className="cp-field"><span>OAuth 委托确认渠道</span><select value={oauthDelegationApproval} onChange={(event) => { setOauthDelegationApproval(event.target.value as "account" | "application"); setConfirmed(false); }}><option value="account">LifeSpace Account 网页确认（默认）</option>{detail.application.trustedBackend && <option value="application">应用内确认（可信 Application）</option>}</select><small>仅影响 OAuth MCP 用户委托的确认方式。Agent 不能自行批准；应用后端须验证当前用户的真实确认操作。修改渠道不会自动迁移已有待确认申请。</small></label>
         {status === "disabled" && detail.application.status !== "disabled" && <div className="cp-danger-box"><strong>Disabling is immediately authoritative</strong><span>Identity 会拒绝该 Application 的后续认证/签发路径；它不会自动删除 Model Access、Service Principals 或审计历史。</span></div>}
         <label className="cp-confirm"><input type="checkbox" checked={confirmed} disabled={!changed} onChange={(event) => setConfirmed(event.target.checked)} /><span>我确认将这些 Application policy 变更应用到 {applicationId}。</span></label>
       </>}

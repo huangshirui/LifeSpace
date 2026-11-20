@@ -392,3 +392,12 @@ Migration 0013 preserves established principal IDs, migrates 0012 declarations i
 ## Staging Eventing must not mutate Application policy for acceptance
 
 The canonical Smoke Application is provisioned with `spaces:manage`, `grants:manage`, `resources:read` and `resources:write` as explicit initial ceilings. The Eventing and principal-revocation Golden Flow scripts inspect that current Application's metadata through its own valid `lsa_*` and **fail closed** when its active trust state or required scopes differ. Acceptance never uses Bootstrap to silently widen and then restore policy. This is a CI/operations behavior change, not a new data or administration authorization mechanism.
+
+### Application-governed OAuth delegation confirmation (candidate, #629)
+
+Identity owns `oauthDelegationApproval` on Application: `account` (default, including migrated Applications) or `application` (requires `trustedBackend=true`). Only platform administration or explicit bootstrap recovery may change it. Application self-read exposes the policy but cannot mutate it. The private exact OAuth Authorization introspection returns the current policy for active matching authorizations; it is not an approval grant. Core must implement independently authenticated same-Application user approval and retain existing Account behavior until coordinated rollout. No OAuth client-selected channel or change to existing trusted workflows.
+
+
+### Application-hosted OAuth second-stage confirmation (candidate)
+
+The OAuth client never selects the Delegation approval channel. Current platform-governed Application `oauthDelegationApproval=account|application` is disclosed only through a Core-private exact Authorization check and a current Application+User admission check, each using the existing Core-Identity internal secret. Default Account remains supported for every migrated Application; application requires the owning active trusted backend to opt in. Its BFF keeps the authenticated real-user session, user JWT, CSRF/origin protections, and human approval interaction outside the BYO Agent runtime. Core's 0.5.0 candidate companion supplies a bounded same-Application pending request queue and canonical per-request User decision. No new identity proof, Approval Grant, Agent credential or MCP confirmation tool.

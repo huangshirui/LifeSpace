@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.11.0
+  version: 0.12.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
     platform automation. This contract is separate from both the downstream Core Kernel Contract and
@@ -712,6 +712,18 @@ components:
         spaceId: { type: string, pattern: '^spc_[A-Za-z0-9_-]{1,128}$' }
         applicationId: { type: string, pattern: '^app_[A-Za-z0-9_-]{1,128}$' }
         agentId: { type: string, pattern: '^agt_[A-Za-z0-9_-]{1,128}$' }
+    McpDelegationAgent:
+      type: object
+      additionalProperties: false
+      required: [applicationId, agentId]
+      description: >
+        Space-independent Agent enrollment for OAuth User Delegation only.
+        It never creates Space membership, Agent Data Grant, or execution
+        permission, and does not admit opaque Agent credentials without an
+        explicit legacy Space context.
+      properties:
+        applicationId: { type: string, pattern: '^app_[A-Za-z0-9_-]{1,128}$' }
+        agentId: { type: string, pattern: '^agt_[A-Za-z0-9_-]{1,128}$' }
     McpServerConfiguration:
       type: object
       additionalProperties: false
@@ -730,7 +742,18 @@ components:
           maxItems: 32
           uniqueItems: true
           items: { $ref: '#/components/schemas/McpDelegationContext' }
-          description: Configured contexts eligible for independent User consent, including Agents with zero Data Grants.
+          description: Existing exact-Space Agent enrollment, retained for trusted MCP clients and OAuth compatibility.
+        delegationAgents:
+          type: array
+          maxItems: 32
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/McpDelegationAgent' }
+          description: >
+            Enrolled Agent/Application pairs. At OAuth consent, only the
+            authenticated User's current manageable Space may be selected.
+            An exact signed OAuth Authorization and current User Delegation
+            are still necessary to execute. Existing delegationContexts are
+            preserved for backward compatibility.
     CreateMcpServerRequest:
       type: object
       additionalProperties: false

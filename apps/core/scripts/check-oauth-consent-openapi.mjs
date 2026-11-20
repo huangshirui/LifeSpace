@@ -14,7 +14,7 @@ if (!choices?.security?.some((entry) => entry.accountUserBearer)
   throw new Error("OAuth choices must require verified Account User");
 }
 const path = document.paths?.["/api/v1/me/oauth/requests/{requestId}/confirm"]?.post;
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.4.0" || !path
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.5.0" || !path
   || !path.security?.some((entry) => entry.accountUserBearer)
   || !String(path.description ?? "").includes("manage")
   || path.requestBody?.content?.["application/json"]?.schema?.additionalProperties !== false
@@ -30,5 +30,16 @@ if (!lifetimeApproval?.security?.some((entry) => entry.accountUserBearer)
   || !document.paths?.["/api/v1/me/oauth/delegations"]?.get
   || !document.paths?.["/api/v1/me/oauth/delegations/{delegationId}/revoke"]?.post) {
   throw new Error("Core Account-selected lifetime and User-owned revoke contracts are incomplete");
+}
+const appList = document.paths?.["/api/v1/me/oauth/application-delegation-requests"]?.get;
+const appDetail = document.paths?.["/api/v1/me/oauth/application-delegation-requests/{requestId}"]?.get;
+const appDecision = document.paths?.["/api/v1/me/oauth/application-delegation-requests/{requestId}/{decision}"]?.post;
+if (!appList?.security?.some(entry => entry.applicationUserBearer)
+  || !appDetail?.security?.some(entry => entry.applicationUserBearer)
+  || !appDecision?.security?.some(entry => entry.applicationUserBearer)
+  || appDecision.requestBody?.content?.["application/json"]?.schema?.additionalProperties !== false
+  || !String(appDecision.description).includes("atomic Delegation")
+  || !document.paths?.["/api/v1/spaces/{spaceId}/oauth-delegation-requests"]?.post) {
+  throw new Error("Application-hosted OAuth decision must retain independent User and canonical Delegation rules");
 }
 console.log("Core OAuth Consent and Account-selected Delegation lifetime companion contract checks passed");

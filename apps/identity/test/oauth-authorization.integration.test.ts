@@ -793,7 +793,7 @@ describe("Identity OAuth Authorization Server (isolated candidate)", () => {
     expect(await db.prepare("SELECT client_id FROM oauth_cimd_metadata_cache WHERE client_id=?").bind(cimdUnused).first()).toBeNull();
     expect(await db.prepare("SELECT COUNT(*) n FROM oauth_access_tokens WHERE client_id=?").bind(t.clientId).first<{n:number}>()).toMatchObject({n:240});
     expect(await db.prepare("SELECT COUNT(*) n FROM oauth_refresh_tokens WHERE client_id=?").bind(t.clientId).first<{n:number}>()).toMatchObject({n:240});
-    expect(await db.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'").first()).toMatchObject({value:"20"});
+    expect(await db.prepare("SELECT value FROM schema_metadata WHERE key='schema_version'").first()).toMatchObject({value:"21"});
   });
 
   it("requires private Core authentication and bounded Agent IDs for active binding resolution", async () => {

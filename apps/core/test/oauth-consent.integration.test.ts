@@ -128,6 +128,60 @@ describe("Core Account OAuth Consent boundary", () => {
     expect((await f.call()).status).toBe(403);
     expect(await f.db.prepare("SELECT COUNT(*) n FROM data_grants WHERE grantee_id=?").bind(f.agentId).first("n")).toBe(0);
   });
+  it("enrolls one Agent/Application for multiple managing Users and Spaces without pre-registering triples",async()=>{
+    const f=await fixture();
+    const now=new Date().toISOString(),serverId="mcp_"+crypto.randomUUID().replaceAll("-","");
+    const resource="https://core.example.test/mcp/"+serverId;
+    Object.assign(f.bindings,{MCP_PUBLIC_ORIGIN:"https://core.example.test"});
+    f.setPendingResource(resource);
+    const space2="spc_"+crypto.randomUUID().replaceAll("-","");
+    const manager2="usr_"+crypto.randomUUID().replaceAll("-","");
+    const pair={applicationId:f.selected.applicationId,agentId:f.agentId};
+    const config={models:[{modelKey:"task",operations:["query"]}],delegationAgents:[pair]};
+    await f.db.batch([
+      f.db.prepare("DELETE FROM data_grants WHERE grantee_id=?").bind(f.agentId),
+      f.db.prepare("INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)")
+        .bind(space2,"Second managed Space",f.userId,now,now,"UTC"),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),space2,f.userId,"owner",now,now),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,?,?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),space2,manager2,"admin",now,now),
+      f.db.prepare("INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) VALUES(?,?,?,1,?,1,?,?,?,?)")
+        .bind(serverId,"Pair enrollment","",JSON.stringify(config),f.userId,f.userId,now,now),
+    ]);
+    const choices=async(bearer:string)=>createApp().request(
+      "https://core.example.test/api/v1/me/oauth/choices?"+new URLSearchParams({resource}),
+      {headers:{authorization:"Bearer "+bearer}},f.bindings);
+    const result=await choices(f.bearer);
+    expect(result.status).toBe(200);
+    expect((await result.json() as any).data.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({spaceId:f.spaceId,...pair,requiresUserAuthorization:true}),
+      expect.objectContaining({spaceId:space2,...pair,requiresUserAuthorization:true}),
+    ]));
+    const secondUserBearer=await token(f.pair.privateKey,manager2,f.appId);
+    const list=await choices(secondUserBearer);
+    expect(list.status).toBe(200);
+    const secondEntries=(await list.json() as any).data.candidates;
+    expect(secondEntries).toEqual([expect.objectContaining({spaceId:space2,...pair})]);
+    const unrelated=await token(f.pair.privateKey,"usr_not_member",f.appId);
+    expect((await (await choices(unrelated)).json() as any).data.candidates).toEqual([]);
+    expect((await f.call(f.bearer,{...f.selected,allowUserAuthorization:false})).status).toBe(403);
+    expect((await f.call(f.bearer,{...f.selected,agentId:"agt_unrelated"})).status).toBe(403);
+    expect((await f.call()).status).toBe(200);
+    expect((await f.call(f.bearer,{...f.selected,spaceId:space2})).status).toBe(200);
+    expect((await f.call(secondUserBearer,{...f.selected,spaceId:f.spaceId})).status).toBe(403);
+    expect(await f.db.prepare("SELECT COUNT(*) n FROM data_grants WHERE grantee_id=?").bind(f.agentId).first("n")).toBe(0);
+    // Revoking the Server-level Agent pair is effective immediately.
+    await f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+      .bind(JSON.stringify({models:config.models,delegationAgents:[]}),serverId).run();
+    expect((await f.call()).status).toBe(403);
+    // Legacy exact per-Space contexts are still honored independently.
+    await f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?")
+      .bind(JSON.stringify({models:config.models,delegationContexts:[{spaceId:f.spaceId,...pair}]}),serverId).run();
+    expect((await f.call()).status).toBe(200);
+    expect((await f.call(f.bearer,{...f.selected,spaceId:space2})).status).toBe(403);
+  });
+
   it("forwards Account-only explicit denial without approval or leaking arbitrary callbacks", async () => {
     const f = await fixture();
     f.changeUpstream(200, {

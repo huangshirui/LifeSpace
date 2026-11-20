@@ -29,6 +29,7 @@ async function request(path: string, options: RequestInit, pair: Awaited<ReturnT
     TOKEN_PRIVATE_KEY: pair.privateKey,
     TOKEN_PUBLIC_KEY: pair.publicKey,
     ENVIRONMENT: "test",
+    CORE_IDENTITY_SHARED_SECRET: "synthetic-core-approval-secret",
   });
 }
 
@@ -291,6 +292,69 @@ describe("Identity Platform Admin API", () => {
     const createAudit = entries.find((entry) => entry.operation === "application.create" && entry.targetId === created.id);
     expect(createAudit).toMatchObject({ actorUserId: console.userId, executorApplicationId: console.applicationId, result: "success" });
     expect(JSON.stringify(createAudit)).not.toContain(created.clientSecret);
+  });
+
+  it("governs OAuth delegation approval at Application level, with Account as the default", async () => {
+    const pair = await keys();
+    const console = await provisionConsole(pair);
+    const root = "/internal/v1/platform-admin/applications";
+    const headers = { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" };
+    const create = (body: object) => request(root, { method: "POST", headers, body: JSON.stringify(body) }, pair);
+    expect((await create({ name: "Untrusted approval", oauthDelegationApproval: "application" })).status).toBe(422);
+    const external = (await (await create({ name: "External client" })).json() as any).data;
+    const trusted = (await (await create({ name: "Trusted client", trustedBackend: true })).json() as any).data;
+    expect(external.oauthDelegationApproval).toBe("account");
+    expect(trusted.oauthDelegationApproval).toBe("account");
+    const patch = (id: string, body: object, h = headers) => request(root + "/" + id, {
+      method: "PATCH", headers: h, body: JSON.stringify(body),
+    }, pair);
+    expect((await patch(external.id, { oauthDelegationApproval: "application" })).status).toBe(422);
+    expect((await patch(trusted.id, { oauthDelegationApproval: "invalid" })).status).toBe(422);
+    expect((await patch(trusted.id, { oauthDelegationApproval: "application" }, {
+      ...headers, "x-lifespace-actor-token": "",
+    })).status).toBe(401);
+    const enabled = await patch(trusted.id, { oauthDelegationApproval: "application" });
+    expect(enabled.status).toBe(200);
+    expect((await enabled.json() as any).data.oauthDelegationApproval).toBe("application");
+    const renamed = await patch(trusted.id, { name: "Renamed trusted client" });
+    expect((await renamed.json() as any).data.oauthDelegationApproval).toBe("application");
+    const own = await request("/internal/v1/applications/self", {
+      method: "GET", headers: { authorization: "Bearer " + trusted.clientSecret },
+    }, pair);
+    expect(own.status).toBe(200);
+    expect((await own.json() as any).data.oauthDelegationApproval).toBe("application");
+    const disabled = await patch(trusted.id, { oauthDelegationApproval: "account" });
+    expect((await disabled.json() as any).data.oauthDelegationApproval).toBe("account");
+  });
+
+  it("exposes current application approval admission only through a Core-private bound check", async () => {
+    const pair = await keys();
+    const console = await provisionConsole(pair);
+    const admin = { ...adminHeaders(console.applicationSecret, console.actorToken), "content-type": "application/json" };
+    const created = await request("/internal/v1/platform-admin/applications", {
+      method: "POST", headers: admin,
+      body: JSON.stringify({ name: "Approval host", trustedBackend: true, oauthDelegationApproval: "application" }),
+    }, pair);
+    expect(created.status).toBe(201);
+    const appId = (await created.json() as any).data.id;
+    const route = "/introspection/v1/oauth-approval-applications";
+    const read = (secret: string, body: object) => request(route, {
+      method: "POST", headers: { "content-type": "application/json", "x-lifespace-internal-secret": secret },
+      body: JSON.stringify(body),
+    }, pair);
+    expect((await read("incorrect", { applicationId: appId, userId: console.userId })).status).toBe(401);
+    expect((await read("synthetic-core-approval-secret", { applicationId: appId })).status).toBe(400);
+    const active = await read("synthetic-core-approval-secret", { applicationId: appId, userId: console.userId });
+    expect((await active.json() as any).data).toEqual({ active: true, approvalChannel: "application" });
+    await request("/internal/v1/platform-admin/applications/" + appId, {
+      method: "PATCH", headers: admin, body: JSON.stringify({ status: "disabled" }),
+    }, pair);
+    const disabled = await read("synthetic-core-approval-secret", { applicationId: appId, userId: console.userId });
+    expect((await disabled.json() as any).data).toEqual({ active: false, approvalChannel: "account" });
+    const wrongUser = await read("synthetic-core-approval-secret", { applicationId: appId, userId: "usr_missing" });
+    expect((await wrongUser.json() as any).data).toEqual({ active: false, approvalChannel: "account" });
+    const missing = await read("synthetic-core-approval-secret", { applicationId: "app_missing", userId: console.userId });
+    expect((await missing.json() as any).data).toEqual({ active: false, approvalChannel: "account" });
   });
 
   it("reads and updates an existing semantic application id while new application creation remains app_*", async () => {

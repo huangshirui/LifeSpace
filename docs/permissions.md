@@ -390,3 +390,17 @@ Candidate Kernel 0.55.0 and Platform Admin 0.9.0 expose the same model-ceiling g
 ### Opaque Agent MCP discovery and execution correction (candidate)
 
 The authenticated Agent and current configured MCP Server/Space/Application/Agent context are sufficient to connect. A missing `dlg_*` selects only direct Agent authority; zero direct Grants yield no executable business operations. An explicit invalid/revoked/expired selector is rejected and never falls back to direct authority. Configuration-only discovery exposes bounded operation metadata, not User-specific eligibility or authority, from the same Server, published capability, Application Model Access and credential Scope. It does not disclose record data or operation schemas. Actual User eligibility requires a verified intended User context, and independent human approval remains necessary for represented authority. This change adds no Grant or approval path.
+
+### OAuth delegation approval channel (candidate, #629)
+
+Application approval hosting is a platform-governed policy, not a user/Agent permission, Grant or Delegation. Only trusted Applications may opt in. OAuth Agent execution alone is never sufficient to approve a request. The upcoming Core path must independently verify current User, Application, matching pending request and live authorization; existing Account confirmation and trusted workflows remain unchanged in this Identity policy slice.
+
+
+### Application-owned OAuth User Delegation decisions (candidate, #629)
+
+The OAuth Agent requests one exact operation; Core stores a non-authorizing arq_* with a server-chosen approvalChannel, defaulting to Account. Identity owns current Application trust and the current opt-in channel. An application-hosted approval requires a direct, Identity-signed User principal in the same configured Application, current active User/Application, a matching immutable User/Agent/Space/Client/Authorization/Resource request, and the current OAuth consent, scope, Server operation and User Authority. The OAuth execution token, opaque Agent credential, request ID or delegated selector cannot approve. Core reuses existing atomic Delegation issuance; change of current channel cannot transfer an existing pending request into another channel. The Application backend must independently authenticate the human confirmation and protect the user-facing endpoint against CSRF; LifeSpace does not infer human interaction from the signed User credential alone. Account and trusted n8n/WeCom flows remain unchanged. This is a candidate, not deployed.
+
+
+### Space-independent OAuth Agent enrollment (candidate, #629)
+
+MCP Server `delegationAgents=[{applicationId,agentId}]` is *Agent/Service admission metadata*, not a Data Grant or a User authorization. It permits the same active Agent to be selected under many different verified Users' managed Spaces **only through explicit OAuth consent for one exact Space** and a later independent `arq_*→dlg_*` human decision. Ordinary record operations always apply the current User and Agent authority intersection. Viewers and nonmembers do not receive new OAuth consent eligibility from this setting. The `lsp_agt_*` trusted MCP connection deliberately continues to require the original exact Space/Application/Agent configuration (or another separately governed future change), so this feature cannot silently convert client possession of an Agent credential into cross-Space transport access.

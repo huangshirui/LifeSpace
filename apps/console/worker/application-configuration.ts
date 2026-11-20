@@ -193,7 +193,7 @@ function normalizeScopes(value: unknown): string[] | null {
 }
 
 function sanitizeApplication(data: JsonRecord): JsonRecord {
-  const allowed = ["id", "name", "allowedScopes", "trustedBackend", "accessTokenTtlSeconds", "status", "createdAt", "updatedAt"];
+  const allowed = ["id", "name", "allowedScopes", "trustedBackend", "oauthDelegationApproval", "accessTokenTtlSeconds", "status", "createdAt", "updatedAt"];
   return Object.fromEntries(allowed.filter((key) => data[key] !== undefined).map((key) => [key, data[key]]));
 }
 
@@ -256,7 +256,7 @@ async function updateApplication(request: Request, env: Env, applicationId: stri
   if (guard) return guard;
   const body = await readJsonObject(request);
   if (body instanceof Response) return body;
-  const allowedKeys = new Set(["name", "allowedScopes", "accessTokenTtlSeconds", "status", "confirmApplicationId"]);
+  const allowedKeys = new Set(["name", "allowedScopes", "accessTokenTtlSeconds", "status", "oauthDelegationApproval", "confirmApplicationId"]);
   if (Object.keys(body).some((key) => !allowedKeys.has(key)) || body.confirmApplicationId !== applicationId) {
     return failure("CONFIRMATION_REQUIRED", "Application update requires confirmApplicationId to exactly match the target application", 422, requestId(request));
   }
@@ -280,6 +280,11 @@ async function updateApplication(request: Request, env: Env, applicationId: stri
   if (body.status !== undefined) {
     if (body.status !== "active" && body.status !== "disabled") return failure("VALIDATION_ERROR", "status must be active or disabled", 422, requestId(request));
     patch.status = body.status;
+  }
+  if (body.oauthDelegationApproval !== undefined) {
+    if (body.oauthDelegationApproval !== "account" && body.oauthDelegationApproval !== "application")
+      return failure("VALIDATION_ERROR", "Unknown OAuth Delegation approval channel", 422, requestId(request));
+    patch.oauthDelegationApproval = body.oauthDelegationApproval;
   }
   if (!Object.keys(patch).length) return failure("INVALID_REQUEST", "At least one mutable application field is required", 400, requestId(request));
 

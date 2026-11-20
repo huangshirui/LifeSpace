@@ -7,6 +7,10 @@ import { delegationChainStatement, groupDelegationChainRows, resolveAgentApiDele
 // Explicit protocol exposure/enrollment configuration, not a Data Grant.
 // These tuples never create a membership, authorize a record, or select a User.
 export type McpDelegationContext = { spaceId:string; applicationId:string; agentId:string };
+// Server-level Agent enrollment is deliberately Space-independent. It is
+// only an eligibility ceiling for later explicit per-User OAuth consent.
+export type McpDelegationAgent = { applicationId:string; agentId:string };
+export type McpDelegationAdmission = { contexts:McpDelegationContext[]; agents:McpDelegationAgent[] };
 const SPACE=/^spc_[A-Za-z0-9_-]{1,128}$/u;
 const APP=/^app_[A-Za-z0-9_-]{1,128}$/u;
 const AGENT=/^agt_[A-Za-z0-9_-]{1,128}$/u;
@@ -29,10 +33,33 @@ export function parseMcpDelegationContexts(raw:unknown):McpDelegationContext[]{
     return row;
   }).sort((a,b)=>key(a).localeCompare(key(b)));
 }
+export function parseMcpDelegationAgents(raw:unknown):McpDelegationAgent[]{
+  if(raw===undefined)return [];
+  if(!Array.isArray(raw)||raw.length>32)throw new ApiError("VALIDATION_ERROR","Invalid MCP delegation Agents",422);
+  const seen=new Set<string>();
+  return raw.map(value=>{
+    if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).length!==2
+      ||typeof value.applicationId!=="string"||!APP.test(value.applicationId)
+      ||typeof value.agentId!=="string"||!AGENT.test(value.agentId))
+      throw new ApiError("VALIDATION_ERROR","Invalid MCP delegation Agent",422);
+    const item={applicationId:value.applicationId,agentId:value.agentId};
+    const id=[item.applicationId,item.agentId].join(":");
+    if(seen.has(id))throw new ApiError("VALIDATION_ERROR","Duplicate MCP delegation Agent",422);
+    seen.add(id);
+    return item;
+  }).sort((a,b)=>[a.applicationId,a.agentId].join(":").localeCompare([b.applicationId,b.agentId].join(":")));
+}
+export function includesMcpDelegationAgent(rows:readonly McpDelegationAgent[],target:McpDelegationAgent):boolean{
+  return rows.some(row=>row.applicationId===target.applicationId&&row.agentId===target.agentId);
+}
+export function includesMcpOAuthEnrollment(admission:McpDelegationAdmission,target:McpDelegationContext):boolean{
+  return includesMcpDelegationContext(admission.contexts,target)
+    || includesMcpDelegationAgent(admission.agents,target);
+}
 export function includesMcpDelegationContext(rows:readonly McpDelegationContext[],target:McpDelegationContext):boolean{
   return rows.some(row=>key(row)===key(target));
 }
-export async function currentMcpDelegationContexts(env:Bindings,resource:string):Promise<McpDelegationContext[]>{
+export async function currentMcpDelegationAdmission(env:Bindings,resource:string):Promise<McpDelegationAdmission>{
   const serverId=oauthMcpServerId(resource);
   if(!serverId||new URL(resource).origin!==expectedOrigin(env))
     throw new ApiError("OAUTH_SELECTION_DENIED","MCP Resource unavailable",403);
@@ -42,10 +69,17 @@ export async function currentMcpDelegationContexts(env:Bindings,resource:string)
   try {
     const config=JSON.parse(row.config_json);
     if(!config||typeof config!=="object"||Array.isArray(config))throw Error("Invalid configuration");
-    return parseMcpDelegationContexts(config.delegationContexts);
+    return {contexts:parseMcpDelegationContexts(config.delegationContexts),agents:parseMcpDelegationAgents(config.delegationAgents)};
   }catch{
     throw new ApiError("OAUTH_SELECTION_DENIED","Invalid MCP Server configuration",403);
   }
+}
+
+// Trusted opaque-Agent MCP intentionally keeps its existing exact Space
+// enrollment requirement: the new pair-only list admits OAuth consent only,
+// and MUST NOT broaden a credential-only trusted MCP connection.
+export async function currentMcpDelegationContexts(env:Bindings,resource:string):Promise<McpDelegationContext[]>{
+  return (await currentMcpDelegationAdmission(env,resource)).contexts;
 }
 
 // A trusted Agent credential alone is not a Server or Space selection.

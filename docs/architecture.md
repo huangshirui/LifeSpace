@@ -455,3 +455,8 @@ Identity retains authority ownership; metadata retrieval is untrusted protocol a
 ## 2026-11-12 · Console-owned OAuth admission (candidate)
 
 The current Identity D1 admission policy is the single source of truth for CIMD and DCR enablement. Staging and Production are isolated through their own Identity databases, not duplicated environment flags. Mandatory network and limiter configuration is a deployment invariant, not a second product switch.
+
+
+### OAuth MCP Agent enrollment boundary (candidate)
+
+An enabled MCP Server may carry Space-independent `Application × Agent` enrollment metadata for subsequent **explicit User OAuth consent**. This belongs to authoritative Server capability/identity governance in Core/Identity, not to ALOHA/Hermes or the MCP Adapter. The Account verified User chooses an exact manageable Space; Identity issues a resource- and Space-bound OAuth authorization, and Core separately requires User-approved Delegation before represented execution. This is not a Data Grant. The original exact Space/Application/Agent context continues to gate opaque `lsp_agt_*` MCP transport.

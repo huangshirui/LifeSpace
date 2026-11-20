@@ -10,7 +10,7 @@ import type { ModelAccess } from "./model-definition";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
 import { projectMcpPersonOperations } from "./mcp-generic-operations";
 import { expectedOrigin } from "./mcp-resource-ingress";
-import { currentMcpDelegationContexts, includesMcpDelegationContext } from "./mcp-delegation-contexts";
+import { currentMcpDelegationAdmission, includesMcpOAuthEnrollment } from "./mcp-delegation-contexts";
 
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
 type ConsentInput = {
@@ -112,17 +112,25 @@ export function registerOAuthConsentRoutes(app: App): void {
     const query=new URL(c.req.url).searchParams;
     const resource=query.get("resource");
     if(query.size!== (resource===null?0:1))throw new ApiError("INVALID_REQUEST","Invalid MCP Resource selector",400);
-    const configured=resource===null?[]:await currentMcpDelegationContexts(c.env,resource);
+    const admission=resource===null?{contexts:[],agents:[]}:await currentMcpDelegationAdmission(c.env,resource);
+    const configured=admission.contexts;
     // A configured context is visible only in a Space the verified Account
     // User can manage. Never enumerate global Agent identities.
     const managedIds=[...new Set(configured.map(row=>row.spaceId))];
-    const managed=managedIds.length?await c.env.DB.prepare(
-      "SELECT s.id spaceId,s.name spaceName FROM space_memberships m JOIN spaces s ON s.id=m.space_id AND s.deleted_at IS NULL "+
-      "WHERE m.user_id=? AND m.deleted_at IS NULL AND m.role IN ('owner','admin') AND s.id IN ("+managedIds.map(()=>"?").join(",")+")"
-    ).bind(principal.id,...managedIds).all<{spaceId:string;spaceName:string}>():{results:[]};
+    const managed=admission.agents.length
+      ? await c.env.DB.prepare(
+        "SELECT DISTINCT s.id spaceId,s.name spaceName FROM space_memberships m "+
+        "JOIN spaces s ON s.id=m.space_id AND s.deleted_at IS NULL "+
+        "WHERE m.user_id=? AND m.deleted_at IS NULL AND m.role IN ('owner','admin') "+
+        "ORDER BY s.name,s.id LIMIT 100"
+      ).bind(principal.id).all<{spaceId:string;spaceName:string}>()
+      : managedIds.length?await c.env.DB.prepare(
+        "SELECT s.id spaceId,s.name spaceName FROM space_memberships m JOIN spaces s ON s.id=m.space_id AND s.deleted_at IS NULL "+
+        "WHERE m.user_id=? AND m.deleted_at IS NULL AND m.role IN ('owner','admin') AND s.id IN ("+managedIds.map(()=>"?").join(",")+")"
+      ).bind(principal.id,...managedIds).all<{spaceId:string;spaceName:string}>():{results:[]};
     const names=new Map(managed.results.map(row=>[row.spaceId,row.spaceName]));
     const configuredVisible=configured.filter(row=>names.has(row.spaceId));
-    const ids = [...new Set([...rows.results.map((r) => r.agentId),...configuredVisible.map(r=>r.agentId)])].slice(0, 30);
+    const ids = [...new Set([...admission.agents.map(row=>row.agentId),...configuredVisible.map(r=>r.agentId),...rows.results.map((r) => r.agentId)])].slice(0, 30);
     const contexts = await resolveAgentContexts(c.env, ids);
     const result: Array<AgentCandidate & {spaceId:string;spaceName:string;requiresUserAuthorization?:boolean}> =
       rows.results.filter((r) => ids.includes(r.agentId)).flatMap((space) =>
@@ -132,6 +140,18 @@ export function registerOAuthConsentRoutes(app: App): void {
       const agent=contexts.find(row=>row.agentId===binding.agentId&&row.applicationId===binding.applicationId);
       if(!agent||result.some(row=>row.spaceId===binding.spaceId&&row.agentId===binding.agentId&&row.applicationId===binding.applicationId))continue;
       result.push({...agent,spaceId:binding.spaceId,spaceName:names.get(binding.spaceId)!,requiresUserAuthorization:true});
+    }
+    // Space-independent enrolled Agent pairs are projected only across the
+    // signed-in manager's current Spaces. Identity revalidates every active
+    // Agent↔Application binding, and actual access still needs a separate dlg_*.
+    for(const pair of admission.agents){
+      const agent=contexts.find(row=>row.agentId===pair.agentId&&row.applicationId===pair.applicationId);
+      if(!agent)continue;
+      for(const space of managed.results){
+        if(result.length>=100)break;
+        if(result.some(row=>row.spaceId===space.spaceId&&row.agentId===agent.agentId&&row.applicationId===agent.applicationId))continue;
+        result.push({...agent,spaceId:space.spaceId,spaceName:space.spaceName,requiresUserAuthorization:true});
+      }
     }
     c.header("Cache-Control", "no-store");
     return c.json(success({ candidates: result.slice(0, 100) }));
@@ -222,8 +242,8 @@ export function registerOAuthConsentRoutes(app: App): void {
     }
     const eligible = await candidates(c.env, spaceId);
     if (!eligible.some((r) => r.applicationId === appId && r.agentId === agentId)) {
-      const configured=await currentMcpDelegationContexts(c.env,resource!);
-      const exact=includesMcpDelegationContext(configured,{applicationId:appId,spaceId,agentId});
+      const admission=await currentMcpDelegationAdmission(c.env,resource!);
+      const exact=includesMcpOAuthEnrollment(admission,{applicationId:appId,spaceId,agentId});
       const binding=exact?await resolveAgentContexts(c.env,[agentId]):[];
       if(!binding.some(row=>row.applicationId===appId&&row.agentId===agentId))
         throw new ApiError("OAUTH_SELECTION_DENIED","Agent/Application is not an eligible MCP context",403);
@@ -364,8 +384,8 @@ export function registerOAuthConsentRoutes(app: App): void {
       const info=pending.ok?await pending.json<{data?:{id?:string;resource?:string}}>().catch(()=>null):null;
       if(info?.data?.id!==requestId||typeof info.data.resource!=="string")
         throw new ApiError("OAUTH_SELECTION_DENIED","Pending MCP Resource unavailable",403);
-      const configured=await currentMcpDelegationContexts(c.env,info.data.resource);
-      const exact=includesMcpDelegationContext(configured,selected);
+      const admission=await currentMcpDelegationAdmission(c.env,info.data.resource);
+      const exact=includesMcpOAuthEnrollment(admission,selected);
       const binding=exact?await resolveAgentContexts(c.env,[selected.agentId]):[];
       if(!binding.some(row=>row.applicationId===selected.applicationId&&row.agentId===selected.agentId))
         throw new ApiError("OAUTH_SELECTION_DENIED","Agent/Application is not an eligible MCP context",403);

@@ -432,3 +432,8 @@ The existing private Resource Server `POST /oauth/execution-tokens` accepts opti
 ### Opaque Agent MCP transport correction (candidate)
 
 The configured MCP Resource and selected Space are transport context, not authority. `lsp_agt_*` authenticates independently of `dlg_*`; absent selector means direct Agent authority, explicit selector means represented User authority only after current checks. An invalid supplied selector fails closed. The configuration-only operation inventory uses actual credential scopes and Application exposure without granting access. User-specific eligibility and independent application-hosted approval remain a separate design/implementation gate; the transport does not expose a confirmation endpoint. Not deployed by this correction.
+
+
+### OAuth Agent pair enrollment versus opaque Agent credential (candidate)
+
+New MCP Server `delegationAgents` is only a Space-independent **OAuth consent enrollment** ceiling. It neither creates nor upgrades an `lsp_agt_*` credential, Agent Data Grant or represented User Delegation. The opaque Agent MCP path still requires its exact configured Space/Application/Agent tuple, and all represented execution still requires a valid `dlg_*`. The same Agent identity may be used by multiple consenting Users without a new Agent per User. Identity's active Agent/Application binding and Core's current User/Space/operation authority remain mandatory.
