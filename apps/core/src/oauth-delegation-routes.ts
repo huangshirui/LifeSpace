@@ -244,6 +244,36 @@ function assertAccountOwner(principal: Principal, env: Bindings, row: RequestRow
   if (row.intended_user_id !== userId) throw fail();
 }
 
+function applicationUser(principal: Principal, applicationId?: string): string {
+  // An OAuth execution token (Agent), an Agent API credential, or an
+  // application credential can never act as the human approver.
+  if (principal.type !== "user" || principal.actor || principal.purpose
+    || !principal.scopes.includes("profile:read")
+    || !/^app_[A-Za-z0-9_-]+$/u.test(principal.clientId)
+    || (applicationId !== undefined && applicationId !== principal.clientId)) {
+    throw new ApiError("FORBIDDEN","Direct authenticated Application User is required",403);
+  }
+  return principal.id;
+}
+async function requireCurrentApplicationApproval(env: Bindings, principal: Principal): Promise<void> {
+  if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET)
+    throw new ApiError("OAUTH_NOT_CONFIGURED","OAuth application approval unavailable",503);
+  let response: Response;
+  try {
+    response = await env.IDENTITY.fetch("https://identity.internal/introspection/v1/oauth-approval-applications", {
+      method:"POST",
+      headers:{"content-type":"application/json","x-lifespace-internal-secret":env.CORE_IDENTITY_SHARED_SECRET},
+      body:JSON.stringify({applicationId:principal.clientId,userId:principal.id}),
+    });
+  } catch { throw new ApiError("OAUTH_UNAVAILABLE","Current Application approval policy unavailable",503); }
+  const result=response.ok?await response.json<{data?:{active?:unknown;approvalChannel?:unknown}}>().catch(()=>null):null;
+  if (!result?.data || typeof result.data.active!=="boolean"
+    || (result.data.approvalChannel!=="account" && result.data.approvalChannel!=="application"))
+    throw new ApiError("OAUTH_UNAVAILABLE","Current Application approval policy unavailable",503);
+  if (!result.data.active || result.data.approvalChannel!=="application")
+    throw new ApiError("FORBIDDEN","Application-hosted OAuth approval is disabled",403);
+}
+
 export async function requireOAuthMcpDelegatedOperation(
   env: Bindings, principal: Principal, method: string, path: string, providedId: string,
 ): Promise<void> {
@@ -293,6 +323,60 @@ export async function requireOAuthMcpDelegatedOperation(
       && path.startsWith(prefix+"/") && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1));
   if (!valid) throw fail();
   await liveConsent(env,loaded.row,loaded.binding);
+}
+
+async function decideOAuth(c: Context<AppEnv>, channel: ApprovalChannel) {
+    const loaded=await load(c.env,c.req.param("requestId"));
+    const principal=c.get("principal");
+    const userId=channel==="account"?account(principal,c.env):applicationUser(principal,loaded.row.application_id);
+    if ((loaded.binding.approvalChannel??"account")!==channel) throw fail();
+    if (loaded.row.intended_user_id!==userId) throw fail();
+    if (c.req.param("decision")!=="approve" && c.req.param("decision")!=="deny") throw fail();
+    const body=await c.req.text();
+    const isApprove=c.req.param("decision")==="approve";
+    if (!isApprove && body!=="{}") throw new ApiError("INVALID_REQUEST","Deny accepts no options",400);
+    // The authenticated User chooses the lifetime, never the OAuth Agent.
+    // Legacy "{}" approvals retain the safe once-only default.
+    const lifetime=isApprove ? approvalLifetime(body,new Date()) : null;
+    if (isApprove && loaded.binding.operation==="file_upload" && lifetime?.mode==="once") {
+      throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED","Multi-step upload requires timed or until-revoked Delegation",422);
+    }
+    const current=statusOf(loaded.row);
+    if (current!=="pending") throw new ApiError("AUTHORIZATION_REQUEST_NOT_PENDING","Approval is no longer pending",409);
+    const admission=await liveConsent(c.env,loaded.row,loaded.binding);
+    if (admission.approvalChannel!==channel) throw fail();
+    const scopes=admission.scopes;
+    const now=new Date().toISOString();
+    if (!isApprove) {
+      await c.env.DB.prepare(
+        "INSERT INTO authorization_request_transitions(request_id,status,transitioned_at,actor_type,actor_id) VALUES(?,'denied',?,'user',?)"
+      ).bind(loaded.row.id,now,userId).run();
+      return c.json(success({id:loaded.row.id,status:"denied"}));
+    }
+    const delegated:Principal={type:"user",id:userId,clientId:loaded.row.application_id,
+      scopes,tokenId:principal.tokenId};
+    const constraints={...(lifetime!.maxUses===1?{maxUses:1 as const}:{}),
+      ...(lifetime!.expiresAt?{expiresAt:lifetime!.expiresAt}:{}),remainingRedelegationDepth:0};
+    const issues=await prepareDelegationIssues(c.env,delegated,loaded.row.source_space_id,[{
+      actor:{type:"agent",id:loaded.row.requesting_agent_id},
+      scope:{target:{type:"model",id:delegationTarget(loaded.binding.modelKey)},maxAccess:loaded.item.max_access},
+      constraints,
+    }],{type:"user",id:userId});
+    const issue=issues[0]!;
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "INSERT INTO authorization_request_transitions(request_id,status,transitioned_at,actor_type,actor_id) VALUES(?,'approved',?,'user',?)"
+      ).bind(loaded.row.id,now,userId),
+      c.env.DB.prepare("UPDATE authorization_request_items SET max_uses=?,delegation_expires_at=? WHERE request_id=? AND ordinal=0")
+        .bind(lifetime!.maxUses,lifetime!.expiresAt,loaded.row.id),
+      ...delegationIssueStatements(c.env,delegated,loaded.row.source_space_id,issues),
+      c.env.DB.prepare(
+        "INSERT INTO authorization_request_delegations(request_id,ordinal,delegation_id) VALUES(?,0,?)"
+      ).bind(loaded.row.id,issue.delegationId),
+    ]);
+    c.header("Cache-Control","no-store");
+    return c.json(success({id:loaded.row.id,status:"approved",
+      delegations:delegationIssueDtos(delegated,loaded.row.source_space_id,issues)}));
 }
 
 export function registerOAuthDelegationRoutes(app: App): void {
@@ -422,6 +506,68 @@ export function registerOAuthDelegationRoutes(app: App): void {
     if ((loaded.binding.approvalChannel??"account")!=="account") throw fail();
     const admission=await liveConsent(c.env,loaded.row,loaded.binding);
     if (admission.approvalChannel!=="account") throw fail();
+    c.header("Cache-Control","no-store");
+    return c.json(success(summary(loaded.row,loaded.binding,
+      statusOf(loaded.row)==="approved"?await delegationId(c.env,loaded.row.id):null,loaded.item)));
+  });
+  // Application-hosted queue is visible only to the direct authenticated User
+  // in the same currently trusted, explicitly opted-in Application. No agent
+  // token or request ID is proof of approval.
+  app.get("/api/v1/me/oauth/application-delegation-requests",async c=>{
+    const principal=c.get("principal"),userId=applicationUser(principal);
+    await requireCurrentApplicationApproval(c.env,principal);
+    const params=new URL(c.req.url).searchParams;
+    if ([...params.keys()].some(k=>k!=="offset"&&k!=="authorizationId")
+      || [...params.keys()].some(k=>params.getAll(k).length!==1))
+      throw new ApiError("INVALID_REQUEST","Unsupported approval queue query",400);
+    const raw=params.get("offset")??"0";
+    if (!/^(0|[1-9][0-9]{0,3})$/u.test(raw))
+      throw new ApiError("INVALID_REQUEST","Invalid approval queue page",400);
+    const authId=params.get("authorizationId");
+    if (authId!==null&&!/^oaz_[A-Za-z0-9_-]{10,128}$/u.test(authId))
+      throw new ApiError("INVALID_REQUEST","Invalid OAuth Authorization filter",400);
+    const rows=await c.env.DB.prepare(`SELECT r.id,r.source_space_id,r.created_at,r.expires_at,r.correlation_json
+      FROM authorization_requests r
+      LEFT JOIN authorization_request_transitions t ON t.request_id=r.id
+      WHERE r.intended_user_id=? AND r.application_id=? AND t.request_id IS NULL
+        AND r.expires_at>?
+        AND (CASE WHEN json_valid(r.correlation_json) THEN
+          json_extract(r.correlation_json,'$.channel') ELSE '' END)='oauth_mcp'
+        AND (CASE WHEN json_valid(r.correlation_json) THEN
+          json_extract(r.correlation_json,'$.approvalChannel') ELSE '' END)='application'
+        AND (? IS NULL OR (CASE WHEN json_valid(r.correlation_json) THEN
+          json_extract(r.correlation_json,'$.authorizationId') ELSE '' END)=?)
+      ORDER BY r.created_at DESC,r.id DESC LIMIT 21 OFFSET ?`)
+      .bind(userId,principal.clientId,new Date().toISOString(),authId,authId,Number(raw))
+      .all<{id:string;source_space_id:string;created_at:string;expires_at:string;correlation_json:string}>();
+    const items=rows.results.slice(0,20).flatMap(row=>{
+      try {
+        const binding=JSON.parse(row.correlation_json) as Binding;
+        if (!binding || binding.channel!=="oauth_mcp"||binding.approvalChannel!=="application"
+          || !validOp(binding.operation)||typeof binding.reason!=="string"
+          || typeof binding.clientId!=="string"||typeof binding.modelKey!=="string") return [];
+        return [{id:row.id,status:"pending" as const,spaceId:row.source_space_id,
+          createdAt:row.created_at,expiresAt:row.expires_at,
+          authorizationId:binding.authorizationId,clientId:binding.clientId,
+          modelKey:binding.modelKey,operation:binding.operation,reason:binding.reason}];
+      } catch { return []; }
+    });
+    c.header("Cache-Control","no-store");
+    return c.json(success({items,nextOffset:rows.results.length>20?Number(raw)+20:null}));
+  });
+  app.get("/api/v1/me/oauth/application-delegation-requests/:requestId",async c=>{
+    const loaded=await load(c.env,c.req.param("requestId"));
+    const principal=c.get("principal");
+    if (applicationUser(principal,loaded.row.application_id)!==loaded.row.intended_user_id
+      || (loaded.binding.approvalChannel??"account")!=="application") throw fail();
+    const admission=await liveConsent(c.env,loaded.row,loaded.binding);
+    if (admission.approvalChannel!=="application") throw fail();
+    c.header("Cache-Control","no-store");
+    return c.json(success(summary(loaded.row,loaded.binding,
+      statusOf(loaded.row)==="approved"?await delegationId(c.env,loaded.row.id):null,loaded.item)));
+  });
+  app.post("/api/v1/me/oauth/delegation-requests/:requestId/:decision",c=>decideOAuth(c,"account"));
+  app.post("/api/v1/me/oauth/application-delegation-requests/:requestId/:decision",c=>decideOAuth(c,"application"));nel!=="account") throw fail();
     c.header("Cache-Control","no-store");
     return c.json(success(summary(loaded.row,loaded.binding,
       statusOf(loaded.row)==="approved"?await delegationId(c.env,loaded.row.id):null,loaded.item)));
