@@ -43,6 +43,7 @@ export type Application = {
   allowedScopes: string[];
   trustedBackend: boolean;
   oauthDelegationApproval?: "account" | "application";
+  oauthDelegationApproval?: "account" | "application";
   accessTokenTtlSeconds: number;
   status: "active" | "disabled" | string;
   createdAt: string;
