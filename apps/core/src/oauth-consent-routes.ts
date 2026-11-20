@@ -130,7 +130,7 @@ export function registerOAuthConsentRoutes(app: App): void {
       ).bind(principal.id,...managedIds).all<{spaceId:string;spaceName:string}>():{results:[]};
     const names=new Map(managed.results.map(row=>[row.spaceId,row.spaceName]));
     const configuredVisible=configured.filter(row=>names.has(row.spaceId));
-    const ids = [...new Set([...rows.results.map((r) => r.agentId),...configuredVisible.map(r=>r.agentId),...admission.agents.map(row=>row.agentId)])].slice(0, 30);
+    const ids = [...new Set([...admission.agents.map(row=>row.agentId),...configuredVisible.map(r=>r.agentId),...rows.results.map((r) => r.agentId)])].slice(0, 30);
     const contexts = await resolveAgentContexts(c.env, ids);
     const result: Array<AgentCandidate & {spaceId:string;spaceName:string;requiresUserAuthorization?:boolean}> =
       rows.results.filter((r) => ids.includes(r.agentId)).flatMap((space) =>
