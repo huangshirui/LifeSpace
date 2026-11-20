@@ -343,7 +343,6 @@ describe("Identity Platform Admin API", () => {
       body: JSON.stringify(body),
     }, pair);
     expect((await read("incorrect", { applicationId: appId, userId: console.userId })).status).toBe(401);
-    expect((await read("synthetic-core-approval-secret", { applicationId: appId, userId: console.userId })).status).toBe(400);
     expect((await read("synthetic-core-approval-secret", { applicationId: appId })).status).toBe(400);
     const active = await read("synthetic-core-approval-secret", { applicationId: appId, userId: console.userId });
     expect((await active.json() as any).data).toEqual({ active: true, approvalChannel: "application" });
