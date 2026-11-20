@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: LifeSpace Core Account OAuth Consent Bridge
-  version: 0.4.0
+  title: LifeSpace Core OAuth Consent and Delegation Approval
+  version: 0.5.0
   description: >
-    Candidate Account-only, user-session-bound OAuth consent confirmation.
+    Candidate Account-only OAuth consent and application-governed Delegation approval.
     Core verifies current Space manage authority, then calls Identity through a
     trusted Service Binding; this never creates a Data Grant or Delegation.
 paths:
@@ -13,9 +13,11 @@ paths:
       description: >
         Third-party OAuth Agent only; requests one exact currently enabled
         Server Native Model operation from the OAuth consenting User.
-        Creates a pending arq_* with no authority and returns a LifeSpace
-        Account URL. The existing trusted Agent/WeCom approval endpoint
-        is not available through this transport.
+        Creates non-authorizing arq_* bound to the current Application approval policy.
+        Account channel returns an approval URL; opted-in trusted Application
+        returns structured pending status without an Account URL. Neither
+        OAuth Client nor Agent chooses the channel. Trusted Agent/WeCom
+        confirmation remains isolated from this OAuth request family.
       security: [{ oauthAgentCoreBearer: [] }]
       parameters:
         - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
@@ -32,7 +34,7 @@ paths:
                 operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
                 reason: { type: string, minLength: 4, maxLength: 250 }
       responses:
-        '201': { description: Pending arq and exact Account URL; no Delegation issued }
+        '201': { description: Pending arq with approvalChannel and Account URL only for account; no Delegation issued }
         '400': { description: Invalid operation, model, or reason }
         '403': { description: OAuth opt-in, active Scope or current Server operation missing }
         '429': { description: Too many pending requests }
@@ -47,13 +49,13 @@ paths:
         - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
         - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^arq_' } }
       responses:
-        '200': { description: Current status with dlg_* only after Account approval }
+        '200': { description: Current status with dlg_* only after independent User approval }
         '404': { description: Cross-Client, User, Server or Agent request }
   /api/v1/me/oauth/delegation-requests/{requestId}:
     get:
       operationId: getAccountUserOAuthMcpDelegationRequest
       description: >
-        Verifies exact Account Application User and live OAuth Consent
+        Verifies exact Account Application User, Account approval policy and live OAuth Consent
         before displaying bounded request details; URL grants no authority.
       security: [{ accountUserBearer: [] }]
       parameters:
@@ -69,7 +71,7 @@ paths:
         Identity-confirmed Account User, same-origin and CSRF checked by
         Account BFF. Approve atomically issues a User-selected single-use,
         time-limited repeated-use (1h/24h/7d), or until-revoked dlg_*.
-        Only the authenticated Account User may choose the lifetime;
+        Only the authenticated Account User may choose the lifetime while the configured channel is Account;
         omission retains the legacy single-use default. Deny grants no authority. Does not modify trusted in-app
         or WeCom confirmation contracts.
       security: [{ accountUserBearer: [] }]
@@ -94,6 +96,68 @@ paths:
         '403': { description: OAuth, Account User or requested authority denied }
         '404': { description: Wrong User or cross-Client request }
         '409': { description: Expired or previously finalized request }
+  /api/v1/me/oauth/application-delegation-requests:
+    get:
+      operationId: listApplicationOAuthMcpDelegationRequests
+      description: >
+        Bounded currently pending OAuth arq_* belonging to the direct authenticated
+        User in the exact registered Application. Requires a fresh trustedBackend
+        plus explicit application approval policy and active User; no Agent,
+        OAuth Client or Agent Credential can read this route. Optional exact
+        OAuth Authorization filter and bounded offset prevent cross-run conflation.
+        Listing is Context Projection, never approval or Delegation.
+      security: [{ applicationUserBearer: [] }]
+      parameters:
+        - { in: query, name: authorizationId, required: false, schema: { type: string, pattern: '^oaz_' } }
+        - { in: query, name: offset, required: false, schema: { type: integer, minimum: 0, maximum: 9999 } }
+      responses:
+        '200': { description: Pending requests with nextOffset, no-store }
+        '400': { description: Unsupported or duplicate filters }
+        '403': { description: Current Application policy or direct User missing }
+  /api/v1/me/oauth/application-delegation-requests/{requestId}:
+    get:
+      operationId: getApplicationOAuthMcpDelegationRequest
+      description: >
+        Exact User/Application-scoped OAuth request with matching current
+        Authorization and application-owned approval policy. Opaque not-found
+        for cross-Application or cross-User request.
+      security: [{ applicationUserBearer: [] }]
+      parameters:
+        - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^arq_' } }
+      responses:
+        '200': { description: Canonical request preview and current status }
+        '403': { description: Live OAuth authorization or policy revoked }
+        '404': { description: Wrong User/Application/channel }
+  /api/v1/me/oauth/application-delegation-requests/{requestId}/{decision}:
+    post:
+      operationId: applicationDecideOAuthMcpDelegation
+      description: >
+        The trusted Application's backend obtains an Identity-signed direct
+        User JWT only after independently verified human interaction. Core
+        matches the exact current User, Application, immutable OAuth request,
+        live Authorization, configured approval channel, model/Space authority,
+        and atomic Delegation issuance. OAuth Agent or generic trusted Agent
+        credentials never approve. Same Account lifetime restrictions apply.
+      security: [{ applicationUserBearer: [] }]
+      parameters:
+        - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^arq_' } }
+        - { in: path, name: decision, required: true, schema: { type: string, enum: [approve, deny] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                mode: { type: string, enum: [once, timed, until_revoked] }
+                durationMinutes: { type: integer, enum: [60, 1440, 10080] }
+              description: Deny requires empty object. Approve selects one allowed lifetime.
+      responses:
+        '200': { description: User-confirmed atomic decision and bounded Delegation response }
+        '403': { description: User, current Application policy or OAuth authority denied }
+        '404': { description: Wrong User/Application/channel }
+        '409': { description: Expired, final or concurrently decided request }
   /api/v1/me/oauth/delegations:
     get:
       operationId: listAccountOAuthMcpDelegations
@@ -227,6 +291,11 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Identity-signed <=60s exact OAuth MCP Agent token, not public OAuth bearer.
+    applicationUserBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Identity-signed direct User JWT bound to the opted-in trusted owning Application. The Application BFF must independently verify same-origin/CSRF and real user confirmation; never an OAuth Agent token.
     accountUserBearer:
       type: http
       scheme: bearer
