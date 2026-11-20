@@ -714,9 +714,10 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [applicationId]
+              required: [applicationId, userId]
               properties:
                 applicationId: { type: string, pattern: '^app_' }
+                userId: { type: string, pattern: '^usr_' }
       responses:
         '200':
           description: Current Application state; account is the safe default.
