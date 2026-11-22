@@ -5,7 +5,8 @@ import type { Context, Hono } from "hono";
 import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import { requirePersonDirectoryPermission } from "./authorization";
 import { requireDirectoryAccess } from "./person-directory";
-import { requireTrustedMcpContext } from "./mcp-delegation-contexts";
+import { requireAgentDelegationSelection } from "./agent-delegation-selection";
+import { currentMcpOAuthQueryPolicy } from "./mcp-oauth-server-policy";
 import { applicationModelCatalog, configurationAccess } from "./configuration-model-discovery";
 import { getExternalModel, externalAuthorityModel } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
@@ -148,9 +149,16 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
   if(trusted&&eligibility)throw denied();
   if(configuration&&(!trusted||selector!==undefined||targetRef))throw denied();
   const metadataOnly=eligibility||configuration;
-  // OAuth has an authenticated live policy; trusted Agent API uses an explicit
-  // configured Server/Application/Space/Agent tuple plus selected Delegation.
-  const policy=trusted?await requireTrustedMcpContext(c.env,principal,spaceId,trustedResource,selector)
+  // The authenticated Agent's Identity Application binding is verified by
+  // its credential. The selected MCP Resource only narrows exposed operations,
+  // not Agent enrollment or Space authority. Explicit dlg_* selection is
+  // verified independently by the protocol-neutral Core Delegation engine.
+  if(trusted){
+    if(!trustedResource)throw denied();
+    await requireAgentDelegationSelection(c.env,principal,spaceId,selector);
+  }
+  const policy=trusted?await currentMcpOAuthQueryPolicy(c.env.DB,trustedResource!,"GET",
+      "/api/v1/spaces/"+spaceId+"/_discovery/operations")
     :{serverId:execution!.serverId!,modelOperations:execution!.modelOperations!,
       personOperations:execution!.personOperations!};
   // Eligibility is an explicit, non-executing projection of the intended
