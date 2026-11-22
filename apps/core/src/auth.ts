@@ -25,7 +25,8 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
   // spaceId is validated against an ASCII-only identifier grammar above.
   const escaped = spaceId;
   if (method === "GET") {
-    return path === "/api/v1/spaces/" + escaped + "/_discovery/operations"
+    return path === "/api/v1/spaces/" + escaped + "/_authority/delegation-eligibility"
+      || path === "/api/v1/spaces/" + escaped + "/_discovery/operations"
       || new RegExp("^/api/v1/spaces/" + escaped + "/people(?:/per_[A-Za-z0-9_-]+)?$", "u").test(path)
       || new RegExp("^/api/v1/spaces/" + escaped + "/_discovery/models/[a-z][a-z0-9_-]{0,63}$", "u").test(path)
       || new RegExp("^/api/v1/spaces/" + escaped + "/models/[a-z][a-z0-9_]{1,62}/records/rec_[A-Za-z0-9_-]+$", "u").test(path);

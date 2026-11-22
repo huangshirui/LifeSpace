@@ -25,6 +25,16 @@
 <label for="application">Application <small>应用</small></label><select id="application" required><option value="">请选择应用</option></select>
 <label for="space">Space <small>空间</small></label><select id="space" required disabled><option value="">请先选择应用</option></select>
 <label for="agent">Agent <small>实际执行者</small></label><select id="agent" required disabled><option value="">请先选择应用</option></select>
+<details class="known-agent" id="known-agent">
+<summary>没有找到 Agent？按现有 Agent ID 验证</summary>
+<p>仅验证已存在的 Agent 与 Application 身份。必须选择你管理的空间；不会创建 Data Grant 或自动批准委托。</p>
+<div class="known-agent-fields">
+<label for="known-space">Space ID<input id="known-space" type="text" autocomplete="off" placeholder="spc_…" maxlength="132"></label>
+<label for="known-agent-id">Agent ID<input id="known-agent-id" type="text" autocomplete="off" placeholder="agt_…" maxlength="132"></label>
+</div>
+<button type="button" id="lookup-known-agent" class="ghost">验证并选择 Agent</button>
+<p id="known-agent-status" role="status" aria-live="polite"></p>
+</details>
 <fieldset class="modes"><legend>执行许可模式 <small>Execution mode</small></legend>
 <label class="radio-row" for="direct"><input id="direct" type="radio" name="mode" value="direct" checked><span><strong>仅使用 Agent 自身权限</strong><small>仅限 Agent 当前独立持有的 Grant</small></span></label>
 <label class="radio-row" for="allow"><input id="allow" type="radio" name="mode" value="allow"><span><strong>允许 Agent 申请用户授权</strong><small>只是允许申请；每次代表你操作仍需独立确认 Delegation</small></span></label>

@@ -461,9 +461,8 @@ const MCP_OPERATION = /^(get|query|create|update|delete|file_read|file_upload|ac
 function mcpConfiguration(value: unknown): {
   models: Array<{ modelKey: string; operations: string[] }>;
   resources?: Array<{ resourceKey: "person_directory"; operations: string[] }>;
-  delegationContexts?: Array<{spaceId:string;applicationId:string;agentId:string}>;
 } | null {
-  if (!isRecord(value) || Object.keys(value).some((key) => !["models","resources","delegationContexts"].includes(key))
+  if (!isRecord(value) || Object.keys(value).some((key) => !["models","resources"].includes(key))
     || !Array.isArray(value.models) || value.models.length > 32) return null;
   const seen = new Set<string>();
   const models: Array<{ modelKey: string; operations: string[] }> = [];
@@ -491,22 +490,7 @@ function mcpConfiguration(value: unknown): {
     }
   }
   if (!models.length && !resources?.length) return null;
-  const delegationContexts:Array<{spaceId:string;applicationId:string;agentId:string}>=[];
-  const contexts=new Set<string>();
-  if(value.delegationContexts!==undefined){
-    if(!Array.isArray(value.delegationContexts)||value.delegationContexts.length>32)return null;
-    for(const row of value.delegationContexts){
-      if(!isRecord(row)||Object.keys(row).length!==3
-        ||typeof row.spaceId!=="string"||!/^spc_[A-Za-z0-9_-]{1,128}$/u.test(row.spaceId)
-        ||typeof row.applicationId!=="string"||!/^app_[A-Za-z0-9_-]{1,128}$/u.test(row.applicationId)
-        ||typeof row.agentId!=="string"||!/^agt_[A-Za-z0-9_-]{1,128}$/u.test(row.agentId))return null;
-      const key=[row.spaceId,row.applicationId,row.agentId].join(":");
-      if(contexts.has(key))return null;
-      contexts.add(key);
-      delegationContexts.push({spaceId:row.spaceId,applicationId:row.applicationId,agentId:row.agentId});
-    }
-  }
-  return {models,...(resources?{resources}:{}),...(value.delegationContexts===undefined?{}:{delegationContexts})};
+  return {models,...(resources?{resources}:{})};
 }
 function mcpBody(request: Request, value: JsonRecord, mode: "create" | "edit"): JsonRecord | Response {
   const keys = mode === "create" ? ["name", "description", "configuration"]

@@ -740,6 +740,27 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
       {modelKey:"task",operation:"query",requiredScopes:["resources:read"]},
       {modelKey:"task",operation:"get",requiredScopes:["resources:read"]},
     ]});
+    // A protocol-neutral Authority route provides the same metadata-only
+    // eligibility without exposing executable operationRefs or User data.
+    const authority=base+"/_authority/delegation-eligibility";
+    const canonical=await f.request("GET",authority,claims);
+    expect(canonical.status).toBe(200);
+    expect((await canonical.json() as {data:unknown}).data).toEqual({eligibleOperations:[
+      {modelKey:"task",operation:"get",requiredScopes:["resources:read"]},
+      {modelKey:"task",operation:"query",requiredScopes:["resources:read"]},
+    ]});
+    const narrowed=await f.request("GET",authority+"?modelKey=task&operation=query",claims);
+    expect((await narrowed.json() as {data:unknown}).data).toEqual({eligibleOperations:[
+      {modelKey:"task",operation:"query",requiredScopes:["resources:read"]},
+    ]});
+    expect((await f.request("GET",authority+"?userId="+f.oauthUser,claims)).status).toBe(400);
+    expect((await f.request("GET",authority+"?modelKey=task&operation=create",claims)).status).toBe(200);
+    // Current Identity introspection denies mismatched consent before route dispatch.
+    expect((await f.request("GET",authority)).status).toBe(401);
+    expect((await f.request("GET",authority.replace(f.space,f.other),claims)).status).toBe(403);
+    await f.setServerEnabled(false);
+    expect((await f.request("GET",authority,claims)).status).toBe(403);
+    await f.setServerEnabled(true);
     expect((await f.request("POST",base+"/_operations/"+old.operationRef+"/invoke",claims,
       {arguments:{spaceId:f.space,data:{page:{limit:1}}}})).status).toBe(404);
     expect((await f.request("GET",eligibility+"&mode=delegation_request",claims)).status).toBe(400);
