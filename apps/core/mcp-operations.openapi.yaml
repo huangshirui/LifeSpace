@@ -215,7 +215,8 @@ paths:
                   not: { required: [fileId] }
               properties:
                 fieldKey: { type: string, maxLength: 63 }
-                fileId: { type: string, pattern: '^fil_[a-f0-9]{32}
+                fileId: { type: string, pattern: '^fil_[a-f0-9]{32}$' }
+                fileIndex: { type: integer, minimum: 0, maximum: 99 }
       responses:
         '200':
           description: Native signed File URL or current Provider HTTPS file reference; treat URL as confidential
