@@ -2,7 +2,7 @@
 // Storage kind and source model are strictly Core-internal. The public DTO
 // contains no origin, provider, Person Directory identifier or route binding.
 import type { Context, Hono } from "hono";
-import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields, externalFileReadFields } from "./file-read-fields";
 import { requireDirectoryAccess } from "./person-directory";
 import { requireAgentDelegationSelection } from "./agent-delegation-selection";
 import { currentMcpOAuthQueryPolicy } from "./mcp-oauth-server-policy";
@@ -189,7 +189,9 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
     for(const op of operations){
       if(validCrud(op)){
         if(await matches(external?"external":"native",key,op))configured.push(op);
-      }else if(op==="file_read"&&!external&&nativeFileReadFields(model.definition).length&&await matches("native",key,op))configured.push(op);
+      }else if(op==="file_read"&&(
+        external?await matches("external",key,op):nativeFileReadFields(model.definition).length&&await matches("native",key,op)
+      ))configured.push(op);
       else if(op==="file_upload"&&(
         external?await matches("external",key,op):nativeFileUploadFields(model.definition).length&&await matches("native",key,op)
       ))configured.push(op);
@@ -259,7 +261,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
         inputSchema:dataSchema,title:toolOp+" "+display,
         requiredScopes:access==="read"?["resources:read"]:["resources:read","resources:write"],
         description:operation==="file_read"
-          ?"Request a short-lived download URL for the linked file. Fetch the file directly using the returned URL before expiry. Treat the URL as a secret; do not log, persist or share it. Current Core authority is revalidated at issuance."
+          ?"Resolve the selected record-linked file using current Core authority. Native files return a short-lived signed URL; Provider files return a freshly retrieved HTTPS reference, with expiry only if the Provider supplies it. Fetch directly; keep the URL confidential. Do not persist it as File identity."
           :operation==="file_upload"
           ?"Begin or complete a file upload supported by the current model field. Begin returns a temporary signed PUT URL and required headers; transfer bytes directly, then complete with uploadId. Keep the URL secret. Core returns its authoritative completion result; any separate record attachment requires its own permission. Multi-step uploads require timed or until-revoked Delegation, not once-only."
           :"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
@@ -269,6 +271,15 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
     if(bound){
       const detail=externalSemanticDetail(bound,[...(read?["read"]:[]),...(write?["write"]:[])]);
       for(const op of configured){
+        if(op==="file_read"){
+          const fieldKeys=externalFileReadFields(bound);
+          if(read&&fieldKeys.length)await push("external",key,names(detail.display.singular),op,{
+            type:"object",additionalProperties:false,
+            properties:{fieldKey:{type:"string",enum:fieldKeys},fileIndex:{type:"integer",minimum:0,maximum:99}},
+            required:["fieldKey","fileIndex"],
+          });
+          continue;
+        }
         if(op==="file_upload"){
           const fieldKeys=externalFileUploadFields(bound);
           if(write&&fieldKeys.length)await push("external",key,names(detail.display.singular),op,
