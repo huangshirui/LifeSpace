@@ -8,7 +8,7 @@ import { listPublishedModels } from "./model-registry";
 import { visibleModelAccess } from "./runtime-discovery";
 import type { ModelAccess } from "./model-definition";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
-import { projectMcpPersonOperations } from "./mcp-generic-operations";
+import { projectPersonAuthorityOperations } from "./authority-capability-discovery";
 import { expectedOrigin } from "./mcp-resource-ingress";
 import { currentMcpDelegationContexts, includesMcpDelegationContext } from "./mcp-delegation-contexts";
 
@@ -267,7 +267,7 @@ export function registerOAuthConsentRoutes(app: App): void {
         access: [...new Set(operations.map(op => ["get", "query", "file_read"].includes(op) ? "read" : "write"))],
       }];
     });
-    const person = await projectMcpPersonOperations(c.env, direct, spaceId, personOperations);
+    const person = await projectPersonAuthorityOperations(c.env, direct, spaceId, personOperations);
     if (person.length) selected.push({
       key: "person", name: "Person", operations: person,
       access: [...new Set(person.map(op => ["get", "query"].includes(op) ? "read" : "write"))],
