@@ -253,7 +253,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
         description:operation==="file_read"
           ?"Request a short-lived download URL for the linked file. Fetch the file directly using the returned URL before expiry. Treat the URL as a secret; do not log, persist or share it. Current Core authority is revalidated at issuance."
           :operation==="file_upload"
-          ?"Begin or complete a native file upload. Begin returns a temporary signed PUT URL and required headers; upload bytes directly and then complete with uploadId. Treat URL as secret. Completion returns a File ID; attach it using a separately authorized record create or update. Multi-step upload requires timed or until-revoked Delegation, not once-only."
+          ?"Begin or complete a file upload supported by the current model field. Begin returns a temporary signed PUT URL and required headers; transfer bytes directly, then complete with uploadId. Keep the URL secret. Core returns its authoritative completion result; any separate record attachment requires its own permission. Multi-step uploads require timed or until-revoked Delegation, not once-only."
           :"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
   };
   for(const {key,configured,model,bound,semantic} of candidates){
