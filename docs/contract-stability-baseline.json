@@ -263,7 +263,7 @@
     {
       "id": "core-kernel",
       "source": "apps/core/openapi.yaml",
-      "operationSetSha256": "sha256:159862743cbae6ba9bb0bdc8fe2df77920ddba2b089ea2737065a13adef45823",
+      "operationSetSha256": "sha256:97a4f19eaadb5c6bcdfa43fdd98fe43a65bbb00bca229b677d863c0a001b953f",
       "groups": [
         {
           "id": "core-operational",
@@ -360,6 +360,12 @@
           "maturity": "candidate",
           "visibility": "public",
           "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/members/\\{userId\\}/model-access$|^(PUT|DELETE) /api/v1/spaces/\\{spaceId\\}/members/\\{userId\\}/model-access/\\{modelKey\\}$"
+        },
+        {
+          "id": "core-authority-eligibility",
+          "maturity": "candidate",
+          "visibility": "public",
+          "operationPattern": "^GET /api/v1/spaces/\\{spaceId\\}/_authority/delegation-eligibility$"
         }
       ]
     },

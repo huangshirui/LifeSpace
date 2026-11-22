@@ -1,3 +1,9 @@
+### 2026-11-22 · Delegation eligibility HTTP contract (candidate, not deployed)
+
+Core owns the shared read-only `GET /api/v1/spaces/{spaceId}/_authority/delegation-eligibility` projection and current verified User entitlement checks. For direct User callers, `modelKey` and `operation` are mandatory; for Identity-authorized OAuth Agent callers the operation candidates are constrained by the current signed User, Application, Space and Resource Server allowlist, never caller-submitted Agent claims. The response is strictly `{data:{eligibleOperations:[{modelKey,operation,requiredScopes}]}}`. No record data, raw provider identity, Model source branch, executable Tool schema, authority grant or Delegation can be inferred. Model/Provider differences are decided in Core and exposed only as absent/available capabilities; protocols translate the result unchanged.
+
+This endpoint is non-authorizing. Legacy `_discovery/operations?mode=delegation_request` temporarily remains callable for existing consumers, but the MCP Adapter now requests the stable Authority surface. It is a development Candidate pending CI, endpoint contract acceptance and real Hermes OAuth/Account/Delegation E2E.
+
 ## Delegation eligibility ownership (development candidate; not Production)
 
 The query “what could this verified User approve?” is distinct from “what can the current Agent execute?”. Core owns both effective Authority and the non-authorizing, metadata-only eligibility preview. `apps/core/src/authority-capability-discovery.ts` houses shared Person and model-access eligibility evaluation; its caller must supply a verified User identity and the current Application/Space context, never a User ID asserted by the Agent. Denial results are omitted, an eligibility result does not create a Data Grant or Delegation, and execution still rechecks current authority. Model storage/Provider origin is an internal Core concern.
