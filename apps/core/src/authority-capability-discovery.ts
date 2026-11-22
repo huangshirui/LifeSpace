@@ -70,7 +70,7 @@ export async function evaluateDelegationEligibleModels(
 
 import { getRuntimeModel } from "./model-registry";
 import { getExternalModel, externalAuthorityModel } from "./external-model";
-import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields, externalFileReadFields } from "./file-read-fields";
 
 export type DelegationEligibilityCandidate = {
   modelKey: string;
@@ -141,8 +141,10 @@ export async function projectDelegationEligibleOperations(
       if (!externalCache.has(modelKey)) externalCache.set(modelKey, await getExternalModel(env, spaceId, modelKey));
       const bound = externalCache.get(modelKey);
       if (!bound || bound.status !== "active") continue;
-      const supported = operation === "file_upload"
-        ? externalFileUploadFields(bound).length > 0
+      const supported = operation === "file_read"
+        ? externalFileReadFields(bound).length > 0
+        : operation === "file_upload"
+          ? externalFileUploadFields(bound).length > 0
         : ["get", "query", "create", "update", "delete"].includes(operation)
           && bound.snapshot.capabilities[operation as "get"|"query"|"create"|"update"|"delete"] === true;
       if (!supported || (access === "write" && bound.declared_access !== "write")) continue;
