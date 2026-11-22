@@ -127,17 +127,22 @@ paths:
   /api/v1/me/oauth/choices:
     get:
       description: >-
-        Account Application's authenticated manager User sees current membership
-        and Agent Data Grant candidates, plus explicitly configured delegation
-        enrollment contexts when the exact enabled MCP Resource is selected.
-        Zero-Grant candidates require explicit User authorization mode; this
-        selection never creates a Grant or Delegation.
+        Account User sees Agent candidates with current Space Data Grants.
+        If an exact enabled MCP Resource, managed spaceId and known opaque
+        agentId are all selected, the Core verifies the existing active
+        Identity Application-Agent binding and returns only that bounded
+        candidate even without independent Agent Data Grant. This never
+        enumerates unrelated Agents, creates a new enrollment relation,
+        grants authority or pre-approves User Delegation.
       security: [{ accountUserBearer: [] }]
       parameters:
-        - { in: query, name: resource, required: false, schema: { type: string, format: uri }, description: Exact enabled MCP Resource for additional delegation enrollment candidates }
+        - { in: query, name: resource, required: false, schema: { type: string, format: uri }, description: Exact enabled MCP Resource }
+        - { in: query, name: spaceId, required: false, schema: { type: string, pattern: '^spc_[A-Za-z0-9_-]+$' }, description: Must be paired with agentId and an exact Resource; current authenticated User must manage this Space }
+        - { in: query, name: agentId, required: false, schema: { type: string, pattern: '^agt_[A-Za-z0-9_-]+$' }, description: Known exact Agent ID; must be paired with managed spaceId }
       responses:
-        '200': { description: Bounded current candidate choices (at most 100 pairs) }
-        '403': { description: Non-Account or insufficient scope }
+        '200': { description: Bounded current candidate choices; no User Delegation granted }
+        '400': { description: Invalid selector combination }
+        '403': { description: Unauthorized Space or disabled/foreign Resource }
         '503': { description: Identity binding unavailable }
   /api/v1/me/oauth/capabilities:
     get:
