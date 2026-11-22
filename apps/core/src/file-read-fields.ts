@@ -24,13 +24,22 @@ export function nativeFileUploadFields(definition: unknown): string[] {
   return keys.filter(key => fields[key]?.readOnly !== true);
 }
 
-// Space-bound External upload is governed by the current Provider snapshot.
-// Download is deliberately not inferred: Provider file references are not Core files.
+// External file references are read through a live authorized Provider record GET.
+// They are not Core-owned File IDs; the Provider's URL remains its own credential.
+export function externalFileReadFields(model: ExternalModel): string[] {
+  if (model.status !== "active" || model.snapshot.capabilities.get !== true) return [];
+  return model.snapshot.fields
+    .filter(field => field.type === "file_ref_list" && field.readable === true)
+    .map(field => field.key).sort();
+}
+
+// A separate Provider upload operation is independent from ordinary field mutation.
+// Notion correctly marks its Files property readOnly/writable=false yet advertises
+// upload.supported=true: requiring writable here would silently disable uploads.
 export function externalFileUploadFields(model: ExternalModel): string[] {
   if (model.status !== "active" || model.declared_access !== "write") return [];
   return model.snapshot.fields
-    .filter(field => field.type === "file_ref_list" && field.upload?.supported === true
-      && field.writable === true && field.readOnly !== true)
+    .filter(field => field.type === "file_ref_list" && field.upload?.supported === true)
     .map(field => field.key).sort();
 }
 
