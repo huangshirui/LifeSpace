@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Generic Operations (Candidate)
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Protocol-neutral, authenticated operation projection for the current OAuth
     MCP Agent execution context or opaque Agent credential with configured MCP
@@ -117,21 +117,25 @@ paths:
         before dispatching through the existing canonical Kernel/Model APIs.
         Any missing descriptor requiredScopes produces HTTP 403 even when the
         operation was visible with a narrower OAuth token.
-        The explicit file_read operation requires resources:read and is available only for
-        a configured native model with file or file_list fields. Input data contains
-        fieldKey and fileId; recordId is required. A successful response contains the
-        existing short-lived FileDownloadResponse. The authorized client fetches the
-        file directly; the URL is a bearer credential, not a durable File identity.
+        The explicit file_read operation requires resources:read. Current Core-owned
+        Native file fields use data.fieldKey + data.fileId; eligible Provider-backed
+        file_ref_list fields use data.fieldKey + zero-based data.fileIndex.
+        Core always rechecks live record read authority. Native returns a
+        short-lived signed R2 URL; External returns a freshly retrieved Provider
+        HTTPS reference with its real expiry when available (none for public links).
+        The client fetches directly; Provider bytes are never proxied or copied
+        by Core. URLs must not be persisted as stable file identity.
         The explicit file_upload operation requires resources:read and resources:write.
         Data selects phase begin (fieldKey, recordId when External, name,
         contentType, size) or complete (uploadId). Native allows recordId to be
-        omitted; External requires an existing record and a current writable
-        file_ref_list Provider field with upload.supported. Begin returns the
+        omitted; External requires an existing record and an explicitly
+        upload-capable file_ref_list Provider field. Ordinary record-writable
+        flags do not control this separate upload capability (Notion files are readOnly). Begin returns the
         existing signed PUT session; complete validates staged bytes and returns
         Native File metadata or the Provider record projection, as applicable.
         Consumers use one Tool shape and never branch on model origin; they
         transfer bytes directly. Native record attachment is separately
-        authorized. External download is not implied. Multi-step uploads
+        authorized. Multi-step uploads
         reject once-only Delegation.
         OAuth Agent Direct retains its current contract. OAuth represented execution
         uses the separate exact approved canonical operation. Trusted Agent credentials
@@ -175,9 +179,11 @@ paths:
         OAuth execution or opaque Agent credential with configured Server context
         and optional explicit Delegation; selected Space, explicit file_read Server operation
         and (for represented execution) exact current User Delegation are checked.
-        Reuses the existing native File authority, record link and read policy.
-        The result is private and contains a short-lived bearer URL for direct
-        client transfer; no file bytes are returned by this operation.
+        Reuses existing current record read authority. Native files require
+        an exact fileId/field link and return an R2 signed URL. Provider files
+        use a bounded fileIndex within a freshly fetched file_ref_list and
+        return the Provider HTTPS reference and expiry if provided. No bytes
+        are transferred via this API; the returned URL must be kept secret.
       parameters:
         - $ref: '#/components/parameters/spaceId'
         - name: modelKey
@@ -201,10 +207,184 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [fieldKey, fileId]
+              required: [fieldKey]
+              oneOf:
+                - required: [fileId]
+                  not: { required: [fileIndex] }
+                - required: [fileIndex]
+                  not: { required: [fileId] }
               properties:
                 fieldKey: { type: string, maxLength: 63 }
-                fileId: { type: string, pattern: '^fil_[a-f0-9]{32}$' }
+                fileId: { type: string, pattern: '^fil_[a-f0-9]{32}
+      responses:
+        '200':
+          description: Native signed File URL or current Provider HTTPS file reference; treat URL as confidential
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: './openapi.yaml#/components/schemas/FileDownloadResponse' }
+                  - { $ref: './openapi.yaml#/components/schemas/ProviderFileDownloadResponse' }
+        '400': { description: Invalid request }
+        '401': { description: Invalid or expired authentication }
+        '403': { description: Missing current authority or configured operation }
+        '404': { description: File, model or exact link unavailable }
+        '422': { description: Invalid input }
+        '503': { description: Transfer signing unavailable }
+  /api/v1/spaces/{spaceId}/models/{modelKey}/file-uploads:
+    post:
+      operationId: beginModelFileUploadForMcp
+      description: |
+        Exact model-scoped native upload session for authorized OAuth execution
+        or opaque Agent credential with configured Server context and optional explicit Delegation.
+        Both phases require current write Scope, Server operation, model authority
+        and (when represented) exact timed or until-revoked Delegation.
+        The authorized client PUTs bytes directly using the returned URL and headers.
+      parameters:
+        - $ref: '#/components/parameters/spaceId'
+        - name: modelKey
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        - $ref: '#/components/parameters/trustedMcpResource'
+        - name: X-LifeSpace-Delegation-Id
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fieldKey, name, contentType, size]
+              properties:
+                fieldKey: { type: string, maxLength: 63 }
+                recordId: { type: string, maxLength: 256, pattern: '^rec_[A-Za-z0-9_-]+$' }
+                name: { type: string, minLength: 1, maxLength: 512 }
+                contentType: { type: string, minLength: 1, maxLength: 255 }
+                size: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: Existing native File upload session; treat signed URL as secret
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: './openapi.yaml#/components/schemas/FileUploadSessionResponse' }
+        '403': { description: Insufficient current authority or configuration }
+        '405': { description: Unsupported native writable file field }
+        '413': { description: Canonical upload size limit }
+        '422': { description: Invalid request or unsupported once-only Delegation }
+  /api/v1/spaces/{spaceId}/models/{modelKey}/file-uploads/{uploadId}/complete:
+    post:
+      operationId: completeModelFileUploadForMcp
+      description: |
+        Rechecks current authority and exact model/Space/session binding before
+        reusing the canonical upload completion. No record mutation or binary
+        transfer is performed by the protocol adapter.
+      parameters:
+        - $ref: '#/components/parameters/spaceId'
+        - name: modelKey
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        - name: uploadId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^upl_[a-f0-9]{32}$' }
+        - $ref: '#/components/parameters/trustedMcpResource'
+        - name: X-LifeSpace-Delegation-Id
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Existing native File metadata after verification; use the returned File ID in a separately authorized record mutation
+          content:
+            application/json:
+              schema: { type: object }
+        '403': { description: Insufficient current authority or mismatched execution }
+        '404': { description: Session not available for the selected model and Space }
+        '409': { description: Incomplete, expired, mismatched or non-pending upload }
+        '422': { description: Unsupported once-only Delegation }
+components:
+  securitySchemes:
+    oauthAgentExecution:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Private, Identity-signed <=60s OAuth MCP Core execution JWT.
+        The third-party OAuth access token must never be forwarded to Core.
+    trustedAgentCredential:
+      type: http
+      scheme: bearer
+      bearerFormat: lsp_agt_ opaque Agent API credential
+      description: Current Identity-introspected Agent credential; exact configured context is mandatory; selected User Delegation is optional.
+  parameters:
+    trustedMcpResource:
+      name: X-LifeSpace-MCP-Resource
+      in: header
+      required: false
+      schema: { type: string, format: uri }
+      description: Required for trusted Agent transport; exact canonical enabled MCP Server Resource.
+    trustedDelegationId:
+      name: X-LifeSpace-Delegation-Id
+      in: header
+      required: false
+      schema: { type: string, pattern: '^dlg_[A-Za-z0-9_-]{1,128}$' }
+      description: Optional for opaque Agent transport; explicit selected trusted-channel User Delegation. Omission selects direct Agent authority.
+    spaceId:
+      name: spaceId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^spc_[A-Za-z0-9_-]+$' }
+  schemas:
+    DelegationEligibility:
+      type: object
+      additionalProperties: false
+      required: [modelKey, operation, requiredScopes]
+      properties:
+        modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        operation: { type: string, pattern: '^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
+        requiredScopes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: { type: string, enum: ['resources:read', 'resources:write'] }
+      description: Non-authorizing eligibility to request independent User approval; not an executable operation or authority proof.
+    OperationDescriptor:
+      type: object
+      additionalProperties: false
+      required: [modelKey, display, operation, operationRef, inputSchema, title, description, requiredScopes]
+      properties:
+        modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+        display: { type: string, minLength: 1 }
+        operation:
+          type: string
+          pattern: '^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$'
+        operationRef: { type: string, pattern: '^op_[a-f0-9]{64}$' }
+        requiredScopes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: { type: string, enum: ['resources:read', 'resources:write'] }
+          description: Credential scopes required to execute; not proof of any Grant
+        inputSchema:
+          type: object
+          description: Core-owned JSON Schema; no provider or origin fields
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+ }
+                fileIndex: { type: integer, minimum: 0, maximum: 99 }
       responses:
         '200':
           description: Existing native File download descriptor for direct authorized client transfer; treat URL as secret
