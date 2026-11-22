@@ -118,9 +118,13 @@ async function validateModels(context: Context<AppEnv>, config: Configuration): 
     const actions = object(definition.actions) ? definition.actions : {};
     for (const operation of entry.operations) {
       if (operation === "file_read" && !nativeFileReadFields(definition).length) {
-        throw new ApiError("VALIDATION_ERROR", entry.modelKey + " has no native file field", 422);
+        throw new ApiError("VALIDATION_ERROR", entry.modelKey + " has no supported Core file download field", 422);
       }
-      if (operation === "file_upload" && !nativeFileUploadFields(definition).length) {
+      // Server configuration is an exposure ceiling. An External upload is
+      // advertised only when the selected Space has a live writable Provider
+      // file field; there is no global Provider capability to validate here.
+      if (operation === "file_upload" && (definition as { origin?: unknown }).origin !== "external"
+        && !nativeFileUploadFields(definition).length) {
         throw new ApiError("VALIDATION_ERROR", entry.modelKey + " has no writable native file field", 422);
       }
       const action = ACTION.exec(operation);
