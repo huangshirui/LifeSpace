@@ -38,7 +38,7 @@ function fixture(requestedScopes = ["resources:read"]) {
   const core = {
     fetch: async (req) => {
       const path = new URL(req.url).pathname;
-      calls.push({ service: "core", path, authorization: req.headers.get("authorization") });
+      calls.push({ service: "core", path, query:new URL(req.url).search, authorization: req.headers.get("authorization") });
       assert.equal(req.headers.get("authorization"), "Bearer " + issuerToken);
       if (path === "/api/v1/me/oauth/delegation-requests/" + arq) return Response.json({ data: {
         id: arq, status:"pending", applicationId:app,spaceId:space,agentId:agent,
@@ -171,6 +171,22 @@ test("Access exchange is server-only and a user-bound signed CSRF cookie allows 
   assert.equal(confirmed.status, 200);
   assert.match((await confirmed.json()).data.redirectUrl, /^https:\/\/client\.example\.test\/callback\?code=/u);
   assert.equal(t.calls.filter((c) => c.service === "core" && c.path.endsWith("/confirm")).length, 1);
+});
+
+test("known Agent lookup is tied to the pending OAuth Resource, one Space and exact ID",async()=>{
+  const t=fixture();
+  const selected=new URLSearchParams({request_id:id,space_id:space,agent_id:agent});
+  const result=await t.request("/api/oauth/choices?"+selected);
+  assert.equal(result.status,200);
+  const call=t.calls.filter(c=>c.service==="core"&&c.path==="/api/v1/me/oauth/choices").at(-1);
+  const params=new URLSearchParams(call.query);
+  assert.equal(params.get("resource"),"https://mcp.example.test/mcp/tasks");
+  assert.equal(params.get("spaceId"),space);
+  assert.equal(params.get("agentId"),agent);
+  assert.equal((await t.request("/api/oauth/choices?space_id="+space+"&agent_id="+agent)).status,400);
+  assert.equal((await t.request("/api/oauth/choices?request_id="+id+"&agent_id="+agent)).status,400);
+  assert.equal((await t.request("/api/oauth/choices?request_id="+id+"&space_id="+space)).status,400);
+  assert.equal((await t.request("/api/oauth/choices?"+selected+"&userId=usr_fake")).status,400);
 });
 
 test("explicit OAuth decline requires same-origin signed CSRF and returns an issuer-bound error without a Grant", async () => {
