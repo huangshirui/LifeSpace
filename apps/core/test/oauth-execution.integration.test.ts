@@ -755,7 +755,8 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     ]});
     expect((await f.request("GET",authority+"?userId="+f.oauthUser,claims)).status).toBe(400);
     expect((await f.request("GET",authority+"?modelKey=task&operation=create",claims)).status).toBe(200);
-    expect((await f.request("GET",authority)).status).toBe(403);
+    // Current Identity introspection denies mismatched consent before route dispatch.
+    expect((await f.request("GET",authority)).status).toBe(401);
     expect((await f.request("GET",authority.replace(f.space,f.other),claims)).status).toBe(403);
     await f.setServerEnabled(false);
     expect((await f.request("GET",authority,claims)).status).toBe(403);
