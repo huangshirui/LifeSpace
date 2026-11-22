@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { SearchableSelect } from "./SearchableSelect";
-import { consoleApi } from "./api";
 import "./mcp-servers.css";
 
 type ModelSelection = { modelKey: string; operations: string[] };
