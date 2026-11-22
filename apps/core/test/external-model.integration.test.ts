@@ -533,6 +533,7 @@ describe("Space-local External Model framework", () => {
     ]);
     Object.assign(f.bindings,{
       CORE_IDENTITY_SHARED_SECRET:"synthetic-only-current-oauth-proof",
+      MCP_DELEGATION_ACCOUNT_ORIGIN:"https://account.example.test",
       ASSETS:(env as unknown as {ASSETS:R2Bucket}).ASSETS,
       R2_S3_ACCOUNT_ID:"synthetic-account",
       R2_S3_ACCESS_KEY_ID:"synthetic-access-key",
