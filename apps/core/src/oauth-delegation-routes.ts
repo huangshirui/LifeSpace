@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields, externalFileReadFields } from "./file-read-fields";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
@@ -132,17 +132,19 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   // published Model origin and current Provider capability as Core runtime.
   const model=await getRuntimeModel(env,modelKey);
   if (!model) throw fail();
-  if (operation === "file_read" && !nativeFileReadFields(model.definition).length) throw fail();
+  if (operation === "file_read" && model.definition.origin !== "external"
+    && !nativeFileReadFields(model.definition).length) throw fail();
   if (operation === "file_upload" && model.definition.origin !== "external"
     && !nativeFileUploadFields(model.definition).length) throw fail();
   if (model.definition.origin === "external") {
-    // External downloads remain unavailable; upload requires a current
-    // Space-bound Provider field, never an assumed Native file capability.
-    if (ACTION.test(operation) || operation === "file_read") throw fail();
+    // Read and upload both require a live Space-bound Provider field,
+    // not an assumed Native File capability or a new ACL.
+    if (ACTION.test(operation)) throw fail();
     const bound=await getExternalModel(env,spaceId,modelKey);
     if (!bound || bound.status!=="active"
-      || (operation === "file_upload" ? !externalFileUploadFields(bound).length
-        : !bound.snapshot.capabilities[operation as "get"|"query"|"create"|"update"|"delete"])
+      || (operation === "file_read" ? !externalFileReadFields(bound).length
+        : operation === "file_upload" ? !externalFileUploadFields(bound).length
+          : !bound.snapshot.capabilities[operation as "get"|"query"|"create"|"update"|"delete"])
       || (accessOf(operation)==="write" && bound.declared_access!=="write")) throw fail();
     // Single-use External mutations are permitted. The Core External
     // Runtime consumes current Delegation in D1 BEFORE one Provider write
