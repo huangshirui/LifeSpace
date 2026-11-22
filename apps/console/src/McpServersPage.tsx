@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { SearchableSelect } from "./SearchableSelect";
 import { consoleApi } from "./api";
-import type { Application, PlatformSpace } from "./types";
-import { isActiveAgent } from "./grant-grantee-options";
 import "./mcp-servers.css";
 
 type ModelSelection = { modelKey: string; operations: string[] };
 type ResourceSelection = { resourceKey: "person_directory"; operations: string[] };
-type DelegationContext = {spaceId:string;applicationId:string;agentId:string};
-type Configuration = { models: ModelSelection[]; resources?: ResourceSelection[]; delegationContexts?: DelegationContext[] };
+type Configuration = { models: ModelSelection[]; resources?: ResourceSelection[] };
 type Server = {
   id: string; path: string; name: string; description: string;
   enabled: boolean; revision: number; configuration: Configuration;
@@ -76,74 +73,12 @@ function validConfiguration(config: Configuration, models: Model[]) {
     && entry.operations.length <= 5 && new Set(entry.operations).size === entry.operations.length
     && entry.operations.every((op) => personOps.includes(op as typeof personOps[number])));
 }
-const contextKey=(row:DelegationContext)=>[row.spaceId,row.applicationId,row.agentId].join(":");
 function canonicalConfig(config: Configuration) {
   return JSON.stringify({
-    delegationContexts:(config.delegationContexts??[]).map(row=>({...row})).sort((a,b)=>contextKey(a).localeCompare(contextKey(b))),
-    models: config.models.map((model) => ({ modelKey: model.modelKey, operations: [...model.operations].sort() }))
-      .sort((a,b) => a.modelKey.localeCompare(b.modelKey)),
-    resources: (config.resources ?? []).map((resource) => ({
-      resourceKey: resource.resourceKey, operations: [...resource.operations].sort(),
-    })),
+    models: config.models.map(model=>({modelKey:model.modelKey,operations:[...model.operations].sort()}))
+      .sort((a,b)=>a.modelKey.localeCompare(b.modelKey)),
+    resources: (config.resources??[]).map(row=>({resourceKey:row.resourceKey,operations:[...row.operations].sort()})),
   });
-}
-type AgentChoice={id:string;displayName:string;status:string;binding:{status:string}};
-function DelegationContextPicker({config,onChange,disabled=false}:{config:Configuration;onChange:(config:Configuration)=>void;disabled?:boolean}){
-  const [apps,setApps]=useState<Application[]>([]);
-  const [spaces,setSpaces]=useState<PlatformSpace[]>([]);
-  const [agents,setAgents]=useState<AgentChoice[]>([]);
-  const [appId,setAppId]=useState("");
-  const [spaceId,setSpaceId]=useState("");
-  const [agentId,setAgentId]=useState("");
-  const [appQuery,setAppQuery]=useState("");
-  const [spaceQuery,setSpaceQuery]=useState("");
-  const [agentQuery,setAgentQuery]=useState("");
-  const [error,setError]=useState("");
-  const [agentLoading,setAgentLoading]=useState(false);
-  const rows=config.delegationContexts??[];
-  useEffect(()=>{
-    let active=true;
-    void consoleApi.applications().then(result=>{if(active)setApps(result.filter(row=>row.status==="active"));})
-      .catch(()=>{if(active)setError("无法读取应用目录");});
-    return()=>{active=false;};
-  },[]);
-  useEffect(()=>{
-    let active=true;
-    const query=new URLSearchParams({limit:"200",...(spaceQuery.trim()?{q:spaceQuery.trim()}:{})});
-    const timer=window.setTimeout(()=>{void consoleApi.spaces("?"+query).then(result=>{if(active)setSpaces(result);})
-      .catch(()=>{if(active)setError("无法读取空间目录");});},250);
-    return()=>{active=false;window.clearTimeout(timer);};
-  },[spaceQuery]);
-  useEffect(()=>{
-    let active=true;
-    setAgents([]);setAgentId("");
-    if(!appId){setAgentLoading(false);return;}
-    const app=apps.find(row=>row.id===appId);
-    if(!app)return;
-    setAgentLoading(true);
-    void api<AgentChoice[]>("/api/agent-governance/applications/"+encodeURIComponent(appId)+"/agents")
-      .then(result=>{if(active)setAgents(result.filter(row=>isActiveAgent(app,row)));})
-      .catch(()=>{if(active)setError("无法读取 Agent 目录");})
-      .finally(()=>{if(active)setAgentLoading(false);});
-    return()=>{active=false;};
-  },[appId,apps]);
-  const proposed={spaceId,applicationId:appId,agentId};
-  const canAdd=!!spaceId&&!!appId&&!!agentId&&!agentLoading&&rows.length<32&&!rows.some(row=>contextKey(row)===contextKey(proposed));
-  const matches=(id:string,name:string,query:string)=>(id+" "+name).toLowerCase().includes(query.trim().toLowerCase());
-  return <section className="mcp-panel">
-    <div className="mcp-panel-head"><h2>委托接入范围</h2><span>{rows.length} 个上下文</span></div>
-    <p className="mcp-caption">允许指定空间、应用与 Agent 组合申请用户委托，即使没有独立 Data Grant。配置不授予任何数据权限；用户仍需确认委托。</p>
-    {rows.map(row=><div className="mcp-model" key={contextKey(row)}>
-      <div className="mcp-model-head"><div><strong>{apps.find(app=>app.id===row.applicationId)?.name??row.applicationId}</strong><small>{spaces.find(space=>space.id===row.spaceId)?.name??row.spaceId} · {row.agentId}</small></div>
-      <button type="button" className="mcp-text-button" disabled={disabled} onClick={()=>onChange({...config,delegationContexts:rows.filter(item=>contextKey(item)!==contextKey(row))})}>移除</button></div></div>)}
-    {error&&<p role="alert" className="mcp-inline-help">{error}</p>}
-    <div className="mcp-fields">
-      <SearchableSelect label="空间" value={spaceId} query={spaceQuery} onQueryChange={setSpaceQuery} onChange={setSpaceId} disabled={disabled} options={spaces.map(row=>({id:row.id,name:row.name}))}/>
-      <SearchableSelect label="应用" value={appId} query={appQuery} onQueryChange={setAppQuery} onChange={id=>{setAppId(id);setAgentId("");setAgentQuery("");}} disabled={disabled} options={apps.filter(row=>matches(row.id,row.name,appQuery)).map(row=>({id:row.id,name:row.name}))}/>
-      <SearchableSelect label="Agent" value={agentId} query={agentQuery} onQueryChange={setAgentQuery} onChange={setAgentId} disabled={disabled||!appId} loading={agentLoading} options={agents.filter(row=>matches(row.id,row.displayName,agentQuery)).map(row=>({id:row.id,name:row.displayName}))}/>
-      <button type="button" className="secondary-button" disabled={disabled||!canAdd} onClick={()=>{onChange({...config,delegationContexts:[...rows,proposed]});setAgentId("");setAgentQuery("");}}>添加接入范围</button>
-    </div>
-  </section>;
 }
 function CapabilityPicker({
   models, config, onChange, disabled,
@@ -265,7 +200,7 @@ export default function McpServersPage({ serverKey, navigate }:
           modelKey: m.modelKey, operations: [...m.operations],
         })), resources: (server.configuration.resources ?? []).map((r) => ({
           resourceKey: r.resourceKey, operations: [...r.operations],
-        })), delegationContexts:(server.configuration.delegationContexts??[]).map(row=>({...row})) });
+        })) });
       } else {
         setSelected(null);
       }
@@ -375,7 +310,6 @@ export default function McpServersPage({ serverKey, navigate }:
           </div>
         </section>
         <CapabilityPicker models={models} config={config} onChange={setConfig} disabled={busy} />
-        <DelegationContextPicker config={config} onChange={setConfig} disabled={busy} />
         <div className="mcp-actions">
           <button type="submit" className="mcp-primary" disabled={busy || !valid}>创建 Server</button>
         </div>
@@ -410,11 +344,9 @@ export default function McpServersPage({ serverKey, navigate }:
           </div>
         </section>
         <CapabilityPicker models={models} config={config} onChange={setConfig} disabled={busy} />
-        <DelegationContextPicker config={config} onChange={setConfig} disabled={busy} />
         <div className="mcp-actions"><button type="button" className="secondary-button" disabled={busy} onClick={cancelEdit}>取消</button>
           <button type="button" className="mcp-primary" disabled={busy || !dirty || !valid || title.trim().length < 2} onClick={() => void save()}>保存修改</button></div>
         </> : <>
-          <section className="mcp-panel"><h2>委托接入范围</h2>{(selected.configuration.delegationContexts??[]).length===0?<p className="mcp-caption">未配置额外的零 Grant 委托接入范围。</p>:(selected.configuration.delegationContexts??[]).map(row=><div className="mcp-model" key={contextKey(row)}><strong>{row.applicationId}</strong><p className="mcp-caption">{row.spaceId} · {row.agentId}</p></div>)}</section>
           <section className="mcp-panel"><h2>基本信息</h2><div className="mcp-read-fields"><span>名称</span><strong>{selected.name}</strong><span>描述</span><span>{selected.description || "—"}</span></div></section>
           <section className="mcp-panel"><div className="mcp-panel-head"><h2>开放能力</h2><span>{selected.configuration.models.length} 个业务模型 · {selected.configuration.resources?.length ?? 0} 个平台资源</span></div>
             {selected.configuration.models.map(item => <div className="mcp-model" key={item.modelKey}><div className="mcp-model-head"><div><strong>{models.find(model => model.key === item.modelKey)?.definition.display?.singular ?? item.modelKey}</strong><small>{item.modelKey}</small></div></div><p className="mcp-caption">{item.operations.map(op => labels[op] ?? "动作 · " + op.replace(/^action:/u, "")).join(" · ") || "—"}</p></div>)}
