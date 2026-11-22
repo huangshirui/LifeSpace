@@ -16,6 +16,8 @@ import {
   type ExternalModel,
 } from "./external-model";
 import { executeExternalOperation } from "./external-runtime";
+import { externalFileReadFields } from "./file-read-fields";
+import { parseFileRefList } from "./file-ref";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
@@ -449,6 +451,57 @@ export async function findDownloadableNativeFile(
 
 async function createDownload(context: Context<AppEnv>) {
   const input = object(await context.req.json<unknown>().catch(() => null));
+  return downloadFile(context, input);
+}
+
+// A File read is always a current authorized record projection. Provider URLs
+// are obtained from a fresh GET; we do not copy bytes or mint a fake R2 File ID.
+async function downloadExternalFile(context: Context<AppEnv>, input: Body, model: ExternalModel) {
+  onlyKeys(input, ["modelKey", "recordId", "fieldKey", "fileIndex"]);
+  const spaceId = context.req.param("spaceId")!;
+  const modelKey = bounded(input.modelKey, "modelKey", 63);
+  const recordId = bounded(input.recordId, "recordId", 256);
+  const fieldKey = bounded(input.fieldKey, "fieldKey", 63);
+  const index = input.fileIndex;
+  if (!Number.isInteger(index) || (index as number) < 0 || (index as number) >= 100)
+    throw new ApiError("VALIDATION_ERROR", "fileIndex must select one current file reference", 422);
+  if (!externalFileReadFields(model).includes(fieldKey))
+    throw new ApiError("FILE_NOT_FOUND", "File field is unavailable", 404);
+  const decision = await requireModelAccess(context.env, context.get("principal"), spaceId,
+    externalAuthorityModel(model), "read", { delegationId: delegationId(context), recordId });
+  // Executes the same audited, consent-bound Provider GET used by ordinary
+  // records. It consumes a single-use Delegation once, never twice.
+  const record = await executeExternalOperation(context.env, model, decision, "get", {}, recordId);
+  const fields = record as Record<string, unknown>;
+  const refs = parseFileRefList(fields[fieldKey]);
+  const file = refs?.[index as number];
+  if (!file) throw new ApiError("FILE_NOT_FOUND", "File reference is unavailable", 404);
+  let url: URL;
+  try { url = new URL(file.url); }
+  catch { throw new ApiError("FILE_URL_UNAVAILABLE", "Provider file URL is invalid", 502); }
+  // Only hand an authenticated consumer an HTTPS address. Core never requests
+  // that address, avoiding an SSRF/redirect path through the platform.
+  if (url.protocol !== "https:" || url.username || url.password)
+    throw new ApiError("FILE_URL_UNAVAILABLE", "Provider file URL is not secure", 502);
+  if (file.expiresAt && Date.parse(file.expiresAt) <= Date.now() + 30_000)
+    throw new ApiError("FILE_URL_EXPIRED", "Provider file URL is expired; refresh its record", 409);
+  return context.json(success({
+    name: file.name, url: file.url,
+    ...(file.expiresAt ? { expiresAt: file.expiresAt } : {}),
+  }), 200, { "Cache-Control": "no-store" });
+}
+
+async function downloadFile(context: Context<AppEnv>, input: Body) {
+  onlyKeys(input, ["modelKey", "recordId", "fieldKey", "fileId", "fileIndex"]);
+  const modelKey = bounded(input.modelKey, "modelKey", 63);
+  const model = await getRuntimeModel(context.env, modelKey);
+  if (!model) throw new ApiError("MODEL_NOT_FOUND", "Model not found", 404);
+  if (model.definition.origin === "external") {
+    const bound = await getExternalModel(context.env, context.req.param("spaceId")!, modelKey);
+    if (!bound || bound.status !== "active") throw new ApiError("MODEL_NOT_FOUND", "Model not found", 404);
+    return downloadExternalFile(context, input, bound);
+  }
+  if (input.fileIndex !== undefined) throw new ApiError("VALIDATION_ERROR", "Unsupported File selector", 422);
   return downloadNativeFile(context, input);
 }
 
@@ -596,8 +649,8 @@ export function registerFileRoutes(app: App): void {
   // linkage, current effective authority and signed URL issuance.
   app.post("/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/file-downloads", async context => {
     const input = object(await context.req.json<unknown>().catch(() => null));
-    onlyKeys(input, ["fieldKey", "fileId"]);
-    return downloadNativeFile(context, {
+    onlyKeys(input, ["fieldKey", "fileId", "fileIndex"]);
+    return downloadFile(context, {
       modelKey: context.req.param("modelKey"),
       recordId: context.req.param("recordId"),
       ...input,
