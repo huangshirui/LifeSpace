@@ -117,7 +117,8 @@ async function validateModels(context: Context<AppEnv>, config: Configuration): 
     const access = Array.isArray(definition.access) ? definition.access : [];
     const actions = object(definition.actions) ? definition.actions : {};
     for (const operation of entry.operations) {
-      if (operation === "file_read" && !nativeFileReadFields(definition).length) {
+      if (operation === "file_read" && (definition as { origin?: unknown }).origin !== "external"
+        && !nativeFileReadFields(definition).length) {
         throw new ApiError("VALIDATION_ERROR", entry.modelKey + " has no supported Core file download field", 422);
       }
       // Server configuration is an exposure ceiling. An External upload is
