@@ -130,13 +130,11 @@ export async function projectDelegationEligibleOperations(
     const published = modelCache.get(modelKey);
     if (!published) continue;
     const external = published.definition.origin === "external";
-    // A published read Action is not a write operation merely because its
-    // identifier begins with action:. Never elevate or hide its real access.
-    if (!external && operation.startsWith("action:")) {
-      const declared = published.definition.actions?.[operation.slice(7)]?.access;
-      if (declared !== "read" && declared !== "write") continue;
-      access = declared;
-    }
+    // Current published Action DSL supports write/manage here, not a read
+    // Action. Only explicitly writable Actions can be requested under the
+    // OAuth read/write scope ceiling. Never coerce a manage Action to write.
+    if (!external && operation.startsWith("action:")
+      && published.definition.actions?.[operation.slice(7)]?.access !== "write") continue;
     if (!verifiedUser.scopes.includes("resources:" + access)) continue;
     let model: ModelAccessRequest["model"] = published;
     if (external) {
