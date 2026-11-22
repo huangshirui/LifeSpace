@@ -1,3 +1,9 @@
+## 2026-11-22 · Existing Agent identity with MCP adapter (candidate, not Production)
+
+The Adapter may accept the existing `lsp_agt_*` Agent credential. Identity verifies active Agent and Application binding; Core does not require a second MCP Server enrollment tuple or invent an Agent identity. An authenticated Agent can connect without a Delegation and discover only currently executable direct rights. An explicit `dlg_*` is a selector, never authentication; Core validates its current delegation chain, Space and Agent association before execution and never falls back on independent rights when the selector fails. Current MCP Resource/Server operations constrain protocol exposure separately from effective Data Grants. The canonical Core handlers remain the only execution authority.
+
+Account zero-Grant OAuth uses a verified pending request plus known `spc_*` / `agt_*` look-up for an Account User who manages that Space; it does not globally enumerate Agent identities or create an Agent enrollment, Data Grant, or Delegation. Actual User approval remains an independent Account step.
+
 ## OAuth MCP native File upload (candidate)
 
 The Identity-signed execution context is unchanged. Core adds only exact selected-Space/model upload begin and completion routes; both require the current Server file_upload operation and write Scope. Represented execution requires a current matching approved timed or until-revoked Delegation; Core rejects once-only approval. The same application/Principal/Actor must complete the upload, and both phases revalidate current authority. Signed PUT URLs remain short-lived bearer credentials; clients transfer directly, never persist or log them, and cannot use them to mutate a permanent object. Existing REST file consumers remain unchanged.
