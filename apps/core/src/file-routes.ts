@@ -1,6 +1,4 @@
-import { requireTrustedMcpContext } from "./mcp-delegation-contexts";
 import { AwsClient } from "aws4fetch";
-import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import type { Context, Hono } from "hono";
 import type { AuthorityD1Timing, Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
@@ -187,24 +185,6 @@ async function loadSession(env: Bindings, spaceId: string, uploadId: string): Pr
   return row;
 }
 
-async function requireMcpUploadField(context: Context<AppEnv>, modelKey: string, fieldKey: string) {
-  const principal = context.get("principal");
-  const execution = principal.oauthExecution;
-  const trusted=principal.purpose==="agent_api";
-  const policy=trusted?await requireTrustedMcpContext(context.env,principal,context.req.param("spaceId")!,
-    context.req.header("x-lifespace-mcp-resource"),context.req.header("x-lifespace-delegation-id")):execution;
-  if ((!trusted&&(principal.purpose !== "oauth_agent_execution" || !execution
-    || execution.spaceId !== context.req.param("spaceId")))
-    || !principal.scopes.includes("resources:write")
-    || !policy?.modelOperations?.[modelKey]?.includes("file_upload")) {
-    throw new ApiError("FORBIDDEN", "MCP file upload is unavailable", 403);
-  }
-  const model = await getRuntimeModel(context.env, modelKey);
-  if (!model || !nativeFileUploadFields(model.definition).includes(fieldKey)) {
-    throw new ApiError("FILE_UPLOAD_UNSUPPORTED", "Field does not support native file upload", 405);
-  }
-}
-
 async function createSession(context: Context<AppEnv>) {
   const input = object(await context.req.json<unknown>().catch(() => null));
   const routeModel = context.req.param("modelKey");
@@ -212,10 +192,6 @@ async function createSession(context: Context<AppEnv>) {
   const modelKey = bounded(routeModel ?? input.modelKey, "modelKey", 63);
   const fieldKey = bounded(input.fieldKey, "fieldKey", 63);
   const recordId = input.recordId === undefined || input.recordId === null ? null : bounded(input.recordId, "recordId", 256);
-  if (routeModel) {
-    await requireMcpUploadField(context, modelKey, fieldKey);
-    if (recordId && !/^rec_[A-Za-z0-9_-]+$/u.test(recordId)) throw new ApiError("VALIDATION_ERROR", "Invalid recordId", 422);
-  }
   const name = bounded(input.name, "name", 512);
   const contentType = bounded(input.contentType, "contentType", 255).toLowerCase();
   if (!Number.isInteger(input.size) || Number(input.size) < 1) throw new ApiError("VALIDATION_ERROR", "size must be a positive integer", 422);
@@ -307,8 +283,9 @@ async function completeSession(context: Context<AppEnv>) {
   };
   let authorized: ResolvedTarget | undefined;
   if (routeModel) {
-    if (row.model_key !== routeModel || row.destination !== "native") throw new ApiError("UPLOAD_NOT_FOUND", "Upload not found", 404);
-    await requireMcpUploadField(context, routeModel, row.field_key);
+    // The route binds the model; the canonical session resolver rechecks
+    // provider capabilities, current authority, actor, and session ownership.
+    if (row.model_key !== routeModel) throw new ApiError("UPLOAD_NOT_FOUND", "Upload not found", 404);
     authorized = await authorize();
   }
   if (row.status !== "pending") {
@@ -613,29 +590,18 @@ export function registerFileRoutes(app: App): void {
   app.post("/api/v1/spaces/:spaceId/models/:modelKey/file-uploads", createSession);
   app.post("/api/v1/spaces/:spaceId/models/:modelKey/file-uploads/:uploadId/complete", completeSession);
   app.post("/api/v1/spaces/:spaceId/file-downloads", createDownload);
-  // An exact model/record path permits the OAuth middleware to bind the
-  // configured operation and represented Delegation before reading a body.
-  // Do not permit OAuth execution on the unbound canonical transfer route.
+  // Exact model/record path is a protocol-neutral alias of the canonical
+  // File transfer capability. OAuth route/Server restrictions are enforced
+  // by authentication middleware; the File API itself owns record/field
+  // linkage, current effective authority and signed URL issuance.
   app.post("/api/v1/spaces/:spaceId/models/:modelKey/records/:recordId/file-downloads", async context => {
-    const principal = context.get("principal");
-    const modelKey = context.req.param("modelKey");
-    const recordId = context.req.param("recordId");
-    const execution = principal.oauthExecution;
-    const trusted=principal.purpose==="agent_api";
-    const policy=trusted?await requireTrustedMcpContext(context.env,principal,context.req.param("spaceId")!,
-      context.req.header("x-lifespace-mcp-resource"),context.req.header("x-lifespace-delegation-id")):execution;
-    if ((!trusted&&(principal.purpose !== "oauth_agent_execution" || !execution
-      || execution.spaceId !== context.req.param("spaceId")))
-      || !policy?.modelOperations?.[modelKey]?.includes("file_read")) {
-      throw new ApiError("FORBIDDEN", "MCP file read is unavailable", 403);
-    }
     const input = object(await context.req.json<unknown>().catch(() => null));
     onlyKeys(input, ["fieldKey", "fileId"]);
-    const model = await getRuntimeModel(context.env, modelKey);
-    if (!model || typeof input.fieldKey !== "string" || !nativeFileReadFields(model.definition).includes(input.fieldKey)) {
-      throw new ApiError("FILE_NOT_FOUND", "File not found", 404);
-    }
-    return downloadNativeFile(context, { modelKey, recordId, fieldKey: input.fieldKey, fileId: input.fileId });
+    return downloadNativeFile(context, {
+      modelKey: context.req.param("modelKey"),
+      recordId: context.req.param("recordId"),
+      ...input,
+    });
   });
   app.delete("/api/v1/spaces/:spaceId/files/:fileId", deleteNativeFile);
 }
