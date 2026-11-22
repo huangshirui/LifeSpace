@@ -138,7 +138,8 @@ async function resolveTarget(
     const model = await getExternalModel(env, spaceId, modelKey);
     if (!model) throw new ApiError("MODEL_NOT_FOUND", "Model not found", 404);
     const field = model.snapshot.fields.find((candidate) => candidate.key === fieldKey);
-    if (field?.type !== "file_ref_list" || field.upload?.supported !== true) {
+    if (field?.type !== "file_ref_list" || field.upload?.supported !== true
+      || field.writable !== true || field.readOnly === true) {
       throw new ApiError("FILE_UPLOAD_UNSUPPORTED", "Field does not support file upload", 405);
     }
     const decision = await requireModelAccess(env, principal, spaceId, externalAuthorityModel(model), "write", {
