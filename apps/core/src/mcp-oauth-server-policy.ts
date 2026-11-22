@@ -124,6 +124,9 @@ export async function currentMcpOAuthQueryPolicy(
   const gettable = new Set(toolModelKeys);
 
   if (method === "GET" && path === INVENTORY) return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
+  if (method === "GET" && /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/_authority\/delegation-eligibility$/u.test(path)) {
+    return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
+  }
   if (method === "GET" && new RegExp("^/api/v1/spaces/spc_[A-Za-z0-9_-]+/_discovery/operations$", "u").test(path)) {
     return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   }
