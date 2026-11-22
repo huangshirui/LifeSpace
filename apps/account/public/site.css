@@ -29,3 +29,13 @@
 .delegation-danger{background:#a63838;border:1px solid #a63838;color:#fff}
 .delegation-dialog-actions button:disabled{opacity:.6;cursor:not-allowed}
 @media(max-width:620px){.delegation-item{padding:16px}.delegation-item-head{flex-direction:column;gap:13px}.delegation-revoke{align-self:flex-start}.delegation-detail-row{grid-template-columns:1fr;gap:2px}.delegation-dialog{padding:22px}.delegation-dialog-actions button{flex:1}}
+
+/* Exact known-Agent selection is an opt-in fallback, not an enumerable Agent directory. */
+.known-agent{grid-column:1/-1;border:1px solid #dce7f1;border-radius:10px;padding:12px 14px;background:#f8fbff;font-size:13px}
+.known-agent summary{cursor:pointer;color:#315f82;font-weight:600}
+.known-agent p{line-height:1.7;color:#61778d;margin:8px 0}
+.known-agent-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+.known-agent-fields label{display:flex;flex-direction:column;gap:6px}
+.known-agent-fields input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd9e5;border-radius:8px}
+#known-agent-status{min-height:18px}
+@media(max-width:620px){.known-agent-fields{grid-template-columns:1fr}}
