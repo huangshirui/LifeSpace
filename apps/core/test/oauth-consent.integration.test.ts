@@ -105,7 +105,7 @@ async function fixture(role: "owner" | "viewer" = "owner") {
 }
 
 describe("Core Account OAuth Consent boundary", () => {
-  it("permits only exact Server-configured zero-Grant Agent contexts with explicit User authorization",async()=>{
+  it("resolves only an explicit known Agent Identity in a managed Space without MCP enrollment",async()=>{
     const f=await fixture();
     const now=new Date().toISOString(),serverId="mcp_"+crypto.randomUUID().replaceAll("-","");
     const resource="https://core.example.test/mcp/"+serverId;
@@ -113,10 +113,20 @@ describe("Core Account OAuth Consent boundary", () => {
     f.setPendingResource(resource);
     await f.db.prepare("DELETE FROM data_grants WHERE grantee_id=?").bind(f.agentId).run();
     await f.db.prepare("INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) VALUES(?,?,?,1,?,1,?,?,?,?)")
-      .bind(serverId,"Synthetic delegation context","",JSON.stringify({models:[{modelKey:"task",operations:["query"]}],
-        delegationContexts:[{spaceId:f.spaceId,applicationId:f.selected.applicationId,agentId:f.agentId}]}),f.userId,f.userId,now,now).run();
-    const choices=await createApp().request("https://core.example.test/api/v1/me/oauth/choices?"+new URLSearchParams({resource}),
+      .bind(serverId,"Synthetic scoped resource","",
+        JSON.stringify({models:[{modelKey:"task",operations:["query"]}]}),f.userId,f.userId,now,now).run();
+    const base="https://core.example.test/api/v1/me/oauth/choices?";
+    const resourceOnly=await createApp().request(base+new URLSearchParams({resource}),
       {headers:{authorization:"Bearer "+f.bearer}},f.bindings);
+    expect(resourceOnly.status).toBe(200);
+    expect((await resourceOnly.json() as any).data.candidates).toEqual([]);
+    const find=(spaceId=f.spaceId,agentId=f.agentId)=>
+      createApp().request(base+new URLSearchParams({resource,spaceId,agentId}),
+        {headers:{authorization:"Bearer "+f.bearer}},f.bindings);
+    expect((await find("spc_other","agt_unrelated")).status).toBe(403);
+    expect((await find(f.spaceId,"agt_unrelated")).status).toBe(200);
+    expect((await (await find(f.spaceId,"agt_unrelated")).json() as any).data.candidates).toEqual([]);
+    const choices=await find();
     expect(choices.status).toBe(200);
     expect((await choices.json() as any).data.candidates).toContainEqual(expect.objectContaining({
       spaceId:f.spaceId,agentId:f.agentId,applicationId:f.selected.applicationId,requiresUserAuthorization:true,
@@ -125,6 +135,7 @@ describe("Core Account OAuth Consent boundary", () => {
     expect((await f.call(f.bearer,{...f.selected,agentId:"agt_unrelated"})).status).toBe(403);
     expect((await f.call()).status).toBe(200);
     await f.db.prepare("UPDATE mcp_server_definitions SET enabled=0 WHERE id=?").bind(serverId).run();
+    expect((await find()).status).toBe(403);
     expect((await f.call()).status).toBe(403);
     expect(await f.db.prepare("SELECT COUNT(*) n FROM data_grants WHERE grantee_id=?").bind(f.agentId).first("n")).toBe(0);
   });
