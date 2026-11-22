@@ -2,7 +2,7 @@ import type { ExternalModel } from "./external-model";
 
 // File identity and transfer authority remain in the existing File API.
 // Capability fields are derived from published Native definitions or current
-// External Provider snapshots; they do not grant access to any bytes. It does not grant access to any bytes.
+// External Provider snapshots; they do not grant access to any bytes.
 export function nativeFileReadFields(definition: unknown): string[] {
   if (!definition || typeof definition !== "object" || Array.isArray(definition)) return [];
   const value = definition as { origin?: unknown; fields?: unknown };
@@ -27,7 +27,7 @@ export function nativeFileUploadFields(definition: unknown): string[] {
 // Space-bound External upload is governed by the current Provider snapshot.
 // Download is deliberately not inferred: Provider file references are not Core files.
 export function externalFileUploadFields(model: ExternalModel): string[] {
-  if (model.declared_access !== "write") return [];
+  if (model.status !== "active" || model.declared_access !== "write") return [];
   return model.snapshot.fields
     .filter(field => field.type === "file_ref_list" && field.upload?.supported === true
       && field.writable === true && field.readOnly !== true)
