@@ -530,7 +530,12 @@ export async function accountFetch(req, env) {
   }
   if (path === "/api/oauth/choices") {
     const requestId=url.searchParams.get("request_id");
-    if(url.searchParams.size!==(requestId===null?0:1)||(requestId!==null&&!REQUEST.test(requestId)))
+    const spaceId=url.searchParams.get("space_id");
+    const agentId=url.searchParams.get("agent_id");
+    if(url.searchParams.size!==(requestId===null?0:1)+(spaceId===null?0:1)+(agentId===null?0:1)
+      ||(requestId!==null&&!REQUEST.test(requestId))
+      ||(spaceId===null)!==(agentId===null)
+      ||(agentId!==null&&(!requestId||!SPACE.test(spaceId||"")||!AGENT.test(agentId))))
       return fail(400,"INVALID_REQUEST","候选选择参数无效");
     let target="/api/v1/me/oauth/choices";
     if(requestId!==null){
@@ -539,7 +544,7 @@ export async function accountFetch(req, env) {
       const info=await data(pending);
       if(!info||info.id!==requestId||!safeText(info.resource,1024))
         return fail(502,"IDENTITY_INVALID_RESPONSE","授权请求信息异常");
-      target+="?"+new URLSearchParams({resource:info.resource});
+      target+="?"+new URLSearchParams({resource:info.resource,...(spaceId&&agentId?{spaceId,agentId}:{})});
     }
     const upstream = await boundedUpstream(env, "CORE", target, linked.token);
     if (!upstream || !upstream.ok) return fail(upstream?.status === 403 ? 403 : 503,
