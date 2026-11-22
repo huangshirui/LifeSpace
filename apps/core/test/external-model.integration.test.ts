@@ -15,7 +15,7 @@ const pem = (label: string, bytes: ArrayBuffer) =>
     .match(/.{1,64}/g)
     ?.join("\n")}\n-----END ${label}-----`;
 
-async function fixture(definitionKey?: string) {
+async function fixture(definitionKey?: string, fileUpload = false) {
   const db = (env as unknown as { DB: D1Database }).DB,
     app = createApp(),
     suffix = crypto.randomUUID().replaceAll("-", "");
@@ -73,7 +73,8 @@ async function fixture(definitionKey?: string) {
     calls: [] as string[],
     active: 0,
     maxActive: 0,
-    type: "number",
+    type: fileUpload ? "file_ref_list" : "number",
+    fileRefs: [] as Array<{name:string;url:string;expiresAt?:string}>,
     title: "Amount",
     cursor: null as string | null,
     error: null as string | null,
@@ -93,9 +94,11 @@ async function fixture(definitionKey?: string) {
         type: state.type,
         nullable: true,
         readable: true,
-        writable: true,
-        operators: state.type === "number" ? ["eq", "ne", "gt"] : ["eq", "ne"],
-        sortable: true,
+        ...(fileUpload ? {readOnly:true} : {}),
+        writable: !fileUpload,
+        operators: fileUpload ? [] : state.type === "number" ? ["eq", "ne", "gt"] : ["eq", "ne"],
+        sortable: !fileUpload,
+        ...(fileUpload ? { upload: {supported: true, maxBytes: 1024 * 1024} } : {}),
       },
     ],
     capabilities: {
@@ -118,7 +121,7 @@ async function fixture(definitionKey?: string) {
   });
   const record = (id = "rec_external_" + suffix) => ({
     id: state.returnedRecordId ?? id,
-    data: { [field]: state.type === "number" ? 8 : "eight" },
+    data: { [field]: state.type === "number" ? 8 : state.type === "file_ref_list" ? state.fileRefs : "eight" },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
   });
@@ -395,7 +398,7 @@ async function fixture(definitionKey?: string) {
     resource,
     providerToken,
     authorize,
-    oauthExecutionToken: async (agent: string, authorizationId: string, oauthResource: string, scopes: string) => {
+    oauthExecutionToken: async (agent: string, authorizationId: string, oauthResource: string, scopes: string, mayRequest = false) => {
       const now=Math.floor(Date.now()/1000);
       return sign({
         iss:"lifespace-identity",aud:"lifespace-core",sub:agent,azp:application,
@@ -404,7 +407,7 @@ async function fixture(definitionKey?: string) {
         oauth_authorization_id:authorizationId,
         oauth_access_hash:"a".repeat(64),oauth_client_id:"ocli_"+suffix,
         oauth_resource:oauthResource,oauth_space_id:space,oauth_user_id:user,
-        oauth_allow_user_authorization:false,
+        oauth_allow_user_authorization:mayRequest,
         iat:now,exp:now+45,jti:"tok_oauth_"+suffix,
       },privateKey,"RS256");
     },
@@ -517,6 +520,126 @@ describe("Space-local External Model framework", () => {
     expect(dormant.models.find((m:any)=>m.modelKey===f.model)).toMatchObject({available:false,ceiling:"none",boundedAccess:[]});
     expect((await f.request(config+"/"+f.model,"DELETE")).status).toBe(204);
   },30000);
+
+  it("projects live External file read + upload through one Core authority and Provider snapshot", async () => {
+    const f=await fixture(undefined,true); await f.authorize();
+    const suffix=crypto.randomUUID().replaceAll("-","");
+    const agent="agt_"+suffix, serverId="mcp_"+suffix, authId="oaz_"+suffix;
+    const resource="https://core.example.test/mcp/"+serverId, now=new Date().toISOString();
+    const base="/api/v1/spaces/"+f.space;
+    await f.db.batch([
+      f.db.prepare("INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) VALUES(?,?,?,1,?,1,?,?,?,?)")
+        .bind(serverId,"Synthetic External File MCP","",JSON.stringify({models:[{modelKey:f.model,operations:["file_upload","file_read"]}]}),f.user,f.user,now,now),
+      f.db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(? ,? ,'agent',?,'space',NULL,'write',?,?)")
+        .bind("grt_"+suffix,f.space,agent,f.user,now),
+    ]);
+    Object.assign(f.bindings,{
+      CORE_IDENTITY_SHARED_SECRET:"synthetic-only-current-oauth-proof",
+      MCP_DELEGATION_ACCOUNT_ORIGIN:"https://account.example.test",
+      ASSETS:(env as unknown as {ASSETS:R2Bucket}).ASSETS,
+      R2_S3_ACCOUNT_ID:"synthetic-account",
+      R2_S3_ACCESS_KEY_ID:"synthetic-access-key",
+      R2_S3_SECRET_ACCESS_KEY:"synthetic-secret-key",
+      R2_S3_BUCKET:"synthetic-files",
+      IDENTITY:{fetch:async ()=>Response.json({
+        data:{active:true,scopes:["resources:read","resources:write"],
+          userId:f.user,allowUserAuthorization:true},
+      })},
+    });
+    const jwt=await f.oauthExecutionToken(agent,authId,resource,"resources:read resources:write",true);
+    const catalog=await f.request(base+"/_discovery/operations","GET",undefined,jwt);
+    expect(catalog.status,JSON.stringify(await catalog.clone().json())).toBe(200);
+    const operations=(await catalog.json() as {data:{operations:Array<{
+      operation:string;operationRef:string;requiredScopes:string[];inputSchema:any;
+    }>}}).data.operations;
+    expect(operations.map(x=>x.operation).sort()).toEqual(["file_read","file_upload"]);
+    expect(JSON.stringify(operations)).not.toMatch(/"origin"|"providerKey"|"credentialRef"/u);
+    const upload=operations.find(x=>x.operation==="file_upload")!;
+    const download=operations.find(x=>x.operation==="file_read")!;
+    expect(download.inputSchema.properties.data.properties.fileIndex).toMatchObject({minimum:0,maximum:99});
+    expect(upload).toMatchObject({requiredScopes:["resources:read","resources:write"]});
+    expect(upload.inputSchema.properties.data.properties.fieldKey.enum).toEqual(["amount"]);
+    expect(upload.inputSchema.properties.data.oneOf[0].required).toContain("recordId");
+    const eligible=await f.request(base+"/_authority/delegation-eligibility?modelKey="+f.model+"&operation=file_upload");
+    expect(eligible.status).toBe(200);
+    expect((await eligible.json() as any).data.eligibleOperations).toEqual([
+      {modelKey:f.model,operation:"file_upload",requiredScopes:["resources:read","resources:write"]},
+    ]);
+    const eligibleDownload=await f.request(base+"/_authority/delegation-eligibility?modelKey="+f.model+"&operation=file_read");
+    expect((await eligibleDownload.json() as any).data.eligibleOperations).toEqual([
+      {modelKey:f.model,operation:"file_read",requiredScopes:["resources:read"]},
+    ]);
+    expect((await f.request(base+"/oauth-delegation-requests","POST",{
+      modelKey:f.model,operation:"file_read",reason:"Download a current Provider PDF"},jwt)).status).toBe(201);
+    const requested=await f.request(base+"/oauth-delegation-requests","POST",{
+      modelKey:f.model,operation:"file_upload",reason:"Upload a synthetic Provider attachment"},jwt);
+    expect(requested.status,JSON.stringify(await requested.clone().json())).toBe(201);
+
+    const invoke=(data:Record<string,unknown>)=>f.request(base+"/_operations/"+upload.operationRef+"/invoke","POST",
+      {arguments:{spaceId:f.space,data}},jwt);
+    const content=new TextEncoder().encode("synthetic file content");
+    const begin={phase:"begin",fieldKey:"amount",recordId:"rec_external_"+suffix,
+      name:"synthetic.txt",contentType:"text/plain",size:content.length};
+    expect((await invoke({...begin,recordId:undefined})).status).toBe(422);
+    expect((await invoke({...begin,fieldKey:"unknown"})).status).toBe(405);
+    const start=await invoke(begin);
+    expect(start.status,JSON.stringify(await start.clone().json())).toBe(201);
+    const uploadSession=(await start.json() as {data:{id:string;destination:string;upload:{url:string;method:string}}}).data;
+    expect(uploadSession).toMatchObject({destination:"external",upload:{method:"PUT"}});
+    const stored=await f.db.prepare("SELECT object_key FROM file_upload_sessions WHERE id=?")
+      .bind(uploadSession.id).first<{object_key:string}>();
+    expect(stored).toBeTruthy();
+    await (env as unknown as {ASSETS:R2Bucket}).ASSETS.put(stored!.object_key,content,
+      {httpMetadata:{contentType:"text/plain"}});
+    const done=await invoke({phase:"complete",uploadId:uploadSession.id});
+    expect(done.status,JSON.stringify(await done.clone().json())).toBe(200);
+    expect(f.state.calls).toContain("upload");
+    expect((await invoke({phase:"complete",uploadId:uploadSession.id})).status).toBe(409);
+
+    const url="https://files.example.test/notion/report.pdf?sig=short-lived";
+    f.state.fileRefs=[{name:"report.pdf",url,expiresAt:new Date(Date.now()+300_000).toISOString()}];
+    const read=(fileIndex:number,recordId="rec_external_"+suffix)=>f.request(
+      base+"/_operations/"+download.operationRef+"/invoke","POST",
+      {arguments:{spaceId:f.space,recordId,data:{fieldKey:"amount",fileIndex}}},jwt);
+    expect((await read(99)).status).toBe(404);
+    const downloaded=await read(0);
+    expect(downloaded.status,JSON.stringify(await downloaded.clone().json())).toBe(200);
+    expect((await downloaded.json() as any).data).toMatchObject({name:"report.pdf",url});
+    expect(f.state.calls).toContain("get");
+    const canonical=await f.request(base+"/models/"+f.model+"/records/rec_external_"+suffix+"/file-downloads",
+      "POST",{fieldKey:"amount",fileIndex:0},jwt);
+    expect(canonical.status,JSON.stringify(await canonical.clone().json())).toBe(200);
+    f.state.fileRefs=[{name:"report.pdf",url,expiresAt:new Date(Date.now()-1000).toISOString()}];
+    expect((await read(0)).status).toBe(409);
+    f.state.fileRefs=[{name:"public.pdf",url:"https://public.example.test/a.pdf"}];
+    const publicRef=await read(0);
+    expect(publicRef.status).toBe(200);
+    expect((await publicRef.json() as any).data).toEqual({name:"public.pdf",url:"https://public.example.test/a.pdf"});
+    f.state.fileRefs=[{name:"unsafe.pdf",url:"http://127.0.0.1/unsafe"}];
+    expect((await read(0)).status).toBe(502);
+    f.state.fileRefs=[{name:"report.pdf",url,expiresAt:new Date(Date.now()+300_000).toISOString()}];
+
+    // A live Provider write downgrade removes upload, not authorized read.
+    await f.db.prepare("UPDATE external_models SET declared_access='read' WHERE space_id=? AND definition_key=?")
+      .bind(f.space,f.model).run();
+    const after=await f.request(base+"/_discovery/operations","GET",undefined,jwt);
+    expect(after.status).toBe(200);
+    expect((await after.json() as any).data.operations.map((x:any)=>x.operation)).toEqual(["file_read"]);
+    const eligibilityAfter=await f.request(base+"/_authority/delegation-eligibility?modelKey="+f.model+"&operation=file_upload");
+    expect((await eligibilityAfter.json() as any).data.eligibleOperations).toEqual([]);
+    expect((await invoke(begin)).status).toBe(404);
+    expect((await read(0)).status).toBe(200);
+    // Without an actual Provider GET, no file read may be exposed.
+    const bound=await f.db.prepare("SELECT snapshot_json FROM external_models WHERE space_id=? AND definition_key=?")
+      .bind(f.space,f.model).first<{snapshot_json:string}>();
+    const snapshot=JSON.parse(bound!.snapshot_json);
+    snapshot.capabilities.get=false;
+    await f.db.prepare("UPDATE external_models SET snapshot_json=? WHERE space_id=? AND definition_key=?")
+      .bind(JSON.stringify(snapshot),f.space,f.model).run();
+    const hidden=await f.request(base+"/_discovery/operations","GET",undefined,jwt);
+    expect((await hidden.json() as any).data.operations).toEqual([]);
+    expect((await read(0)).status).toBe(404);
+  });
 
   it("uses Core's same OAuth MCP model operation catalog for provider-backed Query/Create and live capability narrowing", async () => {
     const f=await fixture(); await f.authorize();

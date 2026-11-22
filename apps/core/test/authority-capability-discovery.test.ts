@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { discoveryPrincipal, evaluateDelegationEligibleModels, projectPersonAuthorityOperations } from "../src/authority-capability-discovery";
 import type { Bindings, Principal } from "../src/env";
+import type { ExternalModel } from "../src/external-model";
+import { externalFileUploadFields, externalFileReadFields } from "../src/file-read-fields";
 
 const user: Principal = {
   type: "user",
@@ -34,4 +36,23 @@ describe("protocol-neutral authorization capability discovery", () => {
     expect(projected.type).toBe("user");
     expect(projected.id).toBe(user.id);
   });
+  it("supports Provider file read and separate upload capability on readonly fields", () => {
+    const external = {
+      status: "active", declared_access: "write",
+      snapshot: {capabilities:{get:true},fields:[
+        {key:"zeta",type:"file_ref_list",readable:true,writable:true,upload:{supported:true,maxBytes:1024}},
+        {key:"alpha",type:"file_ref_list",readable:true,writable:true,upload:{supported:true,maxBytes:1024}},
+        {key:"readOnly",type:"file_ref_list",readable:true,writable:false,readOnly:true,upload:{supported:true,maxBytes:1024}},
+        {key:"ordinary",type:"file_ref_list",readable:true,writable:false},
+        {key:"scalar",type:"string",readable:true,writable:true,upload:{supported:true,maxBytes:1024}},
+      ]},
+    } as unknown as ExternalModel;
+    expect(externalFileUploadFields(external)).toEqual(["alpha","readOnly","zeta"]);
+    expect(externalFileReadFields(external)).toEqual(["alpha","ordinary","readOnly","zeta"]);
+    expect(externalFileUploadFields({...external,declared_access:"read"})).toEqual([]);
+    expect(externalFileReadFields({...external,declared_access:"read"})).toHaveLength(4);
+    expect(externalFileReadFields({...external,status:"degraded"})).toEqual([]);
+    expect(externalFileReadFields({...external,snapshot:{...external.snapshot,capabilities:{...external.snapshot.capabilities,get:false}}})).toEqual([]);
+  });
+
 });

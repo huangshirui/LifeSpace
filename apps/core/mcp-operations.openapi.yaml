@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Generic Operations (Candidate)
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Protocol-neutral, authenticated operation projection for the current OAuth
     MCP Agent execution context or opaque Agent credential with configured MCP
@@ -117,16 +117,22 @@ paths:
         before dispatching through the existing canonical Kernel/Model APIs.
         Any missing descriptor requiredScopes produces HTTP 403 even when the
         operation was visible with a narrower OAuth token.
-        The explicit file_read operation requires resources:read and is available only for
-        a configured native model with file or file_list fields. Input data contains
-        fieldKey and fileId; recordId is required. A successful response contains the
-        existing short-lived FileDownloadResponse. The authorized client fetches the
-        file directly; the URL is a bearer credential, not a durable File identity.
+        The explicit file_read operation requires resources:read. Current Core-owned
+        Native fields use data.fieldKey + data.fileId; eligible Provider-backed
+        file_ref_list fields use data.fieldKey + zero-based data.fileIndex.
+        Core always rechecks live record authority. Native returns a short-lived
+        signed R2 URL; External returns a freshly retrieved Provider HTTPS URL
+        with its real expiry when available (none for public links). The client
+        fetches directly; Provider bytes are never proxied or copied by Core.
+        URLs must not be persisted as durable file identity.
         The explicit file_upload operation requires resources:read and resources:write.
-        Data selects phase begin (fieldKey, optional recordId, name, contentType, size)
-        or complete (uploadId). Begin returns the existing signed PUT session;
-        complete verifies the staged object and returns File metadata. Clients
-        transfer bytes directly; record attachment is a separate operation.
+        Data selects phase begin (fieldKey, recordId required for External,
+        name, contentType, size) or complete (uploadId). Native may omit
+        recordId. External file_ref_list fields may be readOnly for ordinary
+        record mutation while still supporting upload.supported (Notion).
+        Begin returns the existing signed PUT session; complete verifies
+        the staged object and returns Native File or Provider record metadata.
+        Clients transfer bytes directly; Native record attachment is separate.
         Multi-step upload does not support once-only Delegation.
         OAuth Agent Direct retains its current contract. OAuth represented execution
         uses the separate exact approved canonical operation. Trusted Agent credentials
@@ -170,9 +176,11 @@ paths:
         OAuth execution or opaque Agent credential with configured Server context
         and optional explicit Delegation; selected Space, explicit file_read Server operation
         and (for represented execution) exact current User Delegation are checked.
-        Reuses the existing native File authority, record link and read policy.
-        The result is private and contains a short-lived bearer URL for direct
-        client transfer; no file bytes are returned by this operation.
+        Reuses current record read authority. Native files require exact
+        fileId/field link and return a signed R2 URL; Provider files use
+        a bounded fileIndex in a freshly fetched file_ref_list and return the
+        Provider HTTPS reference and expiry if supplied. No file bytes are
+        transferred by Core; returned URLs must be kept confidential.
       parameters:
         - $ref: '#/components/parameters/spaceId'
         - name: modelKey
@@ -196,19 +204,28 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [fieldKey, fileId]
+              required: [fieldKey]
+              oneOf:
+                - required: [fileId]
+                  not: { required: [fileIndex] }
+                - required: [fileIndex]
+                  not: { required: [fileId] }
               properties:
                 fieldKey: { type: string, maxLength: 63 }
                 fileId: { type: string, pattern: '^fil_[a-f0-9]{32}$' }
+                fileIndex: { type: integer, minimum: 0, maximum: 99 }
       responses:
         '200':
-          description: Existing native File download descriptor for direct authorized client transfer; treat URL as secret
+          description: Native signed File URL or current Provider HTTPS file reference; treat URL as confidential
           headers:
             Cache-Control:
               schema: { type: string, enum: [no-store] }
           content:
             application/json:
-              schema: { $ref: './openapi.yaml#/components/schemas/FileDownloadResponse' }
+              schema:
+                oneOf:
+                  - { $ref: './openapi.yaml#/components/schemas/FileDownloadResponse' }
+                  - { $ref: './openapi.yaml#/components/schemas/ProviderFileDownloadResponse' }
         '400': { description: Invalid request }
         '401': { description: Invalid or expired authentication }
         '403': { description: Missing current authority or configured operation }

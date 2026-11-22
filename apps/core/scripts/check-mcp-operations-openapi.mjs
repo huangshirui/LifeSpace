@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 const doc=parse(readFileSync(new URL("../mcp-operations.openapi.yaml",import.meta.url),"utf8"));
 assert.equal(doc.openapi,"3.1.0");
-assert.equal(doc.info.version,"0.5.0");
+assert.equal(doc.info.version,"0.6.0");
 const get=doc.paths["/api/v1/spaces/{spaceId}/_discovery/operations"].get;
 assert.deepEqual(get.parameters.filter(p=>p.in==="query").map(p=>p.name),["modelKey","operation","mode"]);
 for(const p of get.parameters.filter(p=>p.in==="query"&&p.name!=="mode")) {
