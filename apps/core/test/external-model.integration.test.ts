@@ -74,6 +74,7 @@ async function fixture(definitionKey?: string, fileUpload = false) {
     active: 0,
     maxActive: 0,
     type: fileUpload ? "file_ref_list" : "number",
+    fileRefs: [] as Array<{name:string;url:string;expiresAt?:string}>,
     title: "Amount",
     cursor: null as string | null,
     error: null as string | null,
@@ -93,9 +94,10 @@ async function fixture(definitionKey?: string, fileUpload = false) {
         type: state.type,
         nullable: true,
         readable: true,
-        writable: true,
-        operators: state.type === "number" ? ["eq", "ne", "gt"] : ["eq", "ne"],
-        sortable: true,
+        ...(fileUpload ? {readOnly:true} : {}),
+        writable: !fileUpload,
+        operators: fileUpload ? [] : state.type === "number" ? ["eq", "ne", "gt"] : ["eq", "ne"],
+        sortable: !fileUpload,
         ...(fileUpload ? { upload: {supported: true, maxBytes: 1024 * 1024} } : {}),
       },
     ],
@@ -119,7 +121,7 @@ async function fixture(definitionKey?: string, fileUpload = false) {
   });
   const record = (id = "rec_external_" + suffix) => ({
     id: state.returnedRecordId ?? id,
-    data: { [field]: state.type === "number" ? 8 : state.type === "file_ref_list" ? [] : "eight" },
+    data: { [field]: state.type === "number" ? 8 : state.type === "file_ref_list" ? state.fileRefs : "eight" },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
   });
@@ -519,7 +521,7 @@ describe("Space-local External Model framework", () => {
     expect((await f.request(config+"/"+f.model,"DELETE")).status).toBe(204);
   },30000);
 
-  it("projects a live External file upload through Core authority, never External file download", async () => {
+  it("projects live External file read + upload through one Core authority and Provider snapshot", async () => {
     const f=await fixture(undefined,true); await f.authorize();
     const suffix=crypto.randomUUID().replaceAll("-","");
     const agent="agt_"+suffix, serverId="mcp_"+suffix, authId="oaz_"+suffix;
@@ -550,9 +552,11 @@ describe("Space-local External Model framework", () => {
     const operations=(await catalog.json() as {data:{operations:Array<{
       operation:string;operationRef:string;requiredScopes:string[];inputSchema:any;
     }>}}).data.operations;
-    expect(operations.map(x=>x.operation)).toEqual(["file_upload"]);
+    expect(operations.map(x=>x.operation).sort()).toEqual(["file_read","file_upload"]);
     expect(JSON.stringify(operations)).not.toMatch(/"origin"|"providerKey"|"credentialRef"/u);
-    const upload=operations[0]!;
+    const upload=operations.find(x=>x.operation==="file_upload")!;
+    const download=operations.find(x=>x.operation==="file_read")!;
+    expect(download.inputSchema.properties.data.properties.fileIndex).toMatchObject({minimum:0,maximum:99});
     expect(upload).toMatchObject({requiredScopes:["resources:read","resources:write"]});
     expect(upload.inputSchema.properties.data.properties.fieldKey.enum).toEqual(["amount"]);
     expect(upload.inputSchema.properties.data.oneOf[0].required).toContain("recordId");
@@ -561,10 +565,12 @@ describe("Space-local External Model framework", () => {
     expect((await eligible.json() as any).data.eligibleOperations).toEqual([
       {modelKey:f.model,operation:"file_upload",requiredScopes:["resources:read","resources:write"]},
     ]);
-    const deniedDownload=await f.request(base+"/_authority/delegation-eligibility?modelKey="+f.model+"&operation=file_read");
-    expect((await deniedDownload.json() as any).data.eligibleOperations).toEqual([]);
+    const eligibleDownload=await f.request(base+"/_authority/delegation-eligibility?modelKey="+f.model+"&operation=file_read");
+    expect((await eligibleDownload.json() as any).data.eligibleOperations).toEqual([
+      {modelKey:f.model,operation:"file_read",requiredScopes:["resources:read"]},
+    ]);
     expect((await f.request(base+"/oauth-delegation-requests","POST",{
-      modelKey:f.model,operation:"file_read",reason:"Cannot download an External file"},jwt)).status).toBe(404);
+      modelKey:f.model,operation:"file_read",reason:"Download a current Provider PDF"},jwt)).status).toBe(201);
     const requested=await f.request(base+"/oauth-delegation-requests","POST",{
       modelKey:f.model,operation:"file_upload",reason:"Upload a synthetic Provider attachment"},jwt);
     expect(requested.status,JSON.stringify(await requested.clone().json())).toBe(201);
@@ -590,15 +596,49 @@ describe("Space-local External Model framework", () => {
     expect(f.state.calls).toContain("upload");
     expect((await invoke({phase:"complete",uploadId:uploadSession.id})).status).toBe(409);
 
-    // A live Provider capability downgrade removes discovery, eligibility and execution.
+    const url="https://files.example.test/notion/report.pdf?sig=short-lived";
+    f.state.fileRefs=[{name:"report.pdf",url,expiresAt:new Date(Date.now()+300_000).toISOString()}];
+    const read=(fileIndex:number,recordId="rec_external_"+suffix)=>f.request(
+      base+"/_operations/"+download.operationRef+"/invoke","POST",
+      {arguments:{spaceId:f.space,recordId,data:{fieldKey:"amount",fileIndex}}},jwt);
+    expect((await read(99)).status).toBe(404);
+    const downloaded=await read(0);
+    expect(downloaded.status,JSON.stringify(await downloaded.clone().json())).toBe(200);
+    expect((await downloaded.json() as any).data).toMatchObject({name:"report.pdf",url});
+    expect(f.state.calls).toContain("get");
+    const canonical=await f.request(base+"/models/"+f.model+"/records/rec_external_"+suffix+"/file-downloads",
+      "POST",{fieldKey:"amount",fileIndex:0},jwt);
+    expect(canonical.status,JSON.stringify(await canonical.clone().json())).toBe(200);
+    f.state.fileRefs=[{name:"report.pdf",url,expiresAt:new Date(Date.now()-1000).toISOString()}];
+    expect((await read(0)).status).toBe(409);
+    f.state.fileRefs=[{name:"public.pdf",url:"https://public.example.test/a.pdf"}];
+    const publicRef=await read(0);
+    expect(publicRef.status).toBe(200);
+    expect((await publicRef.json() as any).data).toEqual({name:"public.pdf",url:"https://public.example.test/a.pdf"});
+    f.state.fileRefs=[{name:"unsafe.pdf",url:"http://127.0.0.1/unsafe"}];
+    expect((await read(0)).status).toBe(502);
+    f.state.fileRefs=[{name:"report.pdf",url,expiresAt:new Date(Date.now()+300_000).toISOString()}];
+
+    // A live Provider write downgrade removes upload, not authorized read.
     await f.db.prepare("UPDATE external_models SET declared_access='read' WHERE space_id=? AND definition_key=?")
       .bind(f.space,f.model).run();
     const after=await f.request(base+"/_discovery/operations","GET",undefined,jwt);
     expect(after.status).toBe(200);
-    expect((await after.json() as any).data.operations).toEqual([]);
+    expect((await after.json() as any).data.operations.map((x:any)=>x.operation)).toEqual(["file_read"]);
     const eligibilityAfter=await f.request(base+"/_authority/delegation-eligibility?modelKey="+f.model+"&operation=file_upload");
     expect((await eligibilityAfter.json() as any).data.eligibleOperations).toEqual([]);
     expect((await invoke(begin)).status).toBe(404);
+    expect((await read(0)).status).toBe(200);
+    // Without an actual Provider GET, no file read may be exposed.
+    const bound=await f.db.prepare("SELECT snapshot_json FROM external_models WHERE space_id=? AND definition_key=?")
+      .bind(f.space,f.model).first<{snapshot_json:string}>();
+    const snapshot=JSON.parse(bound!.snapshot_json);
+    snapshot.capabilities.get=false;
+    await f.db.prepare("UPDATE external_models SET snapshot_json=? WHERE space_id=? AND definition_key=?")
+      .bind(JSON.stringify(snapshot),f.space,f.model).run();
+    const hidden=await f.request(base+"/_discovery/operations","GET",undefined,jwt);
+    expect((await hidden.json() as any).data.operations).toEqual([]);
+    expect((await read(0)).status).toBe(404);
   });
 
   it("uses Core's same OAuth MCP model operation catalog for provider-backed Query/Create and live capability narrowing", async () => {
