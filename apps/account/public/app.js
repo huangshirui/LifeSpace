@@ -152,6 +152,50 @@ async function initialize() {
     failure("暂时无法授权", err instanceof Error ? err.message : "身份或授权信息不可用");
   }
 }
+async function resolveKnownAgent(){
+  if(state.busy || !state.request?.id)return;
+  const spaceId=$("known-space").value.trim();
+  const agentId=$("known-agent-id").value.trim();
+  const status=$("known-agent-status");
+  if(!/^spc_[A-Za-z0-9_-]+$/u.test(spaceId)||!/^agt_[A-Za-z0-9_-]+$/u.test(agentId)){
+    status.textContent="请输入完整的 Space ID 与 Agent ID。";return;
+  }
+  state.busy=true;
+  $("lookup-known-agent").disabled=true;
+  status.textContent="正在验证当前空间管理权限和 Agent 身份…";
+  try{
+    const result=await api("/api/oauth/choices?"+new URLSearchParams({
+      request_id:state.request.id,space_id:spaceId,agent_id:agentId,
+    }));
+    const candidates=(result.candidates??[]).filter(row=>
+      row.spaceId===spaceId && row.agentId===agentId && row.requiresUserAuthorization===true);
+    if(!candidates.length)throw new Error("此空间没有可用的 Agent 身份绑定，请检查 ID 和访问权限。");
+    const chosen=candidates[0];
+    for(const candidate of candidates){
+      if(!state.choices.some(row=>row.spaceId===candidate.spaceId
+        &&row.applicationId===candidate.applicationId&&row.agentId===candidate.agentId)){
+        state.choices.unshift(candidate);
+      }
+    }
+    updateApplications();
+    controls.application.value=chosen.applicationId;
+    updateSpaces();
+    controls.space.value=chosen.spaceId;
+    updateAgents();
+    controls.agent.value=chosen.agentId;
+    $("allow").checked=true;
+    await refreshCapabilities();
+    status.textContent="已验证 Agent 与 Application；当前连接仅允许后续申请用户委托，未授予访问权限。";
+    $("known-agent").open=false;
+  }catch(error){
+    status.textContent=error instanceof Error?error.message:"验证失败";
+  }finally{
+    state.busy=false;
+    $("lookup-known-agent").disabled=false;
+    updateButton();
+  }
+}
+$("lookup-known-agent").addEventListener("click",()=>void resolveKnownAgent());
 controls.application.addEventListener("change", updateSpaces);
 controls.space.addEventListener("change", updateAgents);
 controls.agent.addEventListener("change", refreshCapabilities);

@@ -3,14 +3,15 @@
 // contains no origin, provider, Person Directory identifier or route binding.
 import type { Context, Hono } from "hono";
 import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
-import { requirePersonDirectoryPermission } from "./authorization";
 import { requireDirectoryAccess } from "./person-directory";
-import { requireTrustedMcpContext } from "./mcp-delegation-contexts";
+import { requireAgentDelegationSelection } from "./agent-delegation-selection";
+import { currentMcpOAuthQueryPolicy } from "./mcp-oauth-server-policy";
 import { applicationModelCatalog, configurationAccess } from "./configuration-model-discovery";
 import { getExternalModel, externalAuthorityModel } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
 import { evaluateModelAccessMany, type ModelAccessRequest, type ModelAuthorityTarget } from "./model-authorization";
 import { getRuntimeModel } from "./model-registry";
+import { discoveryPrincipal, evaluateDelegationEligibleModels, projectPersonAuthorityOperations } from "./authority-capability-discovery";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { getActiveModelContract } from "./model-contract-store";
 import { getOrCreateActiveModelContract } from "./model-contract-service";
@@ -97,32 +98,6 @@ function personData(op:Operation):JsonSchema {
   if(op==="delete")return {type:"object",additionalProperties:false,properties:{version},required:["version"]};
   return {type:"object",additionalProperties:false};
 }
-// Discovery may preview an already-granted Agent write capability even when
-// this OAuth token currently carries only read Scope. This is a local
-// hypothetical credential-Scope probe, NOT a minted token or authorization:
-// real invocation below and canonical handlers always use the original
-// authenticated Principal and recheck every current authority boundary.
-function discoveryPrincipal(p:Principal,access:Access):Principal {
-  if(access==="write"&&!p.scopes.includes("resources:write"))
-    return {...p,scopes:[...p.scopes,"resources:write"]};
-  return p;
-}
-async function personMay(env:Bindings,p:Principal,spaceId:string,access:Access) {
-  if(!p.scopes.includes("resources:read"))return false;
-  try {await requirePersonDirectoryPermission(env,discoveryPrincipal(p,access),spaceId,access);return true;}
-  catch(e){if(e instanceof ApiError&&[403,404].includes(e.status))return false;throw e;}
-}
-// Shared current Person authority projection for discovery and Account Consent.
-export async function projectMcpPersonOperations(env:Bindings,p:Principal,spaceId:string,configured:readonly string[]):Promise<string[]>{
-  const choices=[...new Set(configured.map(op=>op==="list"?"query":op))]
-    .filter(op=>["query","get","create","update","delete"].includes(op));
-  if(!choices.length)return [];
-  const [read,write]=await Promise.all([
-    choices.some(op=>op==="query"||op==="get")?personMay(env,p,spaceId,"read"):false,
-    choices.some(op=>op!=="query"&&op!=="get")?personMay(env,p,spaceId,"write"):false,
-  ]);
-  return choices.filter(op=>["query","get"].includes(op)?read:write);
-}
 type ProjectionFilter={modelKey:string;operation?:string};
 type ProjectionOptions={filter?:ProjectionFilter;eligibility:boolean;configuration:boolean};
 function projectionOptions(c:ContextApp):ProjectionOptions{
@@ -148,9 +123,14 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
   if(trusted&&eligibility)throw denied();
   if(configuration&&(!trusted||selector!==undefined||targetRef))throw denied();
   const metadataOnly=eligibility||configuration;
-  // OAuth has an authenticated live policy; trusted Agent API uses an explicit
-  // configured Server/Application/Space/Agent tuple plus selected Delegation.
-  const policy=trusted?await requireTrustedMcpContext(c.env,principal,spaceId,trustedResource,selector)
+  // Identity authenticates Agent×Application. MCP Resource narrows operation
+  // exposure; it is not a Space enrollment or an independent Data Grant.
+  if(trusted){
+    if(!trustedResource)throw denied();
+    await requireAgentDelegationSelection(c.env,principal,spaceId,selector);
+  }
+  const policy=trusted?await currentMcpOAuthQueryPolicy(c.env.DB,trustedResource!,"GET",
+      "/api/v1/spaces/"+spaceId+"/_discovery/operations")
     :{serverId:execution!.serverId!,modelOperations:execution!.modelOperations!,
       personOperations:execution!.personOperations!};
   // Eligibility is an explicit, non-executing projection of the intended
@@ -223,12 +203,16 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
   }else if(principal.scopes.includes("resources:read")&&requests.length){
     // The hypothetical write Scope only controls discoverability, never
     // invocation. Both levels read the same current base-Authority snapshot.
-    const evaluated=await evaluateModelAccessMany(c.env,projectedPrincipal,spaceId,requests);
-    evaluated.forEach((result,i)=>{
-      if(!result.ok&&![403,404,405].includes(result.error.status))throw result.error;
+    const eligible=eligibility
+      ? await evaluateDelegationEligibleModels(c.env,projectedPrincipal,spaceId,requests)
+      : (await evaluateModelAccessMany(c.env,projectedPrincipal,spaceId,requests)).map(result=>{
+          if(!result.ok&&![403,404,405].includes(result.error.status))throw result.error;
+          return result.ok;
+        });
+    eligible.forEach((allowed,i)=>{
       const {key,access}=requested[i]!;
       const permission=permissions.get(key)??{read:false,write:false};
-      permission[access]=result.ok;
+      permission[access]=allowed;
       permissions.set(key,permission);
     });
   }
@@ -253,7 +237,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
         description:operation==="file_read"
           ?"Request a short-lived download URL for the linked file. Fetch the file directly using the returned URL before expiry. Treat the URL as a secret; do not log, persist or share it. Current Core authority is revalidated at issuance."
           :operation==="file_upload"
-          ?"Begin or complete a native file upload. Begin returns a temporary signed PUT URL and required headers; upload bytes directly and then complete with uploadId. Treat URL as secret. Completion returns a File ID; attach it using a separately authorized record create or update. Multi-step upload requires timed or until-revoked Delegation, not once-only."
+          ?"Begin or complete a file upload supported by the current model field. Begin returns a temporary signed PUT URL and required headers; transfer bytes directly, then complete with uploadId. Keep the URL secret. Core returns its authoritative completion result; any separate record attachment requires its own permission. Multi-step uploads require timed or until-revoked Delegation, not once-only."
           :"LifeSpace "+toolOp+". Current Core Resource, Space, Model, Policy and Delegation are revalidated at execution."}});
   };
   for(const {key,configured,model,bound,semantic} of candidates){
@@ -360,7 +344,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
     const [read,write]=await Promise.all([choices.some(op=>["query","get"].includes(op))?may("read"):false,
       choices.some(op=>!["query","get"].includes(op))?may("write"):false]);
     personChoices=choices.filter(op=>["query","get"].includes(op)?read:write);
-  }else personChoices=await projectMcpPersonOperations(c.env,eligibility?projectedPrincipal:principal,spaceId,choices);
+  }else personChoices=await projectPersonAuthorityOperations(c.env,eligibility?projectedPrincipal:principal,spaceId,choices);
   for(const normalized of personChoices){
     await push("person","person","Person",normalized as Operation,personData(normalized as Operation));
   }

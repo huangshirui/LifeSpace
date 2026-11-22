@@ -73,7 +73,7 @@
     },
     "/api/oauth/choices": {
       "get": {
-        "summary": "Core-filtered current Application → Space → Agent candidates",
+        "summary": "Core-filtered grants or exact known Agent identity during pending OAuth consent",
         "security": [],
         "responses": {
           "200": {
@@ -82,7 +82,39 @@
           "403": {
             "description": "Insufficient Account user authority"
           }
-        }
+        },
+        "description": "Without lookup parameters, shows only current granted Agent candidates. The exact known Agent ID lookup requires request_id, space_id and agent_id; Core validates the pending Resource, Account User's Space manage authority and existing active Identity Agent×Application binding. No global Agent enumeration or Data Grant is created.",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^oar_[A-Za-z0-9_-]{16,128}$"
+            }
+          },
+          {
+            "name": "space_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^spc_[A-Za-z0-9_-]+$"
+            },
+            "description": "Requires request_id and agent_id"
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^agt_[A-Za-z0-9_-]+$"
+            },
+            "description": "Exact known Agent ID; requires request_id and space_id"
+          }
+        ]
       }
     },
     "/api/oauth/confirm": {
