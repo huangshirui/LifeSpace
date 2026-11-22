@@ -123,11 +123,16 @@ paths:
         existing short-lived FileDownloadResponse. The authorized client fetches the
         file directly; the URL is a bearer credential, not a durable File identity.
         The explicit file_upload operation requires resources:read and resources:write.
-        Data selects phase begin (fieldKey, optional recordId, name, contentType, size)
-        or complete (uploadId). Begin returns the existing signed PUT session;
-        complete verifies the staged object and returns File metadata. Clients
-        transfer bytes directly; record attachment is a separate operation.
-        Multi-step upload does not support once-only Delegation.
+        Data selects phase begin (fieldKey, recordId when External, name,
+        contentType, size) or complete (uploadId). Native allows recordId to be
+        omitted; External requires an existing record and a current writable
+        file_ref_list Provider field with upload.supported. Begin returns the
+        existing signed PUT session; complete validates staged bytes and returns
+        Native File metadata or the Provider record projection, as applicable.
+        Consumers use one Tool shape and never branch on model origin; they
+        transfer bytes directly. Native record attachment is separately
+        authorized. External download is not implied. Multi-step uploads
+        reject once-only Delegation.
         OAuth Agent Direct retains its current contract. OAuth represented execution
         uses the separate exact approved canonical operation. Trusted Agent credentials
         may execute via this generic route with direct Agent authority or an explicitly
