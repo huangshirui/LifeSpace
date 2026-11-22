@@ -104,8 +104,7 @@ describe("opaque Agent API credential execution", () => {
     await db.batch([
       db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?, 'event','read','user',?)").bind(applicationId,userId),
       db.prepare("INSERT INTO mcp_server_definitions(id,display_name,description,enabled,config_json,revision,created_by_user_id,updated_by_user_id,created_at,updated_at) VALUES(?,?,?,1,?,1,?,?,?,?)")
-        .bind(serverId,"Trusted MCP","",JSON.stringify({models:[{modelKey:"event",operations:["query","get","create"]}],
-          delegationContexts:[{spaceId,applicationId,agentId}]}),userId,userId,now,now),
+        .bind(serverId,"Trusted MCP","",JSON.stringify({models:[{modelKey:"event",operations:["query","get","create"]}]}),userId,userId,now,now),
     ]);
     const state={active:true,scopes:["resources:read"]};
     const identity=identityBinding(agentId,state,applicationId);
