@@ -120,16 +120,24 @@ export async function projectDelegationEligibleOperations(
     const id = modelKey + ":" + operation;
     if (unique.has(id)) continue;
     unique.add(id);
-    const access: OperationAccess = ["query", "get", "file_read"].includes(operation) ? "read" : "write";
-    if (!verifiedUser.scopes.includes("resources:" + access)) continue;
+    let access: OperationAccess = ["query", "get", "file_read"].includes(operation) ? "read" : "write";
     if (modelKey === "person") {
-      if (PERSON_OPERATIONS.has(operation)) personCandidates.push(operation);
+      if (PERSON_OPERATIONS.has(operation) && verifiedUser.scopes.includes("resources:" + access))
+        personCandidates.push(operation);
       continue;
     }
     if (!modelCache.has(modelKey)) modelCache.set(modelKey, await getRuntimeModel(env, modelKey));
     const published = modelCache.get(modelKey);
     if (!published) continue;
     const external = published.definition.origin === "external";
+    // A published read Action is not a write operation merely because its
+    // identifier begins with action:. Never elevate or hide its real access.
+    if (!external && operation.startsWith("action:")) {
+      const declared = published.definition.actions?.[operation.slice(7)]?.access;
+      if (declared !== "read" && declared !== "write") continue;
+      access = declared;
+    }
+    if (!verifiedUser.scopes.includes("resources:" + access)) continue;
     let model: ModelAccessRequest["model"] = published;
     if (external) {
       if (!externalCache.has(modelKey)) externalCache.set(modelKey, await getExternalModel(env, spaceId, modelKey));
