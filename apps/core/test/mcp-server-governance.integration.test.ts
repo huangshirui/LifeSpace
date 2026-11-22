@@ -2,6 +2,8 @@ import { env } from "cloudflare:workers";
 import { sign } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
+import { publishModelDefinition } from "../src/model-registry";
+import type { Bindings, Principal } from "../src/env";
 
 type TestEnv = { DB: D1Database };
 function pem(label: "PRIVATE KEY" | "PUBLIC KEY", bytes: ArrayBuffer): string {
@@ -190,6 +192,31 @@ describe("MCP Server direct configuration lifecycle", () => {
       configuration: { models: [{ modelKey: "task", operations: ["file_read"] }] },
     })).status).toBe(422);
     expect((await call("POST", root, { name: "Old empty draft" })).status).toBe(422);
+  });
+
+  it("treats External file_upload as a Server ceiling, not a global Provider promise", async () => {
+    const {call}=await setup();
+    const db=(env as unknown as TestEnv).DB;
+    const suffix=crypto.randomUUID().replaceAll("-","");
+    const modelKey="external_upload_"+suffix.slice(0,12);
+    const publisher:Principal={type:"service",id:"svc_"+suffix,
+      clientId:"lifespace-platform-admin",tokenId:"tok_"+suffix,scopes:["models:manage"]};
+    await publishModelDefinition({DB:db} as Bindings,publisher,{
+      definitionVersion:1,origin:"external",key:modelKey,
+      display:{singular:"External file",plural:"External files"},
+      fields:{},access:["read","write"],
+    },"initial");
+    // The Server does not identify a Space; live Provider file fields are
+    // independently checked by Core discovery and OAuth request consent.
+    const created=await call("POST",root,{
+      name:"External file ceiling",
+      configuration:{models:[{modelKey,operations:["file_upload"]}]},
+    });
+    expect(created.status,JSON.stringify(await created.clone().json())).toBe(201);
+    expect((await call("POST",root,{name:"Unsupported External download",
+      configuration:{models:[{modelKey,operations:["file_read"]}]}})).status).toBe(422);
+    expect((await call("POST",root,{name:"Unsupported Native upload",
+      configuration:{models:[{modelKey:"task",operations:["file_upload"]}]}})).status).toBe(422);
   });
 
   it("uses schema 78 simple table without publication version history", async () => {
