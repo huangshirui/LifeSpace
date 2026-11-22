@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields } from "./file-read-fields";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
 import { oauthMcpServerId } from "./mcp-oauth-server-policy";
@@ -133,12 +133,16 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   const model=await getRuntimeModel(env,modelKey);
   if (!model) throw fail();
   if (operation === "file_read" && !nativeFileReadFields(model.definition).length) throw fail();
-  if (operation === "file_upload" && !nativeFileUploadFields(model.definition).length) throw fail();
+  if (operation === "file_upload" && model.definition.origin !== "external"
+    && !nativeFileUploadFields(model.definition).length) throw fail();
   if (model.definition.origin === "external") {
-    if (ACTION.test(operation) || operation === "file_read" || operation === "file_upload") throw fail();
+    // External downloads remain unavailable; upload requires a current
+    // Space-bound Provider field, never an assumed Native file capability.
+    if (ACTION.test(operation) || operation === "file_read") throw fail();
     const bound=await getExternalModel(env,spaceId,modelKey);
-    const externalOperation=operation as "get"|"query"|"create"|"update"|"delete";
-    if (!bound || bound.status!=="active" || !bound.snapshot.capabilities[externalOperation]
+    if (!bound || bound.status!=="active"
+      || (operation === "file_upload" ? !externalFileUploadFields(bound).length
+        : !bound.snapshot.capabilities[operation as "get"|"query"|"create"|"update"|"delete"])
       || (accessOf(operation)==="write" && bound.declared_access!=="write")) throw fail();
     // Single-use External mutations are permitted. The Core External
     // Runtime consumes current Delegation in D1 BEFORE one Provider write
