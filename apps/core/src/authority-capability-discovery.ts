@@ -66,3 +66,96 @@ export async function evaluateDelegationEligibleModels(
     throw result.error;
   });
 }
+
+
+import { getRuntimeModel } from "./model-registry";
+import { getExternalModel, externalAuthorityModel } from "./external-model";
+import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
+
+export type DelegationEligibilityCandidate = {
+  modelKey: string;
+  operation: string;
+};
+export type DelegationEligibilityResult = DelegationEligibilityCandidate & {
+  requiredScopes: string[];
+};
+
+type OperationAccess = "read" | "write";
+const MODEL_KEY = /^[a-z][a-z0-9_]{1,62}$/u;
+const OPERATION = /^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$/u;
+const PERSON_OPERATIONS = new Set(["query", "get", "create", "update", "delete"]);
+
+// A read-only Authority query used by independent consumer transports.
+// The supplied candidate set is a *ceiling*, never executable authority.
+// Core alone checks model capabilities, User permissions and active grants.
+// Native/External Provider differences are resolved privately in Core.
+export async function projectDelegationEligibleOperations(
+  env: Bindings,
+  verifiedUser: Principal,
+  spaceId: string,
+  candidates: readonly DelegationEligibilityCandidate[],
+): Promise<DelegationEligibilityResult[]> {
+  if (verifiedUser.type !== "user" || verifiedUser.actor || verifiedUser.purpose
+    || !verifiedUser.scopes.includes("resources:read")) {
+    throw new ApiError("FORBIDDEN", "Verified User authority is required for delegation eligibility", 403);
+  }
+  if (candidates.length > 128) throw new ApiError("VALIDATION_ERROR", "Too many candidate operations", 422);
+  if (!candidates.length) return [];
+  const unique = new Set<string>();
+  const prepared: Array<{
+    candidate: DelegationEligibilityCandidate;
+    access: OperationAccess;
+    model: ModelAccessRequest["model"];
+  }> = [];
+  const personCandidates: string[] = [];
+  for (const candidate of candidates) {
+    const { modelKey, operation } = candidate;
+    if (!MODEL_KEY.test(modelKey) || !OPERATION.test(operation)) {
+      throw new ApiError("VALIDATION_ERROR", "Invalid candidate model operation", 422);
+    }
+    const id = modelKey + ":" + operation;
+    if (unique.has(id)) continue;
+    unique.add(id);
+    const access: OperationAccess = ["query", "get", "file_read"].includes(operation) ? "read" : "write";
+    if (!verifiedUser.scopes.includes("resources:" + access)) continue;
+    if (modelKey === "person") {
+      if (PERSON_OPERATIONS.has(operation)) personCandidates.push(operation);
+      continue;
+    }
+    const published = await getRuntimeModel(env, modelKey);
+    if (!published) continue;
+    const external = published.definition.origin === "external";
+    let model: ModelAccessRequest["model"] = published;
+    if (external) {
+      const bound = await getExternalModel(env, spaceId, modelKey);
+      if (!bound || bound.status !== "active") continue;
+      const supported = ["get", "query", "create", "update", "delete"].includes(operation)
+        && bound.snapshot.capabilities[operation as "get"|"query"|"create"|"update"|"delete"] === true;
+      if (!supported || (access === "write" && bound.declared_access !== "write")) continue;
+      model = externalAuthorityModel(bound);
+    } else {
+      if (operation === "file_read" && !nativeFileReadFields(published.definition).length) continue;
+      if (operation === "file_upload" && !nativeFileUploadFields(published.definition).length) continue;
+      if (operation.startsWith("action:")) {
+        const action = published.definition.actions?.[operation.slice(7)];
+        if (!action || action.access !== access) continue;
+      } else if (!published.definition.access.includes(access)) continue;
+    }
+    prepared.push({ candidate, access, model });
+  }
+  const eligibility = await evaluateDelegationEligibleModels(env, verifiedUser, spaceId,
+    prepared.map(item=>({model:item.model,required:item.access})));
+  const authorized = prepared.filter((_item,idx)=>eligibility[idx]).map(item=>({
+    modelKey: item.candidate.modelKey,
+    operation: item.candidate.operation,
+    requiredScopes: item.access === "read" ? ["resources:read"] : ["resources:read","resources:write"],
+  }));
+  if (personCandidates.length) {
+    const accepted = await projectPersonAuthorityOperations(env, verifiedUser, spaceId, personCandidates);
+    for (const operation of accepted) authorized.push({
+      modelKey:"person",operation,
+      requiredScopes: ["query", "get"].includes(operation) ? ["resources:read"] : ["resources:read","resources:write"],
+    });
+  }
+  return authorized.sort((a,b)=>a.modelKey.localeCompare(b.modelKey)||a.operation.localeCompare(b.operation));
+}
