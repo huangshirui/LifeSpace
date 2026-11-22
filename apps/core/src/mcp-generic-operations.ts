@@ -2,7 +2,7 @@
 // Storage kind and source model are strictly Core-internal. The public DTO
 // contains no origin, provider, Person Directory identifier or route binding.
 import type { Context, Hono } from "hono";
-import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
+import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields } from "./file-read-fields";
 import { requireDirectoryAccess } from "./person-directory";
 import { requireAgentDelegationSelection } from "./agent-delegation-selection";
 import { currentMcpOAuthQueryPolicy } from "./mcp-oauth-server-policy";
@@ -55,6 +55,28 @@ function operationSchema(spaceId:string,op:Operation,data?:JsonSchema,recordId?:
   }
   return {type:"object",additionalProperties:false,properties,required,
     ...(definitions?{$defs:definitions}:{})};
+}
+function fileUploadInputSchema(fieldKeys: string[], external: boolean): JsonSchema {
+  return {
+    type: "object", additionalProperties: false,
+    properties: {
+      phase: {type:"string",enum:["begin","complete"]},
+      fieldKey: {type:"string",enum:fieldKeys},
+      recordId: {type:"string",pattern:"^rec_[A-Za-z0-9_-]+$",maxLength:256},
+      name: {type:"string",minLength:1,maxLength:512},
+      contentType: {type:"string",minLength:1,maxLength:255},
+      size: {type:"integer",minimum:1},
+      uploadId: {type:"string",pattern:"^upl_[a-f0-9]{32}$"},
+    },
+    required: ["phase"],
+    oneOf: [
+      {properties:{phase:{const:"begin"}},required:[
+        "fieldKey",...(external?["recordId"]:[]),"name","contentType","size",
+      ],not:{required:["uploadId"]}},
+      {properties:{phase:{const:"complete"}},required:["uploadId"],
+        not:{anyOf:["fieldKey","recordId","name","contentType","size"].map(key=>({required:[key]}))}},
+    ],
+  };
 }
 async function ref(key:string) {
   const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(key));
@@ -168,7 +190,9 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
       if(validCrud(op)){
         if(await matches(external?"external":"native",key,op))configured.push(op);
       }else if(op==="file_read"&&!external&&nativeFileReadFields(model.definition).length&&await matches("native",key,op))configured.push(op);
-      else if(op==="file_upload"&&!external&&nativeFileUploadFields(model.definition).length&&await matches("native",key,op))configured.push(op);
+      else if(op==="file_upload"&&(
+        external?await matches("external",key,op):nativeFileUploadFields(model.definition).length&&await matches("native",key,op)
+      ))configured.push(op);
       else if(!external&&op.startsWith("action:")&&await matches("action",key,op))configured.push(op);
     }
     if(!configured.length)continue;
@@ -245,6 +269,12 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
     if(bound){
       const detail=externalSemanticDetail(bound,[...(read?["read"]:[]),...(write?["write"]:[])]);
       for(const op of configured){
+        if(op==="file_upload"){
+          const fieldKeys=externalFileUploadFields(bound);
+          if(write&&fieldKeys.length)await push("external",key,names(detail.display.singular),op,
+            fileUploadInputSchema(fieldKeys,true));
+          continue;
+        }
         if(!["query","get","create","update","delete"].includes(op))continue;
         if(!(op==="get"||op==="query"?read:write)
           ||detail.runtimeCapabilities[op as keyof typeof detail.runtimeCapabilities]!==true)continue;
@@ -265,18 +295,8 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
         });
       }else if(op==="file_upload"){
         const fieldKeys=nativeFileUploadFields(model.definition);
-        if(write&&fieldKeys.length)await push("native",key,names(semantic.display.singular),op,{
-          type:"object",additionalProperties:false,
-          properties:{phase:{type:"string",enum:["begin","complete"]},fieldKey:{type:"string",enum:fieldKeys},
-            recordId:{type:"string",pattern:"^rec_[A-Za-z0-9_-]+$",maxLength:256},
-            name:{type:"string",minLength:1,maxLength:512},contentType:{type:"string",minLength:1,maxLength:255},
-            size:{type:"integer",minimum:1},uploadId:{type:"string",pattern:"^upl_[a-f0-9]{32}$"}},
-          required:["phase"],
-          oneOf:[
-            {properties:{phase:{const:"begin"}},required:["fieldKey","name","contentType","size"],not:{required:["uploadId"]}},
-            {properties:{phase:{const:"complete"}},required:["uploadId"],not:{anyOf:["fieldKey","recordId","name","contentType","size"].map(key=>({required:[key]}))}},
-          ],
-        });
+        if(write&&fieldKeys.length)await push("native",key,names(semantic.display.singular),op,
+          fileUploadInputSchema(fieldKeys,false));
       }else if(["query","get","create","update","delete"].includes(op)){
         if(!(op==="query"||op==="get"?read:write))continue;
         if(metadataOnly){await push("native",key,names(semantic.display.singular),op as Operation);continue;}
