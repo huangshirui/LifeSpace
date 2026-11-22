@@ -2,6 +2,8 @@ import { env } from "cloudflare:workers";
 import { sign } from "hono/jwt";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
+import { publishModelDefinition } from "../src/model-registry";
+import type { Bindings, Principal } from "../src/env";
 
 type TestEnv = { DB: D1Database };
 
@@ -94,6 +96,51 @@ function jsonData(response: Response) {
 }
 
 describe("opaque Agent API credential execution", () => {
+  it("reuses canonical File authority for a model-bound route without MCP enrollment", async () => {
+    const { publicKey } = await keys();
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const owner = "usr_" + suffix, agent = "agt_" + suffix, space = "spc_" + suffix;
+    const modelKey = "agentfile_" + suffix.slice(0, 12);
+    await seed(owner, space);
+    const db = (env as unknown as TestEnv).DB;
+    const publisher: Principal = {
+      type: "service", id: "svc_" + suffix, clientId: "lifespace-platform-admin",
+      scopes: ["models:manage"], tokenId: "tok_publish_" + suffix,
+    };
+    await publishModelDefinition({ DB: db } as Bindings, publisher, {
+      definitionVersion: 1, key: modelKey,
+      display: { singular: "Synthetic File", plural: "Synthetic Files" },
+      fields: { attachment: { type: "file", nullable: true } },
+      access: ["read", "write"],
+    }, "initial");
+    await db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES('test-app',?,'write','user',?)")
+      .bind(modelKey, owner).run();
+    const state = { active: true, scopes: ["resources:read", "resources:write"] };
+    const identity = identityBinding(agent, state);
+    const route = "/api/v1/spaces/" + space + "/models/" + modelKey + "/file-uploads";
+    const body = JSON.stringify({ fieldKey: "attachment", name: "synthetic.pdf", contentType: "application/pdf", size: 12 });
+    const headers = { authorization: "Bearer lsp_agt_synthetic", "content-type": "application/json" };
+    const call = () => request(route, { method: "POST", headers, body }, publicKey, identity);
+
+    // No MCP Server tuple exists. Ordinary Core Grant still gates the action.
+    expect((await call()).status).toBe(403);
+    await db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(?,?,'agent',?,'model',?,'write',?,?)")
+      .bind("grt_" + suffix, space, agent, modelKey, owner, new Date().toISOString()).run();
+    // This test intentionally has no R2 signing credentials: authorization
+    // succeeded and only the canonical File transfer signer is unavailable.
+    const accepted = await call();
+    expect(accepted.status).toBe(503);
+    expect(await accepted.json()).toMatchObject({ error: { code: "FILE_TRANSFER_UNAVAILABLE" } });
+
+    state.scopes = ["resources:read"];
+    expect((await call()).status).toBe(403);
+    state.scopes = ["resources:read", "resources:write"];
+    await db.prepare("UPDATE data_grants SET revoked_at=? WHERE grantee_type='agent' AND grantee_id=? AND source_space_id=?")
+      .bind(new Date().toISOString(), agent, space).run();
+    expect((await call()).status).toBe(403);
+  });
+
+
   it("projects and invokes trusted MCP operations with no Agent Grant and an explicit current Delegation",async()=>{
     const {privateKey,publicKey}=await keys();
     const uuid=crypto.randomUUID().replaceAll("-","");
