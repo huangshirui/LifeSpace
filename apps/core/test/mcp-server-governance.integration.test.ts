@@ -194,7 +194,7 @@ describe("MCP Server direct configuration lifecycle", () => {
     expect((await call("POST", root, { name: "Old empty draft" })).status).toBe(422);
   });
 
-  it("treats External file_upload as a Server ceiling, not a global Provider promise", async () => {
+  it("treats External file read/upload as Server ceilings, not global Provider promises", async () => {
     const {call}=await setup();
     const db=(env as unknown as TestEnv).DB;
     const suffix=crypto.randomUUID().replaceAll("-","");
@@ -210,11 +210,9 @@ describe("MCP Server direct configuration lifecycle", () => {
     // independently checked by Core discovery and OAuth request consent.
     const created=await call("POST",root,{
       name:"External file ceiling",
-      configuration:{models:[{modelKey,operations:["file_upload"]}]},
+      configuration:{models:[{modelKey,operations:["file_upload","file_read"]}]},
     });
     expect(created.status,JSON.stringify(await created.clone().json())).toBe(201);
-    expect((await call("POST",root,{name:"Unsupported External download",
-      configuration:{models:[{modelKey,operations:["file_read"]}]}})).status).toBe(422);
     expect((await call("POST",root,{name:"Unsupported Native upload",
       configuration:{models:[{modelKey:"task",operations:["file_upload"]}]}})).status).toBe(422);
   });
