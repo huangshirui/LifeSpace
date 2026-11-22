@@ -276,7 +276,11 @@ describe("Core Account OAuth Consent boundary", () => {
     expect((await query(path, await token(f.pair.privateKey, f.userId, "app_untrusted"))).status).toBe(403);
     await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE source_space_id=? AND grantee_id=?")
       .bind(new Date().toISOString(), f.spaceId, f.agentId).run();
-    expect((await query()).status).toBe(403);
+    // A managed Space may still select this known Agent for future User
+    // delegation, but revocation removes all independently executable rights.
+    const emptyDirect=await query();
+    expect(emptyDirect.status).toBe(200);
+    expect((await emptyDirect.json() as any).data.models).toEqual([]);
   });
 
   it("previews only independently granted Person operations, including a Person-only Agent", async () => {
@@ -322,7 +326,9 @@ describe("Core Account OAuth Consent boundary", () => {
       {key:"person",name:"Person",operations:["query","get","create","update"],access:["read","write"]},
     ]);
     await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE id=?").bind(now,personGrant).run();
-    expect((await query()).status).toBe(403);
+    const emptyPerson=await query();
+    expect(emptyPerson.status).toBe(200);
+    expect((await emptyPerson.json() as any).data.models).toEqual([]);
   });
 
   it("denies non-manager consent, unavailable Service Binding, Identity rejection and malformed code redirect", async () => {
