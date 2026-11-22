@@ -108,6 +108,10 @@ export async function projectDelegationEligibleOperations(
     model: ModelAccessRequest["model"];
   }> = [];
   const personCandidates: string[] = [];
+  // One current Core Provider snapshot read per selected model rather than
+  // one D1 lookup per operation. Revocable User authority remains uncached.
+  const modelCache = new Map<string, Awaited<ReturnType<typeof getRuntimeModel>>>();
+  const externalCache = new Map<string, Awaited<ReturnType<typeof getExternalModel>>>();
   for (const candidate of candidates) {
     const { modelKey, operation } = candidate;
     if (!MODEL_KEY.test(modelKey) || !OPERATION.test(operation)) {
@@ -122,12 +126,14 @@ export async function projectDelegationEligibleOperations(
       if (PERSON_OPERATIONS.has(operation)) personCandidates.push(operation);
       continue;
     }
-    const published = await getRuntimeModel(env, modelKey);
+    if (!modelCache.has(modelKey)) modelCache.set(modelKey, await getRuntimeModel(env, modelKey));
+    const published = modelCache.get(modelKey);
     if (!published) continue;
     const external = published.definition.origin === "external";
     let model: ModelAccessRequest["model"] = published;
     if (external) {
-      const bound = await getExternalModel(env, spaceId, modelKey);
+      if (!externalCache.has(modelKey)) externalCache.set(modelKey, await getExternalModel(env, spaceId, modelKey));
+      const bound = externalCache.get(modelKey);
       if (!bound || bound.status !== "active") continue;
       const supported = ["get", "query", "create", "update", "delete"].includes(operation)
         && bound.snapshot.capabilities[operation as "get"|"query"|"create"|"update"|"delete"] === true;
