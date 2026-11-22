@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { discoveryPrincipal, evaluateDelegationEligibleModels, projectPersonAuthorityOperations } from "../src/authority-capability-discovery";
 import type { Bindings, Principal } from "../src/env";
+import type { ExternalModel } from "../src/external-model";
+import { externalFileUploadFields } from "../src/file-read-fields";
 
 const user: Principal = {
   type: "user",
@@ -34,4 +36,20 @@ describe("protocol-neutral authorization capability discovery", () => {
     expect(projected.type).toBe("user");
     expect(projected.id).toBe(user.id);
   });
+  it("projects only actually writable Provider file fields without inventing External download", () => {
+    const external = {
+      declared_access: "write",
+      snapshot: {fields:[
+        {key:"zeta",type:"file_ref_list",writable:true,upload:{supported:true,maxBytes:1024}},
+        {key:"alpha",type:"file_ref_list",writable:true,upload:{supported:true,maxBytes:1024}},
+        {key:"readOnly",type:"file_ref_list",writable:false,upload:{supported:true,maxBytes:1024}},
+        {key:"immutable",type:"file_ref_list",writable:true,readOnly:true,upload:{supported:true,maxBytes:1024}},
+        {key:"ordinary",type:"file_ref_list",writable:true},
+        {key:"scalar",type:"string",writable:true,upload:{supported:true,maxBytes:1024}},
+      ]},
+    } as unknown as ExternalModel;
+    expect(externalFileUploadFields(external)).toEqual(["alpha","zeta"]);
+    expect(externalFileUploadFields({...external,declared_access:"read"})).toEqual([]);
+  });
+
 });
