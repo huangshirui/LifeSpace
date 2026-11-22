@@ -38,7 +38,7 @@ describe("protocol-neutral authorization capability discovery", () => {
   });
   it("projects only actually writable Provider file fields without inventing External download", () => {
     const external = {
-      declared_access: "write",
+      status: "active", declared_access: "write",
       snapshot: {fields:[
         {key:"zeta",type:"file_ref_list",writable:true,upload:{supported:true,maxBytes:1024}},
         {key:"alpha",type:"file_ref_list",writable:true,upload:{supported:true,maxBytes:1024}},
