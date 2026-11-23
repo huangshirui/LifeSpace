@@ -300,8 +300,8 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("GET",getRoute,withGrant(issued[1]!.id),undefined,selector(issued[1]!.id))).status).toBe(200);
     expect((await f.request("POST",route,withGrant(issued[2]!.id),payload,selector(issued[2]!.id))).status).toBe(200);
     expect((await f.request("POST",route,withGrant(issued[2]!.id),payload,selector(issued[2]!.id))).status).toBe(403);
-    const listing=await f.accountRequest("GET","/api/v1/me/oauth/delegations");
-    expect((await listing.json() as {data:{items:Array<{id:string;operation:string}>}}).data.items
+    const approvedList=await f.accountRequest("GET","/api/v1/me/oauth/delegations");
+    expect((await approvedList.json() as {data:{items:Array<{id:string;operation:string}>}}).data.items
       .filter(x=>issued.some(y=>y.id===x.id)).every(x=>["query","get","file_read"].includes(x.operation))).toBe(true);
     const invalid=await f.request("POST",base+"/oauth-delegation-requests",patch,{
       operations:[{modelKey,operation:"query"},{modelKey,operation:"query"}],
