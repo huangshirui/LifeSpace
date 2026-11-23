@@ -468,7 +468,7 @@ export async function accountFetch(req, env) {
       || !SPACE.test(preview.spaceId || "") || !AGENT.test(preview.agentId || "")
       || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.clientId, 1024)
       || !safeText(preview.modelKey, 70)
-      || !["get", "query", "create", "update", "delete"].includes(preview.operation)
+      || !["get", "query", "create", "update", "delete", "file_read", "file_upload"].includes(preview.operation)
       || !["pending", "approved", "denied", "expired"].includes(preview.status)
       || !safeText(preview.resource, 1024) || !safeText(preview.reason, 300)
       || !safeText(preview.expiresAt, 80)) {
@@ -904,7 +904,7 @@ export async function accountFetch(req, env) {
           }) : "{}",
         });
     } catch { return fail(503, "CORE_UNAVAILABLE", "无法完成本次委托确认"); }
-    if (!decision.ok) return fail([400, 403, 404, 409].includes(decision.status) ? decision.status : 503,
+    if (!decision.ok) return fail([400, 403, 404, 409, 422].includes(decision.status) ? decision.status : 503,
       "DELEGATION_DECISION_FAILED", "委托申请已失效或当前用户无权确认");
     const result = await data(decision);
     if (!result || result.id !== input.requestId
