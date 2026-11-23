@@ -8,11 +8,11 @@ const name="OAUTH_RESOURCE_SERVER_SECRET";
 const binding=(name,service)=>({name,type:"service",service});
 const protectedSecret={name,type:"secret_text"};
 
-function fixture({newAccepted=false,initialHealthy=true,identityWriteOk=true,
+function fixture({newAccepted=false,adapterNewAccepted=newAccepted,initialHealthy=true,identityWriteOk=true,
   adapterWriteOk=true,wrongBinding=false,badMetadata=false,
   unexpectedIdentity=false,neverConverge=false}={}) {
   const writes=[],events=[];
-  let identityAccepted=newAccepted,adapterAccepted=newAccepted;
+  let identityAccepted=newAccepted,adapterAccepted=adapterNewAccepted;
   const request=async(url,init)=>{
     const p=new URL(url);
     if(p.hostname==="api.cloudflare.com"){
@@ -96,7 +96,7 @@ test("same protected candidate and healthy live MCP are an idempotent no-op",asy
 });
 
 test("partially rotated Identity is repaired by Adapter-only write",async()=>{
-  const f=fixture({newAccepted:true,initialHealthy:false});
+  const f=fixture({newAccepted:true,adapterNewAccepted:false});
   const result=await rotateProductionMcpResourceSecret(f.options);
   assert.equal(result.identityUpdated,false);
   assert.deepEqual(f.writes,["lifespace-mcp-adapter"]);
