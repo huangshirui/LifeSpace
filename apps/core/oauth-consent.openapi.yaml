@@ -74,7 +74,7 @@ paths:
       parameters:
         - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^arq_' } }
       responses:
-        '200': { description: Exact User-bound request with one operation or bounded operations[] preview }
+        '200': { description: 'Exact User-bound request with one operation or bounded operations list preview' }
         '403': { description: Current OAuth authorization or Server operation revoked }
         '404': { description: Wrong User or non-Account request }
   /api/v1/me/oauth/delegation-requests/{requestId}/{decision}:
