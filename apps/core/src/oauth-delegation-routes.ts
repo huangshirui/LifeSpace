@@ -13,11 +13,19 @@ import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
 type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | `action:${string}`;
 type Access = "read" | "write";
+type BoundOperation = {modelKey:string; operation:Op; requestedAccess?:Access};
 type Binding = {
   channel: "oauth_mcp"; authorizationId: string; clientId: string;
-  resource: string; modelKey: string; operation: Op; reason: string;
-  requestedAccess?: Access;
+  resource: string; reason: string;
+  // Legacy single-operation request remains valid for existing MCP clients.
+  modelKey?: string; operation?: Op; requestedAccess?: Access;
+  // A composite request keeps one approval and one independently scoped
+  // Delegation per selected operation. No broad model-level shortcut.
+  operations?: BoundOperation[];
 };
+const requestedOperations = (binding: Binding): BoundOperation[] => binding.operations ??
+  [{modelKey:binding.modelKey!,operation:binding.operation!,requestedAccess:binding.requestedAccess}];
+const MAX_COMPOSITE_OPERATIONS = 8;
 type RequestRow = {
   id: string; application_id: string; requesting_agent_id: string;
   intended_user_id: string; source_space_id: string; correlation_json: string | null;
@@ -174,37 +182,59 @@ async function load(env: Bindings, id: string) {
   if (!binding || binding.channel !== "oauth_mcp"
     || typeof binding.authorizationId !== "string" || !/^oaz_[A-Za-z0-9_-]{10,128}$/u.test(binding.authorizationId)
     || typeof binding.resource !== "string" || !oauthMcpServerId(binding.resource)
-    || typeof binding.clientId !== "string"
-    || typeof binding.modelKey !== "string" || !MODEL.test(binding.modelKey)
-    || !validOp(binding.operation) || typeof binding.reason !== "string") throw fail();
-  const details = await env.DB.prepare(
+    || typeof binding.clientId !== "string" || typeof binding.reason !== "string") throw fail();
+  const composite=binding.operations!==undefined;
+  if (composite ? (binding.modelKey!==undefined || binding.operation!==undefined
+    || !Array.isArray(binding.operations) || binding.operations.length<2
+    || binding.operations.length>MAX_COMPOSITE_OPERATIONS)
+    : (typeof binding.modelKey!=="string" || !MODEL.test(binding.modelKey)
+      || !validOp(binding.operation))) throw fail();
+  const operations=requestedOperations(binding);
+  const unique=new Set<string>();
+  for (const op of operations) {
+    if (!op || typeof op!=="object" || Array.isArray(op)
+      || typeof op.modelKey!=="string" || !MODEL.test(op.modelKey)
+      || !validOp(op.operation) || (op.requestedAccess!==undefined
+        && op.requestedAccess!=="read" && op.requestedAccess!=="write")) throw fail();
+    const key=op.modelKey+":"+op.operation;
+    if (unique.has(key)) throw fail();
+    unique.add(key);
+  }
+  const details=await env.DB.prepare(
     "SELECT ordinal,target_type,target_id,max_access,max_uses,delegation_expires_at,remaining_redelegation_depth " +
     "FROM authorization_request_items WHERE request_id=? ORDER BY ordinal"
   ).bind(id).all<ItemRow>();
-  if (details.results.length !== 1 || details.results[0]?.target_type !== "model"
-    || details.results[0]?.target_id !== delegationTarget(binding.modelKey)
-    || details.results[0]?.max_access !== accessOf(binding.operation,binding.requestedAccess)
-    || (details.results[0]?.max_uses !== 1 && details.results[0]?.max_uses !== null)
-    || (details.results[0]?.delegation_expires_at !== null
-      && !Number.isFinite(Date.parse(details.results[0]!.delegation_expires_at!)))
-    || details.results[0]?.remaining_redelegation_depth !== 0) throw fail();
-  return {row, binding, item:details.results[0]!};
+  if (details.results.length!==operations.length || details.results.some((item,i)=>
+    item.ordinal!==i || item.target_type!=="model"
+    || item.target_id!==delegationTarget(operations[i]!.modelKey)
+    || item.max_access!==accessOf(operations[i]!.operation,operations[i]!.requestedAccess)
+    || (item.max_uses!==1 && item.max_uses!==null)
+    || (item.delegation_expires_at!==null && !Number.isFinite(Date.parse(item.delegation_expires_at)))
+    || item.remaining_redelegation_depth!==0)) throw fail();
+  return {row,binding,items:details.results};
 }
-async function delegationId(env: Bindings, id: string): Promise<string|null> {
-  const row = await env.DB.prepare("SELECT delegation_id FROM authorization_request_delegations WHERE request_id=? AND ordinal=0")
-    .bind(id).first<{delegation_id:string}>();
-  return row?.delegation_id || null;
+async function delegationIds(env: Bindings, id: string): Promise<Map<number,string>> {
+  const rows=await env.DB.prepare(
+    "SELECT ordinal,delegation_id FROM authorization_request_delegations WHERE request_id=? ORDER BY ordinal"
+  ).bind(id).all<{ordinal:number;delegation_id:string}>();
+  return new Map(rows.results.map(x=>[x.ordinal,x.delegation_id]));
 }
-function summary(row: RequestRow, binding: Binding, delegation: string|null, item?:ItemRow) {
-  return { id:row.id, status:statusOf(row), applicationId:row.application_id,
-    agentId:row.requesting_agent_id, spaceId:row.source_space_id, resource:binding.resource,
-    clientId:binding.clientId, modelKey:binding.modelKey, operation:binding.operation,
-    reason:binding.reason, expiresAt:row.expires_at,
-    ...(delegation ? {delegationId:delegation,
-      lifetime:{mode:item?.max_uses===1?"once":item?.delegation_expires_at?"timed":"until_revoked",
-        maxUses:item?.max_uses??null,expiresAt:item?.delegation_expires_at??null}} : {}) };
+function summary(row: RequestRow, binding: Binding, delegations: Map<number,string>, items: ItemRow[]) {
+  const operations=requestedOperations(binding);
+  const shared={id:row.id,status:statusOf(row),applicationId:row.application_id,
+    agentId:row.requesting_agent_id,spaceId:row.source_space_id,resource:binding.resource,
+    clientId:binding.clientId,reason:binding.reason,expiresAt:row.expires_at};
+  const lifetime=(i:number)=>({mode:items[i]?.max_uses===1?"once":items[i]?.delegation_expires_at?"timed":"until_revoked",
+    maxUses:items[i]?.max_uses??null,expiresAt:items[i]?.delegation_expires_at??null});
+  if (binding.operations) return {...shared,operations:operations.map((op,i)=>({
+    modelKey:op.modelKey,operation:op.operation,
+    ...(delegations.get(i)?{delegationId:delegations.get(i),lifetime:lifetime(i)}:{}),
+  }))};
+  const delegationId=delegations.get(0);
+  return {...shared,modelKey:operations[0]!.modelKey,operation:operations[0]!.operation,
+    ...(delegationId?{delegationId,lifetime:lifetime(0)}:{})};
 }
-async function liveConsent(env: Bindings, row: RequestRow, binding: Binding) {
+async function liveConsent(env: Bindings, row: RequestRow, binding: Binding, selectedOrdinal?:number) {
   if (!env.IDENTITY || !env.CORE_IDENTITY_SHARED_SECRET) throw new ApiError("OAUTH_NOT_CONFIGURED", "OAuth introspection unavailable", 503);
   let response: Response;
   try {
@@ -220,12 +250,19 @@ async function liveConsent(env: Bindings, row: RequestRow, binding: Binding) {
   } catch { throw new ApiError("OAUTH_UNAVAILABLE", "Current OAuth authorization cannot be verified", 503); }
   const result = response.ok ? await response.json<{data?:{active?:boolean;scopes?:unknown}}>().catch(()=>null) : null;
   const scopes = result?.data?.scopes;
-  if (result?.data?.active !== true || !Array.isArray(scopes)
-    || !scopes.includes("resources:" + accessOf(binding.operation,binding.requestedAccess))) {
+  if (result?.data?.active !== true || !Array.isArray(scopes)) {
     throw new ApiError("OAUTH_AUTHORIZATION_REVOKED", "OAuth authorization is unavailable", 403);
   }
-  const current=await serverOperation(env,binding.resource,row.source_space_id,binding.modelKey,binding.operation);
-  if (current !== accessOf(binding.operation,binding.requestedAccess)) throw fail();
+  const operations=requestedOperations(binding);
+  const selected=selectedOrdinal===undefined?operations:[operations[selectedOrdinal]];
+  if (selected.some(op=>!op)) throw fail();
+  for (const op of selected) {
+    const required=accessOf(op!.operation,op!.requestedAccess);
+    if (!scopes.includes("resources:"+required))
+      throw new ApiError("OAUTH_AUTHORIZATION_REVOKED","OAuth authorization is unavailable",403);
+    const current=await serverOperation(env,binding.resource,row.source_space_id,op!.modelKey,op!.operation);
+    if (current!==required) throw fail();
+  }
   return scopes as string[];
 }
 function assertAgentOwner(principal: Principal, row: RequestRow, binding: Binding) {
@@ -248,20 +285,22 @@ export async function requireOAuthMcpDelegatedOperation(
     || principal.id !== x.userId || principal.actor?.id !== x.agentId || !x.allowUserAuthorization) throw fail();
   const bindingRow = await env.DB.prepare(
     "SELECT r.id,r.application_id,r.requesting_agent_id,r.intended_user_id,r.source_space_id," +
-    "r.correlation_json,r.created_at,r.expires_at,t.status AS transition_status " +
+    "r.correlation_json,r.created_at,r.expires_at,t.status AS transition_status,d.ordinal AS selected_ordinal " +
     "FROM authorization_request_delegations d JOIN authorization_requests r ON r.id=d.request_id " +
     "JOIN authorization_request_transitions t ON t.request_id=r.id " +
     "WHERE d.delegation_id=? AND t.status='approved'"
-  ).bind(providedId).first<RequestRow>();
+  ).bind(providedId).first<RequestRow & {selected_ordinal:number}>();
   if (!bindingRow) throw fail();
   const loaded=await load(env,bindingRow.id);
   if (loaded.row.application_id !== principal.clientId
     || loaded.row.intended_user_id !== principal.id || loaded.row.requesting_agent_id !== x.agentId
     || loaded.row.source_space_id !== x.spaceId || loaded.binding.authorizationId !== x.authorizationId
     || loaded.binding.clientId !== x.clientId || loaded.binding.resource !== x.resource) throw fail();
-  const op:Op=loaded.binding.operation;
+  const selected=requestedOperations(loaded.binding)[bindingRow.selected_ordinal];
+  if (!selected || loaded.items[bindingRow.selected_ordinal]?.ordinal!==bindingRow.selected_ordinal) throw fail();
+  const op:Op=selected.operation;
   const personPrefix="/api/v1/spaces/" + x.spaceId + "/people";
-  if (loaded.binding.modelKey === PERSON_MODEL) {
+  if (selected.modelKey === PERSON_MODEL) {
     const personRecord=new RegExp("^"+personPrefix+"/per_[A-Za-z0-9_-]+$","u").test(path);
     const validPerson = op === "query" ? method === "GET" && path === personPrefix
       : op === "create" ? method === "POST" && path === personPrefix
@@ -269,10 +308,10 @@ export async function requireOAuthMcpDelegatedOperation(
       : op === "update" ? method === "PATCH" && personRecord
       : op === "delete" ? method === "DELETE" && personRecord : false;
     if (!validPerson) throw fail();
-    await liveConsent(env,loaded.row,loaded.binding);
+    await liveConsent(env,loaded.row,loaded.binding,bindingRow.selected_ordinal);
     return;
   }
-  const prefix="/api/v1/spaces/" + x.spaceId + "/models/" + loaded.binding.modelKey + "/records";
+  const prefix="/api/v1/spaces/" + x.spaceId + "/models/" + selected.modelKey + "/records";
   const action=ACTION.exec(op);
   const valid = action
     ? method==="POST" && path.startsWith(prefix+"/")
@@ -288,7 +327,7 @@ export async function requireOAuthMcpDelegatedOperation(
     : (op==="update" || op==="delete") && method===(op==="update"?"PATCH":"DELETE")
       && path.startsWith(prefix+"/") && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1));
   if (!valid) throw fail();
-  await liveConsent(env,loaded.row,loaded.binding);
+  await liveConsent(env,loaded.row,loaded.binding,bindingRow.selected_ordinal);
 }
 
 export function registerOAuthDelegationRoutes(app: App): void {
@@ -302,7 +341,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
       throw new ApiError("INVALID_REQUEST","Invalid delegation page",400);
     const offset=Number(raw);
     const rows=await c.env.DB.prepare(`SELECT d.id,d.application_id,d.source_space_id,d.actor_id,
-        d.created_at,d.expires_at,d.max_uses,r.correlation_json
+        d.created_at,d.expires_at,d.max_uses,r.correlation_json,rd.ordinal
       FROM delegations d
       JOIN authorization_request_delegations rd ON rd.delegation_id=d.id
       JOIN authorization_requests r ON r.id=rd.request_id
@@ -316,13 +355,15 @@ export function registerOAuthDelegationRoutes(app: App): void {
       ORDER BY d.created_at DESC,d.id DESC LIMIT 51 OFFSET ?`)
       .bind(userId,userId,offset).all<{
         id:string;application_id:string;source_space_id:string;actor_id:string;
-        created_at:string;expires_at:string|null;max_uses:number|null;correlation_json:string;
+        created_at:string;expires_at:string|null;max_uses:number|null;correlation_json:string;ordinal:number;
       }>();
     const items=rows.results.slice(0,50).map(row=>{
       const binding=JSON.parse(row.correlation_json) as Binding;
+      const selected=requestedOperations(binding)[row.ordinal];
+      if (!selected) throw fail();
       return {id:row.id,applicationId:row.application_id,spaceId:row.source_space_id,
         agentId:row.actor_id,clientId:binding.clientId,resource:binding.resource,
-        modelKey:binding.modelKey,operation:binding.operation,
+        modelKey:selected.modelKey,operation:selected.operation,
         createdAt:row.created_at,expiresAt:row.expires_at,
         mode:row.max_uses===1?"once":row.expires_at?"timed":"until_revoked"};
     });
@@ -355,20 +396,34 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const spaceId=c.req.param("spaceId");
     if (x.spaceId!==spaceId) throw fail();
     const raw=await c.req.text();
-    if (raw.length>1200) throw new ApiError("INVALID_REQUEST","Request too large",413);
+    if (raw.length>3500) throw new ApiError("INVALID_REQUEST","Request too large",413);
     let input:unknown;
     try {input=JSON.parse(raw);} catch {throw new ApiError("INVALID_REQUEST","Invalid request",400);}
     if (!input || typeof input!=="object" || Array.isArray(input)) throw new ApiError("INVALID_REQUEST","Invalid request",400);
     const v=input as Record<string,unknown>;
-    if (Object.keys(v).some(key=>!["modelKey","operation","reason"].includes(key))
-      || typeof v.modelKey!=="string" || !MODEL.test(v.modelKey)
-      || !validOp(v.operation)
+    if (Object.keys(v).some(key=>!["modelKey","operation","operations","reason"].includes(key))
       || typeof v.reason!=="string" || v.reason.trim().length<4 || v.reason.trim().length>250)
-      throw new ApiError("INVALID_REQUEST","A model, supported operation and concise reason are required",400);
-    const operation=v.operation as Op, modelKey=v.modelKey;
-    const requestedAccess=await serverOperation(c.env,x.resource,spaceId,modelKey,operation);
-    if (!principal.scopes.includes("resources:"+requestedAccess))
-      throw new ApiError("FORBIDDEN","Client did not request the operation's OAuth Scope",403);
+      throw new ApiError("INVALID_REQUEST","A model, supported operations and concise reason are required",400);
+    const composite=v.operations!==undefined;
+    const requested=composite?v.operations:[{modelKey:v.modelKey,operation:v.operation}];
+    if (!Array.isArray(requested) || !requested.length
+      || (composite && (v.modelKey!==undefined || v.operation!==undefined
+        || requested.length<2 || requested.length>MAX_COMPOSITE_OPERATIONS))
+      || requested.some(op=>!op || typeof op!=="object" || Array.isArray(op)
+        || Object.keys(op).sort().join(",")!=="modelKey,operation"
+        || typeof op.modelKey!=="string" || !MODEL.test(op.modelKey)
+        || !validOp(op.operation)))
+      throw new ApiError("INVALID_REQUEST","Invalid Model operations",400);
+    const selected=requested as Array<{modelKey:string;operation:Op}>;
+    if (new Set(selected.map(op=>op.modelKey+":"+op.operation)).size!==selected.length)
+      throw new ApiError("INVALID_REQUEST","Duplicate operation in the same approval",400);
+    const operations:BoundOperation[]=[];
+    for (const op of selected) {
+      const required=await serverOperation(c.env,x.resource,spaceId,op.modelKey,op.operation);
+      if (!principal.scopes.includes("resources:"+required))
+        throw new ApiError("FORBIDDEN","Client did not request the operation's OAuth Scope",403);
+      operations.push({...op,requestedAccess:required});
+    }
     const origin=approvalOrigin(c.env);
     const now=new Date();
     const count=await c.env.DB.prepare(
@@ -380,7 +435,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const expiration=new Date(now.getTime()+ACCOUNT_TIMEOUT_MINUTES*60000).toISOString();
     const delegationExpiresAt=new Date(now.getTime()+DELEGATION_TIMEOUT_MINUTES*60000).toISOString();
     const binding:Binding={channel:"oauth_mcp",authorizationId:x.authorizationId,clientId:x.clientId,
-      resource:x.resource,modelKey,operation,requestedAccess,reason:v.reason.trim()};
+      resource:x.resource,reason:v.reason.trim(),...(composite?{operations}:{...operations[0]})};
     await c.env.DB.batch([
       c.env.DB.prepare(
         "INSERT INTO authorization_requests(id,application_id,requesting_agent_id,intended_user_id,source_space_id,"+
@@ -388,14 +443,14 @@ export function registerOAuthDelegationRoutes(app: App): void {
         "VALUES(?,?,?,?,?,?,?,?,?,?,?)"
       ).bind(requestId,principal.clientId,x.agentId,x.userId,spaceId,ACCOUNT_TIMEOUT_MINUTES,
         uuid("fingerprint"),uuid("oauth_reuse"),JSON.stringify(binding),now.toISOString(),expiration),
-      c.env.DB.prepare(
+      ...operations.map((op,i)=>c.env.DB.prepare(
         "INSERT INTO authorization_request_items(request_id,ordinal,target_type,target_id,max_access,max_uses,delegation_expires_at,remaining_redelegation_depth) "+
-        "VALUES(?,0,'model',?,?,1,?,0)"
-      ).bind(requestId,delegationTarget(modelKey),requestedAccess,delegationExpiresAt),
+        "VALUES(?,?,'model',?,?,1,?,0)"
+      ).bind(requestId,i,delegationTarget(op.modelKey),op.requestedAccess,delegationExpiresAt)),
     ]);
     c.header("Cache-Control","no-store");
     return c.json(success({id:requestId,status:"pending",approvalUrl:origin+"/delegation?request_id="+requestId,
-      expiresAt:expiration,modelKey,operation}),201);
+      expiresAt:expiration,...(composite?{operations:selected}:{modelKey:selected[0]!.modelKey,operation:selected[0]!.operation})}),201);
   });
   app.get("/api/v1/spaces/:spaceId/oauth-delegation-requests/:requestId",async c=>{
     const principal=c.get("principal");
@@ -404,7 +459,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
     if (loaded.row.source_space_id!==c.req.param("spaceId")) throw fail();
     c.header("Cache-Control","no-store");
     return c.json(success(summary(loaded.row,loaded.binding,
-      statusOf(loaded.row)==="approved"?await delegationId(c.env,loaded.row.id):null,loaded.item)));
+      statusOf(loaded.row)==="approved"?await delegationIds(c.env,loaded.row.id):new Map(),loaded.items)));
   });
   app.get("/api/v1/me/oauth/delegation-requests/:requestId",async c=>{
     const loaded=await load(c.env,c.req.param("requestId"));
@@ -412,7 +467,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
     await liveConsent(c.env,loaded.row,loaded.binding);
     c.header("Cache-Control","no-store");
     return c.json(success(summary(loaded.row,loaded.binding,
-      statusOf(loaded.row)==="approved"?await delegationId(c.env,loaded.row.id):null,loaded.item)));
+      statusOf(loaded.row)==="approved"?await delegationIds(c.env,loaded.row.id):new Map(),loaded.items)));
   });
   app.post("/api/v1/me/oauth/delegation-requests/:requestId/:decision",async c=>{
     const loaded=await load(c.env,c.req.param("requestId"));
@@ -425,7 +480,8 @@ export function registerOAuthDelegationRoutes(app: App): void {
     // The authenticated Account User chooses the lifetime, never the OAuth Agent.
     // Legacy "{}" approvals retain the safe once-only default.
     const lifetime=isApprove ? approvalLifetime(body,new Date()) : null;
-    if (isApprove && loaded.binding.operation==="file_upload" && lifetime?.mode==="once") {
+    if (isApprove && requestedOperations(loaded.binding).some(op=>op.operation==="file_upload")
+      && lifetime?.mode==="once") {
       throw new ApiError("FILE_UPLOAD_SINGLE_USE_UNSUPPORTED","Multi-step upload requires timed or until-revoked Delegation",422);
     }
     const current=statusOf(loaded.row);
@@ -442,22 +498,23 @@ export function registerOAuthDelegationRoutes(app: App): void {
       scopes,tokenId:principal.tokenId};
     const constraints={...(lifetime!.maxUses===1?{maxUses:1 as const}:{}),
       ...(lifetime!.expiresAt?{expiresAt:lifetime!.expiresAt}:{}),remainingRedelegationDepth:0};
-    const issues=await prepareDelegationIssues(c.env,delegated,loaded.row.source_space_id,[{
-      actor:{type:"agent",id:loaded.row.requesting_agent_id},
-      scope:{target:{type:"model",id:delegationTarget(loaded.binding.modelKey)},maxAccess:loaded.item.max_access},
-      constraints,
-    }],{type:"user",id:userId});
-    const issue=issues[0]!;
+    const issues=await prepareDelegationIssues(c.env,delegated,loaded.row.source_space_id,
+      loaded.items.map(item=>({
+        actor:{type:"agent" as const,id:loaded.row.requesting_agent_id},
+        scope:{target:{type:"model" as const,id:item.target_id},maxAccess:item.max_access},
+        constraints,
+      })),{type:"user",id:userId});
     await c.env.DB.batch([
       c.env.DB.prepare(
         "INSERT INTO authorization_request_transitions(request_id,status,transitioned_at,actor_type,actor_id) VALUES(?,'approved',?,'user',?)"
       ).bind(loaded.row.id,now,userId),
-      c.env.DB.prepare("UPDATE authorization_request_items SET max_uses=?,delegation_expires_at=? WHERE request_id=? AND ordinal=0")
-        .bind(lifetime!.maxUses,lifetime!.expiresAt,loaded.row.id),
+      ...loaded.items.map(item=>c.env.DB.prepare(
+        "UPDATE authorization_request_items SET max_uses=?,delegation_expires_at=? WHERE request_id=? AND ordinal=?"
+      ).bind(lifetime!.maxUses,lifetime!.expiresAt,loaded.row.id,item.ordinal)),
       ...delegationIssueStatements(c.env,delegated,loaded.row.source_space_id,issues),
-      c.env.DB.prepare(
-        "INSERT INTO authorization_request_delegations(request_id,ordinal,delegation_id) VALUES(?,0,?)"
-      ).bind(loaded.row.id,issue.delegationId),
+      ...issues.map((issue,i)=>c.env.DB.prepare(
+        "INSERT INTO authorization_request_delegations(request_id,ordinal,delegation_id) VALUES(?,?,?)"
+      ).bind(loaded.row.id,i,issue.delegationId)),
     ]);
     c.header("Cache-Control","no-store");
     return c.json(success({id:loaded.row.id,status:"approved",

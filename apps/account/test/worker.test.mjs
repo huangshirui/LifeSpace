@@ -43,7 +43,9 @@ function fixture(requestedScopes = ["resources:read"], delegationOperation = "cr
       if (path === "/api/v1/me/oauth/delegation-requests/" + arq) return Response.json({ data: {
         id: arq, status:"pending", applicationId:app,spaceId:space,agentId:agent,
         clientId:"ocli_client1", resource:"https://mcp.example.test/mcp/tasks",
-        modelKey:"task", operation:delegationOperation, reason:"Create one authorized task",
+        ...(Array.isArray(delegationOperation)?{operations:delegationOperation}
+          :{modelKey:"task",operation:delegationOperation}),
+        reason:"Create one authorized task",
         expiresAt:"2030-11-08T12:00:00.000Z",
       } });
       if (path === "/api/v1/me/oauth/delegation-requests/" + arq + "/approve"
@@ -55,7 +57,9 @@ function fixture(requestedScopes = ["resources:read"], delegationOperation = "cr
           || approval.mode==="once"
           || approval.mode==="until_revoked"
           || (approval.mode==="timed" && [60,1440,10080].includes(approval.durationMinutes)));
-        if(path.endsWith("/approve") && delegationOperation==="file_upload"
+        if(path.endsWith("/approve") && (Array.isArray(delegationOperation)
+          ?delegationOperation.some(x=>x.operation==="file_upload")
+          :delegationOperation==="file_upload")
           && (approval.mode===undefined || approval.mode==="once")) {
           return Response.json({error:{code:"FILE_UPLOAD_SINGLE_USE_UNSUPPORTED",
             message:"Multi-step upload requires timed or until-revoked Delegation"}},{status:422});
@@ -325,6 +329,45 @@ test("Account previews Core file_read/file_upload requests and preserves file up
   const refused=await invalid.request("/api/delegation/request?request_id="+arq);
   assert.equal(refused.status,502);
   assert.equal((await refused.json()).error.code,"CORE_INVALID_RESPONSE");
+});
+
+test("Account previews composite model operations in one approval with strict per-item validation",async()=>{
+  const operations=[{modelKey:"task",operation:"query"},
+    {modelKey:"task",operation:"get"},{modelKey:"task",operation:"file_read"}];
+  const t=fixture(["resources:read"],operations);
+  const request=await t.request("/api/delegation/request?request_id="+arq);
+  assert.equal(request.status,200);
+  const preview=(await request.json()).data;
+  assert.deepEqual(preview.operations,operations);
+  assert.equal(preview.modelKey,undefined);
+  assert.equal(preview.operation,undefined);
+  assert.ok(!JSON.stringify(preview).includes(issuerToken));
+  const session=await t.request("/api/session");
+  const valid=mutatingHeaders((await session.json()).data.csrfToken,
+    session.headers.get("set-cookie").split(";")[0]);
+  const decision=await t.request("/api/delegation/approve",{method:"POST",headers:valid,
+    body:JSON.stringify({intent:"approve-user-delegation",requestId:arq,mode:"once"})});
+  assert.equal(decision.status,200);
+  assert.deepEqual(t.calls.filter(x=>x.service==="core-approval").at(-1).payload,{mode:"once"});
+  const withUpload=fixture(["resources:read","resources:write"],[
+    ...operations,{modelKey:"task",operation:"file_upload"},
+  ]);
+  const session2=await withUpload.request("/api/session");
+  const valid2=mutatingHeaders((await session2.json()).data.csrfToken,
+    session2.headers.get("set-cookie").split(";")[0]);
+  const once=await withUpload.request("/api/delegation/approve",{method:"POST",headers:valid2,
+    body:JSON.stringify({intent:"approve-user-delegation",requestId:arq,mode:"once"})});
+  assert.equal(once.status,422);
+  const timed=await withUpload.request("/api/delegation/approve",{method:"POST",headers:valid2,
+    body:JSON.stringify({intent:"approve-user-delegation",requestId:arq,
+      mode:"timed",durationMinutes:60})});
+  assert.equal(timed.status,200);
+  const duplicate=fixture(["resources:read"],[operations[0],operations[0]]);
+  assert.equal((await duplicate.request("/api/delegation/request?request_id="+arq)).status,502);
+  const tooMany=fixture(["resources:read"],Array.from({length:9},(_,i)=>({
+    modelKey:"task"+i,operation:"query",
+  })));
+  assert.equal((await tooMany.request("/api/delegation/request?request_id="+arq)).status,502);
 });
 
 test("Account lifetime selection is explicit, bounded, CSRF-protected, and revocable", async () => {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Account OAuth Consent Bridge
-  version: 0.4.0
+  version: 0.5.0
   description: >
     Candidate Account-only, user-session-bound OAuth consent confirmation.
     Core verifies current Space manage authority, then calls Identity through a
@@ -11,11 +11,12 @@ paths:
     post:
       operationId: requestOAuthMcpUserDelegation
       description: >
-        Third-party OAuth Agent only; requests one exact currently enabled
-        Server Native Model operation from the OAuth consenting User.
-        Creates a pending arq_* with no authority and returns a LifeSpace
-        Account URL. The existing trusted Agent/WeCom approval endpoint
-        is not available through this transport.
+        Third-party OAuth Agent only; requests either one exact operation
+        or a bounded list of 2-8 operations from the enabled MCP Server,
+        respecting the active OAuth Scopes. One pending arq_* grants nothing.
+        The Account User approves the entire list, atomically issuing a
+        separate exact-operation dlg_* for every item. The legacy single
+        request form remains valid; trusted Agent/WeCom approval is distinct.
       security: [{ oauthAgentCoreBearer: [] }]
       parameters:
         - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
@@ -26,11 +27,25 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [modelKey, operation, reason]
+              required: [reason]
               properties:
                 modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
                 operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
+                operations:
+                  type: array
+                  minItems: 2
+                  maxItems: 8
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [modelKey, operation]
+                    properties:
+                      modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
+                      operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
                 reason: { type: string, minLength: 4, maxLength: 250 }
+              oneOf:
+                - required: [modelKey, operation]
+                - required: [operations]
       responses:
         '201': { description: Pending arq and exact Account URL; no Delegation issued }
         '400': { description: Invalid operation, model, or reason }
@@ -47,7 +62,7 @@ paths:
         - { in: path, name: spaceId, required: true, schema: { type: string, pattern: '^spc_' } }
         - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^arq_' } }
       responses:
-        '200': { description: Current status with dlg_* only after Account approval }
+        '200': { description: Status with one dlg_* for legacy or per-operation dlg_* list for composite approval }
         '404': { description: Cross-Client, User, Server or Agent request }
   /api/v1/me/oauth/delegation-requests/{requestId}:
     get:
@@ -59,7 +74,7 @@ paths:
       parameters:
         - { in: path, name: requestId, required: true, schema: { type: string, pattern: '^arq_' } }
       responses:
-        '200': { description: Exact User-bound request and operation preview }
+        '200': { description: 'Exact User-bound request with one operation or bounded operations list preview' }
         '403': { description: Current OAuth authorization or Server operation revoked }
         '404': { description: Wrong User or non-Account request }
   /api/v1/me/oauth/delegation-requests/{requestId}/{decision}:
@@ -67,9 +82,10 @@ paths:
       operationId: accountDecideOAuthMcpDelegation
       description: >
         Identity-confirmed Account User, same-origin and CSRF checked by
-        Account BFF. Approve atomically issues a User-selected single-use,
-        time-limited repeated-use (1h/24h/7d), or until-revoked dlg_*.
-        Only the authenticated Account User may choose the lifetime;
+        Account BFF. Approve atomically issues a separate dlg_* per selected
+        operation with the same User-selected single-use, time-limited repeated-use
+        (1h/24h/7d), or until-revoked lifetime. A bundle containing file_upload
+        cannot be approved for single use. Only the Account User chooses the lifetime;
         omission retains the legacy single-use default. Deny grants no authority. Does not modify trusted in-app
         or WeCom confirmation contracts.
       security: [{ accountUserBearer: [] }]
