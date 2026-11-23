@@ -267,6 +267,47 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("GET",route.replace("/file-downloads",""),represented,undefined,headers)).status).toBe(404);
     expect((await f.request("POST",route,represented,payload,headers)).status).toBe(200);
     expect((await f.request("POST",route,represented,payload,headers)).status).toBe(403);
+    // One Account decision grants three independent, exact-operation Delegations.
+    await configure(["query","get","file_read"]);
+    const composite=await f.request("POST",base+"/oauth-delegation-requests",patch,{
+      operations:[{modelKey,operation:"query"},{modelKey,operation:"get"},
+        {modelKey,operation:"file_read"}],
+      reason:"List documents and read one linked PDF in one approval",
+    });
+    expect(composite.status).toBe(201);
+    const compositeId=(await composite.json() as {data:{id:string;operations:Array<{operation:string}>}}).data;
+    expect(compositeId.operations.map(x=>x.operation)).toEqual(["query","get","file_read"]);
+    const preview=await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+compositeId.id);
+    expect(preview.status).toBe(200);
+    expect((await preview.json() as {data:{operations:Array<{operation:string}>}}).data.operations.map(x=>x.operation))
+      .toEqual(["query","get","file_read"]);
+    const compositionApproval=await f.accountRequest("POST",
+      "/api/v1/me/oauth/delegation-requests/"+compositeId.id+"/approve",{});
+    expect(compositionApproval.status).toBe(200);
+    const issued=(await compositionApproval.json() as {data:{delegations:Array<{id:string}>}}).data.delegations;
+    expect(issued).toHaveLength(3);
+    expect(new Set(issued.map(x=>x.id)).size).toBe(3);
+    const status=await f.request("GET",base+"/oauth-delegation-requests/"+compositeId.id,patch);
+    expect(status.status).toBe(200);
+    expect((await status.json() as {data:{operations:Array<{delegationId:string}>}}).data.operations
+      .map(x=>x.delegationId)).toEqual(issued.map(x=>x.id));
+    const withGrant=(id:string)=>({...patch,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:id});
+    const selector=(id:string)=>({"x-lifespace-delegation-id":id});
+    const queryRoute=base+"/models/"+modelKey+"/records/query";
+    const getRoute=base+"/models/"+modelKey+"/records/"+record.id;
+    expect((await f.request("POST",queryRoute,withGrant(issued[2]!.id),{limit:1},selector(issued[2]!.id))).status).toBe(404);
+    expect((await f.request("POST",queryRoute,withGrant(issued[0]!.id),{limit:1},selector(issued[0]!.id))).status).toBe(200);
+    expect((await f.request("GET",getRoute,withGrant(issued[1]!.id),undefined,selector(issued[1]!.id))).status).toBe(200);
+    expect((await f.request("POST",route,withGrant(issued[2]!.id),payload,selector(issued[2]!.id))).status).toBe(200);
+    expect((await f.request("POST",route,withGrant(issued[2]!.id),payload,selector(issued[2]!.id))).status).toBe(403);
+    const listing=await f.accountRequest("GET","/api/v1/me/oauth/delegations");
+    expect((await listing.json() as {data:{items:Array<{id:string;operation:string}>}}).data.items
+      .filter(x=>issued.some(y=>y.id===x.id)).every(x=>["query","get","file_read"].includes(x.operation))).toBe(true);
+    const invalid=await f.request("POST",base+"/oauth-delegation-requests",patch,{
+      operations:[{modelKey,operation:"query"},{modelKey,operation:"query"}],
+      reason:"Never duplicate a composite operation",
+    });
+    expect(invalid.status).toBe(400);
     await f.db.prepare("UPDATE data_grants SET revoked_at=? WHERE grantee_id=? AND source_space_id=?").bind(now,f.agent,f.space).run();
     expect((await f.request("POST",route,patch,payload)).status).toBe(403);
   });
