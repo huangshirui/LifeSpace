@@ -167,7 +167,7 @@ Business-facing Core Kernel contract:
 
 ```text
 apps/core/openapi.yaml
-current Kernel version: 0.57.0
+current Kernel version: 0.58.0
 ```
 
 Integration/Eventing public contract (same Worker, independent lifecycle):
