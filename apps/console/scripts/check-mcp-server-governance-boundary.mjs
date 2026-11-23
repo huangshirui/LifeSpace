@@ -33,6 +33,14 @@ for (const marker of [
 ]) {
   if (!ui.includes(marker)) throw new Error("MCP Server direct-edit experience missing " + marker);
 }
+// External Model definitions have no Provider file fields: they must still expose
+// file operations for explicit Server opt-in; Core narrows by live Space binding.
+if (!ui.includes('model.definition.origin === "external" || Object.values(model.definition.fields ?? {}).some(field => field.type === "file" || field.type === "file_list")')) {
+  throw new Error("External Model file_read must be selectable in MCP Console");
+}
+if (!ui.includes('model.definition.origin === "external" || Object.values(model.definition.fields ?? {}).some(field => field.readOnly !== true && (field.type === "file" || field.type === "file_list"))')) {
+  throw new Error("External Model file_upload must be selectable independently of Provider field writability");
+}
 if ((ui.match(/<CapabilityPicker /gu) ?? []).length !== 2) {
   throw new Error("New and edit MCP Server views must share the same capability editor");
 }
