@@ -26,7 +26,8 @@ test("successful OAuth revoke cannot be misreported as a refreshed list if the f
     return nodes.get(id);
   };
   let revoked=false;
-  const fetch=async (url)=>{
+  const fetch=async (url,options={})=>{
+    if(url==="/api/session")return Response.json({data:{user:{id:"usr_test"},csrfToken:"renewed-csrf"}});
     if(url==="/api/session?include=login-email")return Response.json({data:{user:{
       id:"usr_test",displayName:"Test",avatarUrl:null},csrfToken:"test-csrf",loginEmail:{email:null,status:"unlinked",linked:false,version:0}}});
     if(url==="/api/account/login-email")return Response.json({data:{
@@ -40,6 +41,7 @@ test("successful OAuth revoke cannot be misreported as a refreshed list if the f
       }],nextOffset:null}});
     }
     if(url==="/api/account/authorizations/"+ID+"/revoke"){
+      assert.equal(options.headers["x-lifespace-csrf"],"renewed-csrf");
       revoked=true;
       return Response.json({data:{id:ID,revoked:true}});
     }
@@ -53,6 +55,7 @@ test("successful OAuth revoke cannot be misreported as a refreshed list if the f
   // snapshot used by the UI controller, with no browser/network side effects.
   const exposed=runInNewContext(code+"\n;({state,revoke})",sandbox);
   exposed.state.csrf="test-csrf";
+  exposed.state.user={id:"usr_test"};
   exposed.state.revokeId=ID;
   exposed.state.revokeKind="oauth";
   await exposed.revoke();
