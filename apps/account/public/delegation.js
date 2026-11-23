@@ -4,15 +4,16 @@ const labels = {get:"读取单条记录",query:"查询记录",file_read:"读取�
 const id = new URL(location.href).searchParams.get("request_id");
 let csrf = "", busy = false, record = null;
 const chosenMode=()=>document.querySelector('input[name="delegation-mode"]:checked')?.value||"once";
+const requestedOperations=()=>record?.operations??(record?[{modelKey:record.modelKey,operation:record.operation}]:[]);
 function updateLifetime(){
   const once=document.querySelector('input[name="delegation-mode"][value="once"]');
   const timed=document.querySelector('input[name="delegation-mode"][value="timed"]');
-  const upload=record?.operation==="file_upload";
+  const upload=requestedOperations().some(item=>item.operation==="file_upload");
   if(once){once.disabled=upload;if(upload&&once.checked&&timed)timed.checked=true;}
   const mode=chosenMode();
   $("duration").disabled=mode!=="timed";
   $("approve").textContent=mode==="once"?"允许这一次":mode==="timed"?"允许限时操作":"允许长期操作";
-  $("lifetime-warning").textContent=mode==="once"?"仅一次执行；批准后 30 分钟内有效。"
+  $("lifetime-warning").textContent=mode==="once"?(requestedOperations().length>1?"每项操作最多执行一次；批准后 30 分钟内有效。":"仅一次执行；批准后 30 分钟内有效。")
     :mode==="timed"?"授权期间可反复执行上述模型操作，直到过期或被你撤销。"
     :"高权限提醒：此授权不会自动过期，Agent 可持续执行上述模型操作，直到你主动撤销。";
   if(upload)$("lifetime-warning").textContent+=" 上传需要创建及完成两个步骤，不支持一次性委托。此授权不包含记录创建或修改。";
@@ -30,13 +31,22 @@ function error(message) {
   $("error-message").textContent=message;
 }
 function fill(request,user){
+  const items=requestedOperations();
+  const models=[...new Set(items.map(x=>x.modelKey))];
   const fields = {
     agent:request.agentId,application:request.applicationId,client:request.clientId,
-    space:request.spaceId,resource:request.resource,model:request.modelKey,
-    operation:labels[request.operation]||request.operation,reason:request.reason,
-    expiry:new Date(request.expiresAt).toLocaleString(),
+    space:request.spaceId,resource:request.resource,model:models.join("、"),
+    operation:items.length===1?(labels[items[0].operation]||items[0].operation):items.length+" 项独立操作",
+    reason:request.reason,expiry:new Date(request.expiresAt).toLocaleString(),
   };
   for(const [key,value] of Object.entries(fields))$(key).textContent=value;
+  const list=$("operations-list");
+  list.replaceChildren();
+  for(const item of items){
+    const row=document.createElement("li");
+    row.textContent=item.modelKey+" · "+(labels[item.operation]||item.operation);
+    list.append(row);
+  }
   $("user").textContent="已登录："+user.displayName;
 }
 function finish(status) {
@@ -65,7 +75,7 @@ async function init(){
 async function decide(approve){
   if(busy||!record||record.status!=="pending"||!csrf)return;
   const mode=chosenMode();
-  if(approve && record.operation==="file_upload" && mode==="once")return;
+  if(approve && requestedOperations().some(item=>item.operation==="file_upload") && mode==="once")return;
   if(approve && mode!=="once"){
     const detail=mode==="timed"?"在 "+$("duration").selectedOptions[0].textContent+" 内可重复执行"
       :"长期有效，直到你主动撤销";
