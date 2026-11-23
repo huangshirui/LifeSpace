@@ -11,7 +11,7 @@ const access = "a".repeat(50) + ".b.c";
 const issuerToken = "test-identity-user-token";
 const dlg = "dlg_" + "e".repeat(32);
 
-function fixture(requestedScopes = ["resources:read"]) {
+function fixture(requestedScopes = ["resources:read"], delegationOperation = "create") {
   const calls = [];
   const identity = {
     fetch: async (req) => {
@@ -43,7 +43,7 @@ function fixture(requestedScopes = ["resources:read"]) {
       if (path === "/api/v1/me/oauth/delegation-requests/" + arq) return Response.json({ data: {
         id: arq, status:"pending", applicationId:app,spaceId:space,agentId:agent,
         clientId:"ocli_client1", resource:"https://mcp.example.test/mcp/tasks",
-        modelKey:"task", operation:"create", reason:"Create one authorized task",
+        modelKey:"task", operation:delegationOperation, reason:"Create one authorized task",
         expiresAt:"2030-11-08T12:00:00.000Z",
       } });
       if (path === "/api/v1/me/oauth/delegation-requests/" + arq + "/approve"
@@ -55,6 +55,11 @@ function fixture(requestedScopes = ["resources:read"]) {
           || approval.mode==="once"
           || approval.mode==="until_revoked"
           || (approval.mode==="timed" && [60,1440,10080].includes(approval.durationMinutes)));
+        if(path.endsWith("/approve") && delegationOperation==="file_upload"
+          && (approval.mode===undefined || approval.mode==="once")) {
+          return Response.json({error:{code:"FILE_UPLOAD_SINGLE_USE_UNSUPPORTED",
+            message:"Multi-step upload requires timed or until-revoked Delegation"}},{status:422});
+        }
         calls.push({service:"core-approval",path,payload:approval});
         return Response.json({data:{id:arq,status:path.endsWith("/approve")?"approved":"denied"}});
       }
@@ -283,6 +288,43 @@ test("third-party web Delegation requires signed Account session, CSRF and expli
   assert.equal(forged.status,400);
   // Existing OAuth consent and trusted n8n/WeCom routes remain independent.
   assert.equal(t.calls.filter(x=>x.path.includes("/authorization-requests/")).length,0);
+});
+
+test("Account previews Core file_read/file_upload requests and preserves file upload lifetime errors", async () => {
+  for (const operation of ["file_read", "file_upload"]) {
+    const t=fixture(operation==="file_read"?["resources:read"]:["resources:read","resources:write"], operation);
+    const preview=await t.request("/api/delegation/request?request_id="+arq);
+    assert.equal(preview.status,200,operation);
+    const detail=(await preview.json()).data;
+    assert.equal(detail.operation,operation);
+    assert.equal(detail.modelKey,"task");
+    assert.equal(detail.status,"pending");
+    assert.equal(detail.clientId,"ocli_client1");
+    assert.ok(!JSON.stringify(detail).includes(issuerToken));
+
+    const session=await t.request("/api/session");
+    const valid=mutatingHeaders((await session.json()).data.csrfToken,
+      session.headers.get("set-cookie").split(";")[0]);
+    const approve=async mode=>t.request("/api/delegation/approve",{
+      method:"POST",headers:valid,
+      body:JSON.stringify({intent:"approve-user-delegation",requestId:arq,...mode}),
+    });
+    if(operation==="file_upload") {
+      // Core rejects a one-use grant because upload requires begin and complete.
+      assert.equal((await approve({mode:"once"})).status,422);
+      assert.equal(t.calls.filter(x=>x.service==="core-approval").length,0);
+    }
+    const mode=operation==="file_upload"?{mode:"timed",durationMinutes:60}:{mode:"once"};
+    const confirmed=await approve(mode);
+    assert.equal(confirmed.status,200,operation);
+    assert.deepEqual((await confirmed.json()).data,{requestId:arq,status:"approved"});
+    assert.deepEqual(t.calls.filter(x=>x.service==="core-approval").at(-1).payload,mode);
+  }
+  // A forged or future operation is rejected, not silently granted preview access.
+  const invalid=fixture(["resources:read"],"not_a_model_operation");
+  const refused=await invalid.request("/api/delegation/request?request_id="+arq);
+  assert.equal(refused.status,502);
+  assert.equal((await refused.json()).error.code,"CORE_INVALID_RESPONSE");
 });
 
 test("Account lifetime selection is explicit, bounded, CSRF-protected, and revocable", async () => {
