@@ -9,7 +9,7 @@ import {
   type MutationAttribution,
   type ResourceMutationExtension,
 } from "./generic-resource";
-import { ApiError } from "./http";
+import { ApiError, modelFieldValidationDetails } from "./http";
 import { applyModelDefaults } from "./model-defaults";
 import type { PublishedModel } from "./model-registry";
 import {
@@ -37,7 +37,8 @@ function rejectClientReadOnlyCreateFields(model: PublishedModel, input: unknown)
   if (!input || typeof input !== "object" || Array.isArray(input)) return;
   const readOnlyField = Object.keys(input as Record<string, unknown>)
     .find((key) => model.definition.fields[key]?.readOnly === true);
-  if (readOnlyField) throw new ApiError("INVALID_RESOURCE", `Field ${readOnlyField} is read-only`, 400);
+  if (readOnlyField) throw new ApiError("INVALID_RESOURCE", `Field ${readOnlyField} is read-only`, 400,
+    modelFieldValidationDetails(readOnlyField, "FIELD_READ_ONLY"));
 }
 
 function composeMutationExtensions(

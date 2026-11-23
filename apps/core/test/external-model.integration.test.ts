@@ -415,6 +415,29 @@ async function fixture(definitionKey?: string, fileUpload = false) {
 }
 
 describe("Space-local External Model framework", () => {
+  it("exposes only authorized local field-validation paths before Provider write", async () => {
+    const f = await fixture();
+    const payload = { amount: "invalid-synthetic-number" };
+    const denied = await f.request(f.path, "POST", payload);
+    expect(denied.status).toBe(403);
+    const privateError = (await denied.json()) as any;
+    expect(privateError.error.details).toBeUndefined();
+
+    await f.authorize();
+    f.state.calls = [];
+    const invalid = await f.request(f.path, "POST", payload);
+    expect(invalid.status).toBe(422);
+    const result = (await invalid.json()) as any;
+    expect(result.error.code).toBe("VALIDATION_ERROR");
+    expect(result.error.details).toEqual({
+      fieldPath:"data.amount",
+      reasonCode:"FIELD_INVALID_VALUE",
+      repair:"Check the field type and constraints in the current authorized Model Contract.",
+    });
+    expect(JSON.stringify(result.error.details)).not.toContain("invalid-synthetic-number");
+    expect(f.state.calls).toEqual([]);
+  });
+
   it("uses the same member model-access API and live authority for both Native and bound models",async()=>{
     const f=await fixture(); await f.authorize();
     const suffix=crypto.randomUUID().replaceAll("-","");

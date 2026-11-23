@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono";
 import type { Bindings, Principal, Variables } from "./env";
-import { ApiError, success } from "./http";
+import { ApiError, success, modelFieldValidationDetails } from "./http";
 import { normalizeCanonicalQueryOperand } from "./canonical-query";
 import { normalizeCanonicalFieldValue } from "./generic-resource";
 import { recurrenceRuleSchema } from "./recurrence-rule";
@@ -194,6 +194,8 @@ function canonicalExternalValue(field: ExternalField, value: unknown): unknown {
       "VALIDATION_ERROR",
       "Value does not match current canonical External schema",
       422,
+      modelFieldValidationDetails(field.key,
+        field.type === "enum" || field.type === "enum_list" ? "FIELD_INVALID_ENUM" : "FIELD_INVALID_VALUE"),
     );
   }
 }
@@ -216,6 +218,7 @@ function validateData(
         "VALIDATION_ERROR",
         `Required field ${missing.key} is missing`,
         422,
+        modelFieldValidationDetails(missing.key, "FIELD_REQUIRED"),
       );
   }
   const normalized: Record<string, unknown> = {};
@@ -226,12 +229,14 @@ function validateData(
         "VALIDATION_ERROR",
         "Field is unavailable or read-only",
         422,
+        modelFieldValidationDetails(key, "FIELD_UNAVAILABLE"),
       );
     if (operation === "update" && field.immutable === true)
       throw new ApiError(
         "VALIDATION_ERROR",
         `Field ${field.key} is immutable`,
         422,
+        modelFieldValidationDetails(field.key, "FIELD_IMMUTABLE"),
       );
     normalized[key] = canonicalExternalValue(field, value);
   }
