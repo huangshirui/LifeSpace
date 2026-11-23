@@ -464,11 +464,19 @@ export async function accountFetch(req, env) {
     if (!source?.ok) return fail(source?.status === 404 ? 404 : source?.status === 403 ? 403 : 503,
       "DELEGATION_REQUEST_UNAVAILABLE", "委托申请已失效或不属于当前用户");
     const preview = await data(source);
+    const validOps=["get","query","create","update","delete","file_read","file_upload"];
+    const composite=Array.isArray(preview?.operations);
+    const operations=composite?preview.operations:null;
     if (!preview || preview.id !== requestId || !DELEGATION_REQUEST.test(preview.id)
       || !SPACE.test(preview.spaceId || "") || !AGENT.test(preview.agentId || "")
       || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.clientId, 1024)
-      || !safeText(preview.modelKey, 70)
-      || !["get", "query", "create", "update", "delete", "file_read", "file_upload"].includes(preview.operation)
+      || (composite
+        ? (preview.modelKey!==undefined || preview.operation!==undefined
+          || operations.length<2 || operations.length>8
+          || operations.some(item=>!isObject(item)
+            || !safeText(item.modelKey,70) || !validOps.includes(item.operation))
+          || new Set(operations.map(item=>item.modelKey+":"+item.operation)).size!==operations.length)
+        : (!safeText(preview.modelKey,70) || !validOps.includes(preview.operation)))
       || !["pending", "approved", "denied", "expired"].includes(preview.status)
       || !safeText(preview.resource, 1024) || !safeText(preview.reason, 300)
       || !safeText(preview.expiresAt, 80)) {
@@ -477,9 +485,11 @@ export async function accountFetch(req, env) {
     return responseJson({ data: {
       id:preview.id, status:preview.status, applicationId:preview.applicationId,
       spaceId:preview.spaceId, agentId:preview.agentId,
-      clientId:preview.clientId, resource:preview.resource, modelKey:preview.modelKey,
-      operation:preview.operation, reason:preview.reason,
-      expiresAt:preview.expiresAt,
+      clientId:preview.clientId, resource:preview.resource,
+      ...(composite?{operations:operations.map(item=>({
+        modelKey:item.modelKey,operation:item.operation,
+      }))}:{modelKey:preview.modelKey,operation:preview.operation}),
+      reason:preview.reason, expiresAt:preview.expiresAt,
     } });
   }
 
