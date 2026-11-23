@@ -44,11 +44,14 @@ function allowedOperations(model?: Model) {
   const values: string[] = [];
   if (access.includes("read")) {
     values.push("query", "get");
-    if (model.definition.origin !== "external" && Object.values(model.definition.fields ?? {}).some(field => field.type === "file" || field.type === "file_list")) values.push("file_read");
+    // External file fields are Space/Provider-bound, not declared in the global Model Registry.
+    // Core resolves current Provider field capability when projecting/executing the operation.
+    if (model.definition.origin === "external" || Object.values(model.definition.fields ?? {}).some(field => field.type === "file" || field.type === "file_list")) values.push("file_read");
   }
   if (access.includes("write")) {
     values.push("create", "update", "delete");
-    if (model.definition.origin !== "external" && Object.values(model.definition.fields ?? {}).some(field => field.readOnly !== true && (field.type === "file" || field.type === "file_list"))) values.push("file_upload");
+    // Provider upload.supported is independent of ordinary field writability (e.g. Notion Files).
+    if (model.definition.origin === "external" || Object.values(model.definition.fields ?? {}).some(field => field.readOnly !== true && (field.type === "file" || field.type === "file_list"))) values.push("file_upload");
   }
   for (const [action, detail] of Object.entries(model.definition.actions ?? {})) {
     if ((detail.access === "read" || detail.access === "write") && access.includes(detail.access)) {
