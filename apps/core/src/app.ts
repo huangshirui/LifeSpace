@@ -147,7 +147,14 @@ export function createApp() {
   app.notFound((context) => context.json(failure("NOT_FOUND", "Route not found", context.get("requestId")), 404));
   app.onError((error, context) => {
     const requestId = context.get("requestId");
-    if (error instanceof ApiError) return context.json(failure(error.code, error.message, requestId), error.status);
+    if (error instanceof ApiError) {
+      // Only model input validation, after ordinary runtime authority checks,
+      // may disclose a structured field path. Other failures stay unchanged.
+      const safeDetails = (error.status === 400 || error.status === 422)
+        && (error.code === "INVALID_RESOURCE" || error.code === "VALIDATION_ERROR")
+        ? error.details : undefined;
+      return context.json(failure(error.code, error.message, requestId, safeDetails), error.status);
+    }
     const databaseError = knownDatabaseApiError(error);
     if (databaseError) {
       return context.json(failure(databaseError.code, databaseError.message, requestId), databaseError.status);
