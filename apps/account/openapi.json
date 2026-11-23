@@ -254,7 +254,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Sanitized exact App/Space/Resource/Model/Operation request for the verified Account User"
+            "description": "Sanitized exact App/Space/Resource and one operation or 2-8 separately bounded operations for the verified Account User"
           },
           "401": {
             "description": "Account session required"
@@ -270,8 +270,8 @@
     },
     "/api/delegation/approve": {
       "post": {
-        "summary": "Approve one pending third-party OAuth MCP User Delegation through authenticated Account session",
-        "description": "Requires signed Account User, same-origin CSRF and explicit User-selected lifetime. Once is default; timed 1/24/168 hours (max 7 days); until_revoked is indefinite but revocable.",
+        "summary": "Approve one pending third-party OAuth MCP User Delegation request (one or multiple exact operations) through authenticated Account session",
+        "description": "Requires signed Account User, same-origin CSRF and explicit User-selected lifetime. One approval atomically issues independent exact-operation grants for the entire bounded request. Once is default unless any operation is file_upload; timed 1/24/168 hours (max 7 days); until_revoked is indefinite but revocable.",
         "requestBody": {
           "required": true,
           "content": {
