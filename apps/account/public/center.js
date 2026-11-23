@@ -725,7 +725,7 @@ function delegationRow(item) {
   const detail=el("details");
   detail.append(el("summary","","查看授权边界"));
   const dl=el("dl");
-  for(const [name,value] of [["Application",item.applicationId],["Space",item.spaceId],
+  for(const [name,value] of [["委托 ID",item.id],["Application",item.applicationId],["Space",item.spaceId],
     ["Agent",item.agentId],["MCP Resource",item.resource],["模型与操作",item.modelKey+" / "+item.operation],
     ["到期时间",item.expiresAt?formatTime(item.expiresAt):"不自动到期"]]) {
     dl.append(el("dt","",name),el("dd","",value));
@@ -765,7 +765,7 @@ function openRevoke(item,kind="delegation") {
   $("revoke-detail").textContent=kind==="oauth"
     ? "断开「"+item.clientName+"」的这一条授权？其他授权不会受影响。授权编号："+item.id.slice(-8)
     : "确认撤销「"+item.modelKey+" · "+(opNames[item.operation]||item.operation)
-      +"」？后续调用将被拒绝，已经完成的操作不会撤回。";
+      +"」？委托编号后 8 位："+item.id.slice(-8)+"。后续调用将被拒绝，已经完成的操作不会撤回。";
   $("revoke-error").hidden=true;
   $("revoke-dialog").showModal();
 }
@@ -774,6 +774,18 @@ function closeRevoke() {
   state.revokeId=null;state.revokeKind=null;
   $("revoke-dialog").close();
 }
+// Account's CSRF cookie is scoped to the whole origin and is renewed by any
+// Account tab calling /api/session. Refresh immediately before a destructive
+// action, so an old tab cannot silently reuse an expired/replaced proof.
+// Keep Core's separate ownership and Delegation checks authoritative.
+async function refreshRevokeCsrf() {
+  const session=await api("/api/session");
+  if(!session?.user?.id || session.user.id!==state.user?.id
+    || typeof session.csrfToken!=="string") {
+    throw new Error("账户身份已变化，请重新打开页面");
+  }
+  state.csrf=session.csrfToken;
+}
 async function revoke() {
   if(!state.revokeId || state.revokeBusy || state.delegationsBusy || state.oauthBusy)return;
   const selectedId=state.revokeId,kind=state.revokeKind;
@@ -781,6 +793,7 @@ async function revoke() {
   state.revokeBusy=true;
   confirm.disabled=true;cancel.disabled=true;
   try {
+    await refreshRevokeCsrf();
     await api(kind==="oauth"
       ? "/api/account/authorizations/"+encodeURIComponent(selectedId)+"/revoke"
       : "/api/delegations/revoke",{method:"POST",
