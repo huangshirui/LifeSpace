@@ -11,7 +11,7 @@ if (corePackageVersion !== document.info?.version) {
   throw new Error(`Core release package version ${corePackageVersion} differs from Kernel contract ${document.info?.version}`);
 }
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.57.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.58.0") {
   throw new Error("Core Kernel OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Kernel")) {
