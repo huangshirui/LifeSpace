@@ -295,8 +295,8 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     const selector=(id:string)=>({"x-lifespace-delegation-id":id});
     const queryRoute=base+"/models/"+modelKey+"/records/query";
     const getRoute=base+"/models/"+modelKey+"/records/"+record.id;
-    expect((await f.request("POST",queryRoute,withGrant(issued[2]!.id),{limit:1},selector(issued[2]!.id))).status).toBe(404);
-    expect((await f.request("POST",queryRoute,withGrant(issued[0]!.id),{limit:1},selector(issued[0]!.id))).status).toBe(200);
+    expect((await f.request("POST",queryRoute,withGrant(issued[2]!.id),{page:{limit:1}},selector(issued[2]!.id))).status).toBe(404);
+    expect((await f.request("POST",queryRoute,withGrant(issued[0]!.id),{page:{limit:1}},selector(issued[0]!.id))).status).toBe(200);
     expect((await f.request("GET",getRoute,withGrant(issued[1]!.id),undefined,selector(issued[1]!.id))).status).toBe(200);
     expect((await f.request("POST",route,withGrant(issued[2]!.id),payload,selector(issued[2]!.id))).status).toBe(200);
     expect((await f.request("POST",route,withGrant(issued[2]!.id),payload,selector(issued[2]!.id))).status).toBe(403);
