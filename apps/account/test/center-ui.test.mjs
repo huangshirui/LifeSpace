@@ -65,6 +65,23 @@ test("Account Center renders upstream content as text and revocation is an expli
   assert.match(js,/api\("\/api\/account\/authorizations\?offset=/u);
 });
 
+// Regression: opening Account consent in a second tab can replace the
+// origin's signed CSRF cookie. The Center must not submit an old proof.
+test("Delegation revocation identifies the exact selector and refreshes session-bound CSRF before POST",()=>{
+  assert.match(js,/\["委托 ID",item\.id\]/u);
+  assert.match(js,/委托编号后 8 位：/u);
+  assert.match(js,/async function refreshRevokeCsrf\(\)/u);
+  assert.match(js,/const session=await api\("\/api\/session"\)/u);
+  assert.match(js,/session\.user\.id!==state\.user\?\.id/u);
+  assert.match(js,/state\.csrf=session\.csrfToken/u);
+  const revokeBody=js.slice(js.indexOf("async function revoke() {"),js.indexOf("\nfunction busySubmit",js.indexOf("async function revoke() {")));
+  assert.ok(revokeBody.indexOf("await refreshRevokeCsrf();")>=0);
+  assert.ok(revokeBody.indexOf("await refreshRevokeCsrf();")<revokeBody.indexOf("await api("));
+  assert.match(revokeBody,/"x-lifespace-csrf":state\.csrf/u);
+  assert.match(revokeBody,/delegationId:selectedId/u);
+});
+
+
 test("Member model permission editing is a dedicated, lazy-loaded dialog using Core previews",()=>{
   assert.match(html,/id="member-access-dialog"/u);
   assert.match(html,/<form id="member-access-editor" hidden>/u);

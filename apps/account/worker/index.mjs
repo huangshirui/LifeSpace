@@ -635,7 +635,7 @@ export async function accountFetch(req, env) {
   // All Account mutations are same-origin, owner-session-bound and CSRF-protected.
   // Identity/Core retain the final authorization decision; Account has no admin bypass.
   if (!await validCsrf(req, env, linked.user.id)) {
-    return fail(403, "INVALID_CSRF", "授权确认已过期，请重新打开确认页面");
+    return fail(403, "INVALID_CSRF", "账户安全验证已失效，请刷新页面后重试");
   }
   if(spaceAvatar){
     if(url.search)return fail(400,"INVALID_REQUEST","上传头像不接受额外参数");

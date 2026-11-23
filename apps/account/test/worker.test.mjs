@@ -370,6 +370,35 @@ test("Account previews composite model operations in one approval with strict pe
   assert.equal((await tooMany.request("/api/delegation/request?request_id="+arq)).status,502);
 });
 
+test("stale Account-tab CSRF cannot revoke; renewed session succeeds without weakening Core authority",async()=>{
+  const t=fixture();
+  const first=await t.request("/api/session");
+  const oldToken=(await first.json()).data.csrfToken;
+  const renewed=await t.request("/api/session");
+  const freshToken=(await renewed.json()).data.csrfToken;
+  const freshCookie=renewed.headers.get("set-cookie").split(";")[0];
+  assert.notEqual(oldToken,freshToken);
+
+  // Opening another Account view renews the browser cookie; an older tab
+  // must not be able to revoke under the older header.
+  const requestBody=JSON.stringify({intent:"revoke-user-delegation",delegationId:dlg});
+  const stale=await t.request("/api/delegations/revoke",{
+    method:"POST",headers:mutatingHeaders(oldToken,freshCookie),body:requestBody,
+  });
+  assert.equal(stale.status,403);
+  const error=(await stale.json()).error;
+  assert.equal(error.code,"INVALID_CSRF");
+  assert.match(error.message,/账户安全验证已失效/u);
+  assert.equal(t.calls.filter(x=>x.service==="core-revoke").length,0);
+
+  const restored=await t.request("/api/delegations/revoke",{
+    method:"POST",headers:mutatingHeaders(freshToken,freshCookie),body:requestBody,
+  });
+  assert.equal(restored.status,200);
+  assert.equal((await restored.json()).data.revoked,true);
+  assert.equal(t.calls.filter(x=>x.service==="core-revoke").length,1);
+});
+
 test("Account lifetime selection is explicit, bounded, CSRF-protected, and revocable", async () => {
   const t=fixture();
   const session=await t.request("/api/session");
