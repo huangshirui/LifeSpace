@@ -1,5 +1,13 @@
 # LifeSpace Account · User Center + OAuth Consent / 账户中心与授权门户
 
+## 2026-11-23 · Account 委托撤销 ID 与 CSRF 页签失效修补（开发候选，未部署）
+
+- **根因**：Account `GET /api/session` 每次签发新的、10 分钟有效的用户绑定 HMAC CSRF，并更新同源 HttpOnly Cookie。一个浏览器页签打开独立的 OAuth/委托审批页后会改变共享 Cookie；先前打开的 Account Center 的内存 `state.csrf` 不会同步。此时点击撤销被 Account BFF 返回 `403 INVALID_CSRF`，**不会触达 Core 撤销接口**。原文“授权确认已过期”易被误解为 Delegation 到期。
+- **修补范围**：Account Center 撤销动作提交前立即 `GET /api/session` 更新 CSRF（确保同一 `usr_*`），然后仍带双提交 Cookie/Header 和明确操作意图；失败时保持弹窗、不擅自重试，不修改 Core 的当前权限检查。Account BFF 的 `INVALID_CSRF` 人类提示改为“账户安全验证已失效，请刷新页面后重试”，保留 HTTP 403 和错误码。
+- **精确对象识别**：AI 委托卡片的“查看授权边界”显示完整 `dlg_*`，撤销确认显示后 8 位，避免同模型、同批次多委托时操作错对象。ID 是只在已认证 Account 页面内显示的当前所有者可访问字段，不会进入 URL、日志或第三方页面。
+- **发布顺序**：仅需 Account Staging 普通 Owner 手动工作流，**不需要** Core/Identity/Adapter 重新部署，也不触发 Account Provision 或密钥轮换。Staging 用户实测撤销及 Query 保留后再评估 Production。
+
+
 ## 2026-11-10 · Account Staging 独立发布 / 解除跨服务密钥耦合
 
 - **普通更新**：只使用 `.github/workflows/lifespace-account-staging-deploy.yml`，完成完整 CI、Core/Identity 版本兼容、Owner-only Cloudflare Access 策略以及三个 Staging Worker Secret 绑定**名称**的只读检查，随后仅对 Account Worker 运行 `wrangler deploy`。已有 Account Worker Secret 自动保留；不会重签 `lsa_*`、升级 Identity Application、部署 Core/Identity、变更 OAuth Shared Secret 或运行数据库迁移。
