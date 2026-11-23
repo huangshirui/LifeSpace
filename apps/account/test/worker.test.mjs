@@ -292,7 +292,7 @@ test("third-party web Delegation requires signed Account session, CSRF and expli
 
 test("Account previews Core file_read/file_upload requests and preserves file upload lifetime errors", async () => {
   for (const operation of ["file_read", "file_upload"]) {
-    const t=fixture(["resources:read","resources:write"], operation);
+    const t=fixture(operation==="file_read"?["resources:read"]:["resources:read","resources:write"], operation);
     const preview=await t.request("/api/delegation/request?request_id="+arq);
     assert.equal(preview.status,200,operation);
     const detail=(await preview.json()).data;
