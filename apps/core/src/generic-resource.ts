@@ -6,7 +6,7 @@ import { optionalRecordIcon, stripPresentation, validateIconFile, RECORD_ICON_FI
 import { validateRecurrenceData } from "./recurrence-definition";
 import type { Bindings, Principal, RuntimeD1Observer } from "./env";
 import { chunkD1Values } from "./d1-batch";
-import { ApiError } from "./http";
+import { ApiError, modelFieldValidationDetails, type ModelFieldValidationDetails } from "./http";
 import { applyModelDefaults } from "./model-defaults";
 import { isFirstClassRangeFieldType, rangeFieldValueType, type FieldDefinition, type ModelDefinition } from "./model-definition";
 import { validateRangeValue } from "./range-value";
@@ -418,6 +418,14 @@ export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefin
   }
 }
 
+function invalidModelField(
+  fieldKey: string,
+  reasonCode: ModelFieldValidationDetails["reasonCode"],
+  message: string,
+): ApiError {
+  return new ApiError("INVALID_RESOURCE", message, 400, modelFieldValidationDetails(fieldKey, reasonCode));
+}
+
 export function validateResourceData(
   definition: ModelDefinition,
   input: unknown,
@@ -430,21 +438,34 @@ export function validateResourceData(
   const trusted = mode === "create_internal" || mode === "action";
   const effectiveInput = creating ? applyModelDefaults(definition, input) : input;
   const unknown = Object.keys(input).find((key) => !definition.fields[key]);
-  if (unknown) throw new ApiError("INVALID_RESOURCE", `Field ${unknown} is not declared by model ${definition.key}`, 400);
+  if (unknown) throw invalidModelField(unknown, "FIELD_UNKNOWN", `Field ${unknown} is not declared by model ${definition.key}`);
 
   const result: JsonObject = creating ? {} : { ...(previous ?? {}) };
   for (const [fieldKey, field] of Object.entries(definition.fields)) {
     const supplied = Object.prototype.hasOwnProperty.call(effectiveInput, fieldKey);
     const clientSupplied = Object.prototype.hasOwnProperty.call(input, fieldKey);
-    if (field.readOnly && clientSupplied && !trusted) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is read-only`, 400);
+    if (field.readOnly && clientSupplied && !trusted) throw invalidModelField(fieldKey, "FIELD_READ_ONLY", `Field ${fieldKey} is read-only`);
     if (!creating && field.immutable && supplied && previous?.[fieldKey] !== effectiveInput[fieldKey]) {
-      throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is immutable`, 400);
+      throw invalidModelField(fieldKey, "FIELD_IMMUTABLE", `Field ${fieldKey} is immutable`);
     }
     if (!supplied) {
-      if (creating && field.required && !field.readOnly) throw new ApiError("INVALID_RESOURCE", `Field ${fieldKey} is required`, 400);
+      if (creating && field.required && !field.readOnly) throw invalidModelField(fieldKey, "FIELD_REQUIRED", `Field ${fieldKey} is required`);
       continue;
     }
-    result[fieldKey] = normalizeCanonicalFieldValue(fieldKey, field, effectiveInput[fieldKey]);
+    try {
+      result[fieldKey] = normalizeCanonicalFieldValue(fieldKey, field, effectiveInput[fieldKey]);
+    } catch (error) {
+      // Canonical field grammar is the sole source of semantic validation.
+      // Caller field names are disclosed only as a bounded input path.
+      if (error instanceof ApiError && error.code === "INVALID_RESOURCE") {
+        throw invalidModelField(
+          fieldKey,
+          field.type === "enum" || field.type === "enum_list" ? "FIELD_INVALID_ENUM" : "FIELD_INVALID_VALUE",
+          error.message,
+        );
+      }
+      throw error;
+    }
   }
   validateRecurrenceData(definition.capabilities?.recurrence, result);
   return result;
