@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Account OAuth Consent Bridge
-  version: 0.5.0
+  version: 0.6.0
   description: >
     Candidate Account-only, user-session-bound OAuth consent confirmation.
     Core verifies current Space manage authority, then calls Identity through a
@@ -12,7 +12,7 @@ paths:
       operationId: requestOAuthMcpUserDelegation
       description: >
         Third-party OAuth Agent only; requests either one exact operation
-        or a bounded list of 2-8 operations from the enabled MCP Server,
+        or a bounded list of 2-64 operations across at most 8 distinct models from the enabled MCP Server,
         respecting the active OAuth Scopes. One pending arq_* grants nothing.
         The Account User approves the entire list, atomically issuing a
         separate exact-operation dlg_* for every item. The legacy single
@@ -34,7 +34,7 @@ paths:
                 operations:
                   type: array
                   minItems: 2
-                  maxItems: 8
+                  maxItems: 64
                   items:
                     type: object
                     additionalProperties: false
