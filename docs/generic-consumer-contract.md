@@ -1,3 +1,7 @@
+### Exact approved-operation schema preview (development candidate)
+
+An OAuth Agent may use its existing signed represented context and explicit current Delegation selector to GET the existing Space operation discovery endpoint with exact modelKey and operation filters. Core checks the matching approval and live authority before returning the same canonical input schema used by direct discovery. The preview does not consume single use, access records or permit generic invoke; wrong operation, unapproved or revoked selectors cannot disclose schemas. No additional Grant or consumer-specific schema registry is necessary. Consumers request only the operation they need. Not deployed.
+
 ### 2026-11-22 · Delegation eligibility HTTP contract (candidate, not deployed)
 
 Core owns the shared read-only `GET /api/v1/spaces/{spaceId}/_authority/delegation-eligibility` projection and current verified User entitlement checks. For direct User callers, `modelKey` and `operation` are mandatory; for Identity-authorized OAuth Agent callers the operation candidates are constrained by the current signed User, Application, Space and Resource Server allowlist, never caller-submitted Agent claims. The response is strictly `{data:{eligibleOperations:[{modelKey,operation,requiredScopes}]}}`. No record data, raw provider identity, Model source branch, executable Tool schema, authority grant or Delegation can be inferred. Model/Provider differences are decided in Core and exposed only as absent/available capabilities; protocols translate the result unchanged.

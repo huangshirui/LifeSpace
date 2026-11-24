@@ -279,6 +279,7 @@ function assertAccountOwner(principal: Principal, env: Bindings, row: RequestRow
 
 export async function requireOAuthMcpDelegatedOperation(
   env: Bindings, principal: Principal, method: string, path: string, providedId: string,
+  query?: URLSearchParams,
 ): Promise<void> {
   const x = principal.oauthExecution;
   if (!x?.delegationId || providedId !== x.delegationId || principal.type !== "user"
@@ -299,6 +300,16 @@ export async function requireOAuthMcpDelegatedOperation(
   const selected=requestedOperations(loaded.binding)[bindingRow.selected_ordinal];
   if (!selected || loaded.items[bindingRow.selected_ordinal]?.ordinal!==bindingRow.selected_ordinal) throw fail();
   const op:Op=selected.operation;
+  // Exact, non-consuming contract preview for an already-approved operation.
+  // The discovery handler independently checks the live Delegation chain and
+  // actual credential scopes; this branch never authorizes business execution.
+  if (method==="GET" && path==="/api/v1/spaces/"+x.spaceId+"/_discovery/operations") {
+    if (!query || [...query.keys()].length!==2
+      || query.getAll("modelKey").length!==1 || query.getAll("operation").length!==1
+      || query.get("modelKey")!==selected.modelKey || query.get("operation")!==op) throw fail();
+    await liveConsent(env,loaded.row,loaded.binding,bindingRow.selected_ordinal);
+    return;
+  }
   const personPrefix="/api/v1/spaces/" + x.spaceId + "/people";
   if (selected.modelKey === PERSON_MODEL) {
     const personRecord=new RegExp("^"+personPrefix+"/per_[A-Za-z0-9_-]+$","u").test(path);
