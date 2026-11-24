@@ -387,6 +387,7 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         await measurePerformancePhase(context, "security.oauth_delegation_operation",
           () => requireOAuthMcpDelegatedOperation(
             context.env, principal, context.req.method, context.req.path, delegated,
+            new URL(context.req.url).searchParams,
           ));
       } else if (context.req.header("x-lifespace-delegation-id")) {
         throw new ApiError("FORBIDDEN", "Direct OAuth execution cannot select Delegation", 403);

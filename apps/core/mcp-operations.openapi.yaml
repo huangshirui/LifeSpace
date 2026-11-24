@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Generic Operations (Candidate)
-  version: 0.6.0
+  version: 0.7.0
   description: |
     Protocol-neutral, authenticated operation projection for the current OAuth
     MCP Agent execution context or opaque Agent credential with configured MCP
@@ -36,6 +36,10 @@ paths:
         the actual OAuth scopes. It returns only model/operation/scope metadata,
         never executable descriptors, operationRef, input schemas or records.
         Independent Account approval and exact represented execution remain required.
+        Represented OAuth may preview only its exact approved modelKey and operation,
+        with both query filters and its matching signed Delegation header. Current
+        authority, scopes and the Delegation chain are rechecked. Preview does not
+        consume a single use, return business records, or authorize generic invoke.
         Opaque Agent credentials require the exact X-LifeSpace-MCP-Resource header.
         Without X-LifeSpace-Delegation-Id, executable descriptors reflect only direct
         Agent authority; no Grant means an empty catalog, not failed authentication.
