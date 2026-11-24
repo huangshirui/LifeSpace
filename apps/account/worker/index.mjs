@@ -472,7 +472,8 @@ export async function accountFetch(req, env) {
       || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.clientId, 1024)
       || (composite
         ? (preview.modelKey!==undefined || preview.operation!==undefined
-          || operations.length<2 || operations.length>8
+          || operations.length<2 || operations.length>64
+          || new Set(operations.map(item=>item?.modelKey)).size>8
           || operations.some(item=>!isObject(item)
             || !safeText(item.modelKey,70) || !validOps.includes(item.operation))
           || new Set(operations.map(item=>item.modelKey+":"+item.operation)).size!==operations.length)

@@ -312,6 +312,45 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",route,patch,payload)).status).toBe(403);
   });
 
+  it("approves 32 exact operations across 8 models in one atomic Account decision", async () => {
+    const f=await fixture();
+    const suffix=crypto.randomUUID().replaceAll("-","");
+    const timestamp=new Date().toISOString();
+    const publisher:Principal={type:"service",id:"svc_"+suffix,clientId:"lifespace-platform-admin",scopes:["models:manage"],tokenId:"tok_publish_"+suffix};
+    const modelKeys=Array.from({length:8},(_,i)=>"oauth_batch_"+suffix.slice(0,10)+"_"+i);
+    const ops=["get","query","create","update"];
+    for(const key of modelKeys) {
+      await publishModelDefinition({DB:f.db} as Bindings,publisher,{
+        definitionVersion:1,key,display:{singular:"Synthetic",plural:"Synthetic records"},
+        fields:{label:{type:"string",nullable:true}},access:["read","write"],
+      },"initial");
+    }
+    await f.db.batch([
+      ...modelKeys.map(key=>f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)").bind(f.application,key,"write","service",publisher.id)),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)").bind("mem_"+suffix,f.space,f.oauthUser,timestamp,timestamp),
+      f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?").bind(JSON.stringify({models:modelKeys.map(modelKey=>({modelKey,operations:ops}))}),f.serverId),
+    ]);
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const patch={oauth_allow_user_authorization:true,scope:"resources:read resources:write"};
+    const operations=modelKeys.flatMap(modelKey=>ops.map(operation=>({modelKey,operation})));
+    const base="/api/v1/spaces/"+f.space+"/oauth-delegation-requests";
+    const pending=await f.request("POST",base,patch,{operations,reason:"Approve a bounded synthetic workflow"});
+    expect(pending.status).toBe(201);
+    const requestId=(await pending.json() as {data:{id:string}}).data.id;
+    const preview=await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+requestId);
+    expect(preview.status).toBe(200);
+    expect((await preview.json() as {data:{operations:unknown[]}}).data.operations).toEqual(operations);
+    const result=await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+requestId+"/approve",{mode:"until_revoked"});
+    expect(result.status).toBe(200);
+    const issued=(await result.json() as {data:{delegations:Array<{id:string}>}}).data.delegations;
+    expect(issued).toHaveLength(32);
+    expect(new Set(issued.map(x=>x.id)).size).toBe(32);
+    const status=await f.request("GET",base+"/"+requestId,patch);
+    expect((await status.json() as {data:{operations:Array<{delegationId:string}>}}).data.operations.map(x=>x.delegationId)).toEqual(issued.map(x=>x.id));
+    expect((await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+requestId+"/approve",{mode:"until_revoked"})).status).toBe(409);
+  });
+
   it("projects native file_upload, verifies both phases and preserves write and exact delegated authority", async () => {
     const f=await fixture();
     const suffix=crypto.randomUUID().replaceAll("-","");

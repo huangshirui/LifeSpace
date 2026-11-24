@@ -167,7 +167,7 @@ describe("atomic multi-Delegation issuance structural performance", () => {
 
     expect(response.status).toBe(201);
     expect(counter.roundTrips).toBe(2);
-    expect(counter.batchSizes).toEqual([1, 40]);
+    expect(counter.batchSizes).toEqual([1, 2]);
     expect(counter.preparedSql.filter((sql) => sql.includes("WITH RECURSIVE chain"))).toHaveLength(0);
   });
 
@@ -213,7 +213,7 @@ describe("atomic multi-Delegation issuance structural performance", () => {
 
     expect(response.status).toBe(201);
     expect(counter.roundTrips).toBe(3);
-    expect(counter.batchSizes).toEqual([1, 1, 40]);
+    expect(counter.batchSizes).toEqual([1, 1, 2]);
     expect(counter.preparedSql.filter((sql) => sql.includes("WITH RECURSIVE chain"))).toHaveLength(1);
 
     const parent = await db.prepare("SELECT consumed_at FROM delegations WHERE id=?")

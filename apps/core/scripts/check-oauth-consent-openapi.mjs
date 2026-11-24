@@ -14,7 +14,7 @@ if (!choices?.security?.some((entry) => entry.accountUserBearer)
   throw new Error("OAuth choices must require verified Account User");
 }
 const path = document.paths?.["/api/v1/me/oauth/requests/{requestId}/confirm"]?.post;
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.5.0" || !path
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.6.0" || !path
   || !path.security?.some((entry) => entry.accountUserBearer)
   || !String(path.description ?? "").includes("manage")
   || path.requestBody?.content?.["application/json"]?.schema?.additionalProperties !== false
@@ -25,7 +25,7 @@ const request = document.paths?.["/api/v1/spaces/{spaceId}/oauth-delegation-requ
 const requestShape=request?.requestBody?.content?.["application/json"]?.schema;
 if (requestShape?.additionalProperties!==false
   || requestShape?.properties?.operations?.minItems!==2
-  || requestShape?.properties?.operations?.maxItems!==8
+  || requestShape?.properties?.operations?.maxItems!==64
   || requestShape?.properties?.operations?.items?.additionalProperties!==false
   || requestShape?.oneOf?.length!==2) {
   throw new Error("Composite OAuth Delegation contract must retain exact operation bounds");
