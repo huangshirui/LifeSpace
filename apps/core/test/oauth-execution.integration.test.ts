@@ -369,6 +369,24 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect(descriptor[0]!.inputSchema).toMatchObject({required:["spaceId","targetDelegationId","data"],
       properties:{data:{properties:{predicate:{enum:["relates_to"]}}}}});
     expect((await call("GET",base+"/_discovery/operations?modelKey="+sourceKey+"&operation=relation_create",get(sourceKey,"update"))).status).toBe(404);
+    // Joint regression: the same nine-operation approval permits exact CRUD
+    // preview/PATCH and standalone edge execution, without cross-operation use.
+    const update=get(sourceKey,"update");
+    const updatePreview=base+"/_discovery/operations?modelKey="+sourceKey+"&operation=update";
+    const ordinary=await call("GET",updatePreview,update);
+    expect(ordinary.status).toBe(200);
+    const ordinarySchema=(await ordinary.json() as {data:{operations:Array<{operation:string;inputSchema:{properties:{data:{$ref:string}};$defs:Record<string,{required:string[]}>}}>}}).data.operations;
+    expect(ordinarySchema).toHaveLength(1);
+    expect(ordinarySchema[0]!.operation).toBe("update");
+    const input=ordinarySchema[0]!.inputSchema;
+    expect(input.$defs[input.properties.data.$ref.slice(8)]!.required).toContain("version");
+    expect((await call("GET",updatePreview,create)).status).toBe(404);
+    expect((await call("GET",updatePreview,update,undefined,targetGet)).status).toBe(404);
+    const recordPath=base+"/models/"+sourceKey+"/records/"+source.recordId;
+    const corrected=await call("PATCH",recordPath,update,{version:1,name:"Synthetic corrected"});
+    expect(corrected.status).toBe(200);
+    expect((await corrected.json() as {data:{version:number}}).data.version).toBe(2);
+    expect((await call("PATCH",recordPath,create,{version:2,name:"Forbidden"})).status).toBe(404);
     const added=await call("POST",path,create,edge,targetGet);
     expect(added.status).toBe(200);
     const relationId=(await added.json() as {data:{id:string}}).data.id;
