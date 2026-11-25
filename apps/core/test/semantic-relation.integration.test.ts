@@ -417,6 +417,24 @@ describe("Semantic Relation Runtime", () => {
     expect(same.status).toBe(200);
     expect((await json(first)).data.id).toBe((await json(same)).data.id);
     expect(await f.db.prepare("SELECT COUNT(*) n FROM semantic_relations WHERE space_id=?").bind(f.spaceId).first("n")).toBe(1);
+    const readSource=await delegation(f,agent.id,true,{type:"model",id:f.sourceModelKey,modelKey:f.sourceModelKey,access:"read"});
+    const readTarget=await issueTarget(true);
+    const id=(await json(await call(sourceLong,targetLong))).data.id;
+    const read=(path:string,s:string,t:string)=>request(f.publicKey,"lsp_agt_test",path,{headers:{
+      "x-lifespace-delegation-id":s,"x-lifespace-target-delegation-id":t}},identity);
+    expect((await read(path+"/"+id,readSource,revoked)).status).toBe(404);
+    expect((await f.db.prepare("SELECT consumed_at FROM delegations WHERE id=?").bind(readSource).first("consumed_at"))).toBeNull();
+    const listing=path+`?sourceModelKey=${f.sourceModelKey}&sourceRecordId=${source.id}&targetModelKey=${f.targetModelKey}&targetRecordId=${target.id}`;
+    expect((await read(path,readSource,readTarget)).status).toBe(400);
+    const concurrent=await Promise.all([read(path+"/"+id,readSource,readTarget),read(listing,readSource,readTarget)]);
+    // The query may return an empty page if the competing read already won.
+    const payloads=await Promise.all(concurrent.map(r=>json(r)));
+    expect(payloads.filter(x=>x.data?.id===id||x.data?.items?.some((e:any)=>e.id===id))).toHaveLength(1);
+    const consumedReads=await f.db.prepare("SELECT consumed_at FROM delegations WHERE id IN (?,?)").bind(readSource,readTarget).all<any>();
+    expect(consumedReads.results.every(x=>x.consumed_at)).toBe(true);
+    const verified=await read(listing,sourceLong,targetLong);
+    expect(verified.status).toBe(200);
+    expect((await json(verified)).data.items.map((x:any)=>x.id)).toEqual([id]);
   });
   it("selects visible results before pagination across 1000 hidden edges with bounded RTT", async () => {
     const f = await fixture();

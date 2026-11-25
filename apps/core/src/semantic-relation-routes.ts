@@ -28,17 +28,13 @@ function delegationId(context: Context<AppEnv>): string | null {
 }
 
 // The original header selects source authority. The optional second selector
-// is explicit and applies only to standalone relation create/delete.
+// is explicit and applies only to standalone relation operations.
 function targetDelegationId(context: Context<AppEnv>): string | null {
   const value=context.req.header("x-lifespace-target-delegation-id");
   if (value === undefined) return null;
   if (!/^dlg_[A-Za-z0-9_-]{1,128}$/u.test(value) || !delegationId(context))
     throw new ApiError("INVALID_REQUEST", "An explicit source and valid target Delegation are required", 400);
   return value;
-}
-function rejectTargetSelector(context: Context<AppEnv>): void {
-  if (context.req.header("x-lifespace-target-delegation-id") !== undefined)
-    throw new ApiError("INVALID_REQUEST", "Target Delegation selector is supported only for standalone relation mutations", 400);
 }
 
 function parseRef(value: unknown, name: "source" | "target"): SemanticEntityRef {
@@ -106,6 +102,7 @@ function queryInput(context: Context<AppEnv>): SemanticRelationQuery {
     limit,
     ...(params.get("cursor") ? { cursor: params.get("cursor")! } : {}),
     delegationId: delegationId(context),
+    targetDelegationId: targetDelegationId(context),
     hydrate: hydrate(params),
   };
 }
@@ -130,7 +127,6 @@ export function registerSemanticRelationRoutes(app: App): void {
   });
 
   app.get("/api/v1/spaces/:spaceId/semantic-relations", async (context) => {
-    rejectTargetSelector(context);
     const result = await measurePerformancePhase(
       context,
       "semantic_relation.query",
@@ -145,7 +141,6 @@ export function registerSemanticRelationRoutes(app: App): void {
   });
 
   app.get("/api/v1/spaces/:spaceId/semantic-relations/:relationId", async (context) => {
-    rejectTargetSelector(context);
     const params = new URL(context.req.url).searchParams;
     const relation = await measurePerformancePhase(
       context,
@@ -157,6 +152,7 @@ export function registerSemanticRelationRoutes(app: App): void {
         context.req.param("relationId"),
         delegationId(context),
         hydrate(params),
+        targetDelegationId(context),
       ),
     );
     if (!relation) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
