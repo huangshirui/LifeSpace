@@ -163,6 +163,11 @@ function response(schema: string, description: string) {
 }
 const errors = Object.fromEntries([400, 401, 403, 404, 409, 422, 429, 500, 502, 503].map((status) => [String(status), response("SemanticRelationError", "Invalid, denied, unavailable or conflicted operation")]));
 
+const targetDelegationParameter = {
+  name:"X-LifeSpace-Target-Delegation-Id",in:"header",required:false,
+  description:"Explicit target endpoint Delegation selector, alongside the source selector. Pair query requires both complete endpoint references. Existing single-selector calls remain compatible.",
+  schema:{type:"string",pattern:"^dlg_[A-Za-z0-9_-]{1,128}$"},
+};
 function addSemanticRelationPaths(openapi: OpenApiDocument): void {
   const paths = openapi.paths as Record<string, unknown>;
   paths["/api/v1/spaces/{spaceId}/semantic-relations"] = {
@@ -180,7 +185,7 @@ function addSemanticRelationPaths(openapi: OpenApiDocument): void {
         { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
         { name: "cursor", in: "query", schema: { type: "string" } },
         { name: "hydrate", in: "query", schema: { type: "string", enum: ["source", "target", "both"] } },
-        { $ref: "#/components/parameters/DelegationId" },
+        { $ref: "#/components/parameters/DelegationId" },targetDelegationParameter,
       ],
       responses: { ...errors, "200": response("SemanticRelationQueryResponse", "Visible Semantic Relations") },
     },
@@ -188,7 +193,7 @@ function addSemanticRelationPaths(openapi: OpenApiDocument): void {
       operationId: "create_semantic_relation",
       tags: ["Semantic Relations"],
       description: "Idempotently creates one governed edge. Requires current source write and target read Authority/Policy; duplicate creation does not duplicate Change evidence.",
-      parameters: [{ $ref: "#/components/parameters/DelegationId" }],
+      parameters: [{ $ref: "#/components/parameters/DelegationId" },targetDelegationParameter],
       requestBody: {
         required: true,
         content: { "application/json": { schema: { $ref: "#/components/schemas/SemanticRelationCreate" } } },
@@ -200,7 +205,7 @@ function addSemanticRelationPaths(openapi: OpenApiDocument): void {
     parameters: [
       { $ref: "#/components/parameters/SpaceId" },
       { name: "relationId", in: "path", required: true, schema: { type: "string", pattern: "^rel_" } },
-      { $ref: "#/components/parameters/DelegationId" },
+      { $ref: "#/components/parameters/DelegationId" },targetDelegationParameter,
     ],
     get: {
       operationId: "get_semantic_relation",

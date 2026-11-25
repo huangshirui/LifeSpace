@@ -4,7 +4,7 @@ const TABS = new Set(["oauth","delegations","external"]);
 const SPACE_TABS = {overview:"概览",members:"成员",invites:"邀请",settings:"设置"};
 let spaceTab="overview";
 const roles = {owner:"所有者",admin:"管理员",editor:"编辑者",viewer:"查看者"};
-const opNames = {query:"查询",get:"查看",file_read:"读取附件",file_upload:"上传附件",create:"新增",update:"修改",delete:"删除"};
+const opNames = {query:"查询",get:"查看",file_read:"读取附件",file_upload:"上传附件",create:"新增",update:"修改",delete:"删除",relation_create:"创建语义关系",relation_get:"读取语义关系",relation_query:"查询语义关系",relation_delete:"删除语义关系"};
 const state = {user:null,csrf:null,spaces:[],space:null,auditLoaded:false,auditOffset:0,auditBusy:false,externalLoaded:false,oauthLoaded:false,oauthOffset:0,oauthBusy:false,delegationsLoaded:false,delegationOffset:0,delegationsBusy:false,revokeId:null,revokeKind:null,revokeBusy:false,emailVersion:null,emailValue:null,invite:null,spaceNames:new Map(),nameCandidates:[],referenceLoaded:false,busyAction:false};
 const msg = e => e instanceof Error ? e.message : "请求暂时不可用";
 async function api(path,options={}) {

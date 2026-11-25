@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const REQUEST = /^arq_[a-f0-9]{32}$/u;
-const labels = {get:"读取单条记录",query:"查询记录",file_read:"读取记录附件",file_upload:"上传附件（创建及完成上传会话）",create:"创建记录",update:"修改记录",delete:"删除记录"};
+const labels = {get:"读取单条记录",query:"查询记录",file_read:"读取记录附件",file_upload:"上传附件（创建及完成上传会话）",create:"创建记录",update:"修改记录",delete:"删除记录",relation_create:"创建语义关系",relation_get:"读取语义关系",relation_query:"查询语义关系",relation_delete:"删除语义关系（不删除记录）"};
 const id = new URL(location.href).searchParams.get("request_id");
 let csrf = "", busy = false, record = null;
 const chosenMode=()=>document.querySelector('input[name="delegation-mode"]:checked')?.value||"once";

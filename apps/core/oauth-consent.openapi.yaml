@@ -30,7 +30,7 @@ paths:
               required: [reason]
               properties:
                 modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
-                operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
+                operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|relation_create|relation_get|relation_query|relation_delete|action:[a-z][a-z0-9_-]{0,62})$' }
                 operations:
                   type: array
                   minItems: 2
@@ -41,7 +41,7 @@ paths:
                     required: [modelKey, operation]
                     properties:
                       modelKey: { type: string, pattern: '^[a-z][a-z0-9_]{1,62}$' }
-                      operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
+                      operation: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|relation_create|relation_get|relation_query|relation_delete|action:[a-z][a-z0-9_-]{0,62})$' }
                 reason: { type: string, minLength: 4, maxLength: 250 }
               oneOf:
                 - required: [modelKey, operation]
