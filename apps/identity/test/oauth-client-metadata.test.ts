@@ -184,6 +184,9 @@ describe("CIMD public client metadata is untrusted until verified", () => {
       if (url.startsWith("https://cloudflare-dns.com/dns-query?")) return dnsAnswer(url);
       expect(init.redirect).toBe("manual");
       const sent = new Headers(init.headers);
+      expect(sent.get("accept")).toBe("application/json");
+      expect(sent.get("user-agent")).toBe("LifeSpace-Identity");
+      expect([...sent.keys()].sort()).toEqual(["accept", "user-agent"]);
       expect(sent.has("cookie")).toBe(false);
       expect(sent.has("authorization")).toBe(false);
       return Response.json(metadata,{headers:{"cache-control":"public, max-age=300","set-cookie":"test=discard"}});
@@ -204,8 +207,16 @@ describe("CIMD public client metadata is untrusted until verified", () => {
   it("classifies transient transport separately from security denials", async () => {
     expect(await fetchClientMetadataResult(clientId, withDns(new Response(null,{status:503}))))
       .toEqual({ok:false,reason:"metadata_http",retryable:true,status:503});
-    expect(await fetchClientMetadataResult(clientId, withDns(new Response(null,{status:403}))))
+    let deniedFetches = 0;
+    const denied = (async (url: string, init: RequestInit) => {
+      if (url.startsWith("https://cloudflare-dns.com/dns-query?")) return dnsAnswer(url);
+      deniedFetches++;
+      expect(new Headers(init.headers).get("user-agent")).toBe("LifeSpace-Identity");
+      return new Response(null,{status:403});
+    }) as typeof fetch;
+    expect(await fetchClientMetadataResult(clientId, denied))
       .toEqual({ok:false,reason:"metadata_http",retryable:false,status:403});
+    expect(deniedFetches).toBe(1);
     expect(await fetchClientMetadataResult(clientId, withDns(new Response(null,{status:302}))))
       .toEqual({ok:false,reason:"metadata_http",retryable:false,status:302});
     expect(await fetchClientMetadataResult(clientId, withDns(Response.json({...metadata,client_id:"https://wrong.example.com/client.json"}))))
