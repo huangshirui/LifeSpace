@@ -27,6 +27,16 @@ function delegationId(context: Context<AppEnv>): string | null {
   return context.req.header("x-lifespace-delegation-id")?.trim() || null;
 }
 
+// The original header selects source authority. The optional second selector
+// is explicit and applies only to standalone relation operations.
+function targetDelegationId(context: Context<AppEnv>): string | null {
+  const value=context.req.header("x-lifespace-target-delegation-id");
+  if (value === undefined) return null;
+  if (!/^dlg_[A-Za-z0-9_-]{1,128}$/u.test(value) || !delegationId(context))
+    throw new ApiError("INVALID_REQUEST", "An explicit source and valid target Delegation are required", 400);
+  return value;
+}
+
 function parseRef(value: unknown, name: "source" | "target"): SemanticEntityRef {
   const input = object(value, `${name} must be a record entity_ref`);
   if (Object.keys(input).some((key) => !["kind", "modelKey", "recordId"].includes(key))
@@ -92,6 +102,7 @@ function queryInput(context: Context<AppEnv>): SemanticRelationQuery {
     limit,
     ...(params.get("cursor") ? { cursor: params.get("cursor")! } : {}),
     delegationId: delegationId(context),
+    targetDelegationId: targetDelegationId(context),
     hydrate: hydrate(params),
   };
 }
@@ -109,6 +120,7 @@ export function registerSemanticRelationRoutes(app: App): void {
         spaceId,
         input,
         delegationId(context),
+        targetDelegationId(context),
       ),
     );
     return context.json(success(relation), 200);
@@ -140,6 +152,7 @@ export function registerSemanticRelationRoutes(app: App): void {
         context.req.param("relationId"),
         delegationId(context),
         hydrate(params),
+        targetDelegationId(context),
       ),
     );
     if (!relation) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
@@ -156,6 +169,7 @@ export function registerSemanticRelationRoutes(app: App): void {
         context.req.param("spaceId"),
         context.req.param("relationId"),
         delegationId(context),
+        targetDelegationId(context),
       ),
     );
     return context.body(null, 204);

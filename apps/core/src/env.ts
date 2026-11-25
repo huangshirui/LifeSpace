@@ -52,6 +52,8 @@ export type Principal = {
     toolModelKeys?: string[];
     modelOperations?: Record<string, string[]>;
     personOperations?: string[];
+    // Set only by Core after validating both exact approved operation bindings.
+    relationEndpoints?: {sourceModelKey:string;targetModelKey:string;operation:string;targetDelegationId:string};
   };
 };
 

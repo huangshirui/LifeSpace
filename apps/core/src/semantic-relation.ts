@@ -3,6 +3,7 @@ import type { GenericResource } from "./generic-resource";
 import { ApiError } from "./http";
 import {
   consumeSingleUseRead,
+  consumeEndpointDelegationRead,
   evaluateModelAccessMany,
   requireModelAccessMany,
   type ModelAccessDecision,
@@ -51,6 +52,7 @@ export type SemanticRelationQuery = {
   limit: number;
   cursor?: string;
   delegationId?: string | null;
+  targetDelegationId?: string | null;
   hydrate?: "source" | "target" | "both";
 };
 
@@ -135,6 +137,7 @@ function endpointRequests(
   sourceRecordId: string,
   targetRecordId: string,
   delegationId?: string | null,
+  targetDelegationId?: string | null,
 ): ModelAccessRequest[] {
   return [
     {
@@ -145,7 +148,7 @@ function endpointRequests(
     {
       model: targetModel,
       required: "read",
-      selector: { delegationId: delegationId ?? null, recordId: targetRecordId },
+      selector: { delegationId: targetDelegationId ?? delegationId ?? null, recordId: targetRecordId },
     },
   ];
 }
@@ -153,6 +156,7 @@ function endpointRequests(
 function sameExecutionPrincipal(left: Principal, right: Principal): boolean {
   return left.type === right.type
     && left.id === right.id
+    && left.clientId === right.clientId
     && left.actor?.type === right.actor?.type
     && left.actor?.id === right.actor?.id;
 }
@@ -161,19 +165,39 @@ function normalizedChain(decision: ModelAccessDecision): string[] {
   return [...decision.authority.delegationChain];
 }
 
-function mutationDelegation(decisions: readonly ModelAccessDecision[]): {
+function mutationDelegation(source: ModelAccessDecision, target: ModelAccessDecision, explicitTarget: boolean): {
   delegationId: string | null;
   chain: string[];
+  sourceChain: string[];
+  targetChain: string[];
 } {
-  const ids = [...new Set(decisions.map((decision) => decision.authority.delegationId).filter(Boolean))] as string[];
-  if (ids.length > 1) {
-    throw new ApiError("DELEGATION_INVALID", "One Semantic Relation mutation must use one Delegation leaf", 403);
+  const sourceChain=normalizedChain(source);
+  const targetChain=normalizedChain(target);
+  if (!explicitTarget && (source.authority.delegationId !== target.authority.delegationId
+    || JSON.stringify(sourceChain) !== JSON.stringify(targetChain))) {
+    throw new ApiError("DELEGATION_INVALID", "One Semantic Relation mutation requires matching Delegation chains unless a target selector is explicit", 403);
   }
-  const chains = decisions.map(normalizedChain).filter((chain) => chain.length);
-  if (chains.length > 1 && chains.some((chain) => JSON.stringify(chain) !== JSON.stringify(chains[0]))) {
-    throw new ApiError("DELEGATION_INVALID", "Semantic Relation endpoints resolved through different Delegation chains", 403);
-  }
-  return { delegationId: ids[0] ?? null, chain: chains[0] ?? [] };
+  return {
+    delegationId: source.authority.delegationId,
+    chain: [...new Set([...sourceChain,...targetChain])],
+    sourceChain,
+    // Preserve the legacy single-chain evidence representation unless the caller
+    // explicitly selected a different endpoint leaf.
+    targetChain: explicitTarget && source.authority.delegationId !== target.authority.delegationId ? targetChain : [],
+  };
+}
+
+// The canonical relation runtime still checks actual endpoint models and
+// authority. The approved pair is a Core-derived ceiling, not a new Grant.
+function requireRelationEndpointBinding(principal:Principal,operation:string,source:SemanticEntityRef|undefined,
+  target:SemanticEntityRef|undefined,delegationId?:string|null,targetDelegationId?:string|null){
+  if(principal.purpose!=="oauth_agent_execution")return;
+  const verified=principal.oauthExecution?.relationEndpoints;
+  if(!principal.actor || !verified || verified.operation!==operation
+    || principal.oauthExecution?.delegationId!==delegationId
+    || verified.targetDelegationId!==targetDelegationId
+    || verified.sourceModelKey!==source?.modelKey || verified.targetModelKey!==target?.modelKey)
+    throw new ApiError("RESOURCE_NOT_FOUND","Resource not found",404);
 }
 
 async function mutationContext(
@@ -183,7 +207,11 @@ async function mutationContext(
   input: SemanticRelationCreateInput,
   delegationId?: string | null,
   knownExternal = false,
+  targetDelegationId?: string | null,
 ): Promise<RelationMutationContext> {
+  if (targetDelegationId && !delegationId) {
+    throw new ApiError("DELEGATION_INVALID", "Explicit endpoint Delegations require a source selector", 403);
+  }
   validateCreateInput(input);
   const [sourceModel, targetModel] = await Promise.all([
     modelOr404(env, input.source.modelKey, spaceId),
@@ -208,6 +236,7 @@ async function mutationContext(
       input.source.recordId,
       input.target.recordId,
       delegationId,
+      targetDelegationId,
     ),
   );
   const [sourceDecision, targetDecision] = decisions;
@@ -305,12 +334,13 @@ function delegationEvidenceStatements(
   env: Bindings,
   relationChangeId: string,
   chain: readonly string[],
+  endpoint: "source" | "target" = "source",
 ): D1PreparedStatement[] {
   return chain.map((delegationId, chainPosition) => env.DB.prepare(`INSERT INTO semantic_relation_change_delegations(
-      change_id,delegation_id,chain_position
-    ) SELECT ?,?,? WHERE EXISTS(
+      change_id,delegation_id,chain_position,endpoint
+    ) SELECT ?,?,?,? WHERE EXISTS(
       SELECT 1 FROM semantic_relation_changes WHERE id=?
-    )`).bind(relationChangeId, delegationId, chainPosition, relationChangeId));
+    )`).bind(relationChangeId, delegationId, chainPosition, endpoint, relationChangeId));
 }
 
 export async function createSemanticRelation(
@@ -319,9 +349,11 @@ export async function createSemanticRelation(
   spaceId: string,
   input: SemanticRelationCreateInput,
   delegationId?: string | null,
+  targetDelegationId?: string | null,
 ): Promise<SemanticRelation> {
-  const resolved = await mutationContext(env, principal, spaceId, input, delegationId);
-  const attribution = mutationDelegation([resolved.sourceDecision, resolved.targetDecision]);
+  requireRelationEndpointBinding(principal,"relation_create",input.source,input.target,delegationId,targetDelegationId);
+  const resolved = await mutationContext(env, principal, spaceId, input, delegationId, false, targetDelegationId);
+  const attribution = mutationDelegation(resolved.sourceDecision, resolved.targetDecision, Boolean(targetDelegationId));
   const id = relationId();
   const relationChangeId = changeId();
   const timestamp = new Date().toISOString();
@@ -349,7 +381,8 @@ export async function createSemanticRelation(
       timestamp,
       id,
     ),
-    ...delegationEvidenceStatements(env, relationChangeId, attribution.chain),
+    ...delegationEvidenceStatements(env, relationChangeId, attribution.sourceChain),
+    ...delegationEvidenceStatements(env, relationChangeId, attribution.targetChain, "target"),
     env.DB.prepare(`SELECT id,space_id,source_model_key,source_record_id,predicate,
         target_model_key,target_record_id,created_at
       FROM semantic_relations
@@ -395,6 +428,7 @@ export async function deleteSemanticRelation(
   spaceId: string,
   id: string,
   delegationId?: string | null,
+  targetDelegationId?: string | null,
 ): Promise<void> {
   const row = await relationRowById(env, spaceId, id, true);
   if (!row) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
@@ -404,8 +438,9 @@ export async function deleteSemanticRelation(
     predicate: relation.predicate,
     target: relation.target,
   };
-  const resolved = await mutationContext(env, principal, spaceId, input, delegationId, true);
-  const attribution = mutationDelegation([resolved.sourceDecision, resolved.targetDecision]);
+  requireRelationEndpointBinding(principal,"relation_delete",input.source,input.target,delegationId,targetDelegationId);
+  const resolved = await mutationContext(env, principal, spaceId, input, delegationId, true, targetDelegationId);
+  const attribution = mutationDelegation(resolved.sourceDecision, resolved.targetDecision, Boolean(targetDelegationId));
   const relationChangeId = changeId();
   const timestamp = new Date().toISOString();
   const statements: D1PreparedStatement[] = [
@@ -420,7 +455,8 @@ export async function deleteSemanticRelation(
       timestamp,
       id,
     ),
-    ...delegationEvidenceStatements(env, relationChangeId, attribution.chain),
+    ...delegationEvidenceStatements(env, relationChangeId, attribution.sourceChain),
+    ...delegationEvidenceStatements(env, relationChangeId, attribution.targetChain, "target"),
     env.DB.prepare(`DELETE FROM semantic_relations
       WHERE id=? AND space_id=? AND EXISTS(
         SELECT 1 FROM semantic_relation_changes WHERE id=?
@@ -498,17 +534,20 @@ async function visibleCandidates(
   rows: readonly SemanticRelationRow[],
   delegationId: string | null | undefined,
   hydrate: SemanticRelationQuery["hydrate"],
+  targetDelegationId?: string | null,
 ): Promise<{ rows: SemanticRelationRow[]; resources: Map<string, GenericResource>; decisions: ModelAccessDecision[]; models: Map<string, PublishedModel> }> {
   const modelKeys = [...new Set(rows.flatMap((row) => [row.source_model_key, row.target_model_key]))];
   const resolvedModels = await Promise.all(modelKeys.map(async (key) => [key, await getRuntimeModel(env, key).then(m => m ? bindEndpointModel(env, spaceId, m) : null)] as const));
   const models = new Map<string, PublishedModel>(resolvedModels.flatMap(([key, model]) => model ? [[key, model] as const] : []));
 
-  const endpoints = new Map<string, { model: PublishedModel; recordId: string }>();
+  const endpoints = new Map<string, { model: PublishedModel; recordId: string; selector: string | null }>();
+  const decisionKey=(side:"source"|"target", modelKey:string, recordId:string)=>(
+    targetDelegationId ? side+"\0" : "")+endpointKey(modelKey,recordId);
   for (const row of rows) {
     const sourceModel = models.get(row.source_model_key);
     const targetModel = models.get(row.target_model_key);
-    if (sourceModel) endpoints.set(endpointKey(sourceModel.key, row.source_record_id), { model: sourceModel, recordId: row.source_record_id });
-    if (targetModel) endpoints.set(endpointKey(targetModel.key, row.target_record_id), { model: targetModel, recordId: row.target_record_id });
+    if (sourceModel) endpoints.set(decisionKey("source",sourceModel.key,row.source_record_id), { model: sourceModel, recordId: row.source_record_id, selector:delegationId??null });
+    if (targetModel) endpoints.set(decisionKey("target",targetModel.key,row.target_record_id), { model: targetModel, recordId: row.target_record_id, selector:targetDelegationId??delegationId??null });
   }
 
   const endpointEntries = [...endpoints.entries()];
@@ -519,9 +558,13 @@ async function visibleCandidates(
     endpointEntries.map(([, endpoint]) => ({
       model: endpoint.model,
       required: "read" as const,
-      selector: { delegationId: delegationId ?? null, recordId: endpoint.recordId },
+      selector: { delegationId: endpoint.selector, recordId: endpoint.recordId },
     })),
   );
+  // An explicit pair is all-or-none, before any endpoint hydration.
+  if (targetDelegationId && (evaluations.some(e=>!e.ok)
+    || evaluations.some(e=>e.ok && evaluations[0]?.ok && !sameExecutionPrincipal(e.decision.principal,evaluations[0].decision.principal))))
+    return {rows:[],resources:new Map(),decisions:[],models};
   const evaluationByEndpoint = new Map<string, ModelAccessEvaluation>();
   endpointEntries.forEach(([key], index) => evaluationByEndpoint.set(key, evaluations[index]!));
 
@@ -535,11 +578,11 @@ async function visibleCandidates(
       || (hydrate === "target" && rows.some((row) => row.target_model_key === endpoint.model.key && row.target_record_id === endpoint.recordId));
     if (!needsPolicy && !needsHydration) return;
     const group = needsResource.get(endpoint.model.key) ?? { model: endpoint.model, ids: [] };
-    group.ids.push(endpoint.recordId);
+    if(!group.ids.includes(endpoint.recordId))group.ids.push(endpoint.recordId);
     needsResource.set(endpoint.model.key, group);
   });
 
-  const loaded = await loadEndpointResources(env, spaceId, [...needsResource.values()], new Map(endpointEntries.flatMap(([key]) => { const e = evaluationByEndpoint.get(key); return e?.ok ? [[key, e.decision] as const] : []; })));
+  const loaded = await loadEndpointResources(env, spaceId, [...needsResource.values()], new Map(endpointEntries.flatMap(([key,endpoint]) => { const e = evaluationByEndpoint.get(key); return e?.ok ? [[endpointKey(endpoint.model.key,endpoint.recordId), e.decision] as const] : []; })));
   const resources = new Map<string, GenericResource>();
   for (const [id, resource] of loaded) resources.set(id, resource as GenericResource);
   const visibleEndpoints = new Map<string, boolean>();
@@ -584,8 +627,8 @@ async function visibleCandidates(
 
   return {
     rows: rows.filter((row) =>
-      visibleEndpoints.get(endpointKey(row.source_model_key, row.source_record_id)) === true
-      && visibleEndpoints.get(endpointKey(row.target_model_key, row.target_record_id)) === true
+      visibleEndpoints.get(decisionKey("source",row.source_model_key,row.source_record_id)) === true
+      && visibleEndpoints.get(decisionKey("target",row.target_model_key,row.target_record_id)) === true
     ),
     resources,
     decisions: visibleDecisions,
@@ -625,6 +668,26 @@ export async function querySemanticRelations(
   if (cursor) {
     where.push("(created_at<? OR (created_at=? AND id<?))");
     args.push(cursor.createdAt, cursor.createdAt, cursor.id);
+  }
+
+  requireRelationEndpointBinding(principal,"relation_query",query.source,query.target,query.delegationId,query.targetDelegationId);
+  if (query.targetDelegationId) {
+    // A pair selector must explicitly identify both endpoints. This avoids
+    // scanning unapproved models or using a cursor derived from hidden edges.
+    if (!query.delegationId || !query.source || !query.target)
+      throw new ApiError("INVALID_QUERY","Explicit endpoint Delegations require both record references and a supported represented context",400);
+    where.push(endpointExists("source"),endpointExists("target"));
+    const result=await env.DB.prepare(`SELECT id,space_id,source_model_key,source_record_id,predicate,
+      target_model_key,target_record_id,created_at FROM semantic_relations e
+      WHERE ${where.join(" AND ")} ORDER BY created_at DESC,id DESC LIMIT ?`)
+      .bind(...args,query.limit+1).all<SemanticRelationRow>();
+    const page=result.results.slice(0,query.limit);
+    if(!page.length)return {items:[],nextCursor:null};
+    const visible=await visibleCandidates(env,principal,spaceId,page,query.delegationId,query.hydrate,query.targetDelegationId);
+    if(visible.rows.length!==page.length)return {items:[],nextCursor:null};
+    await consumeEndpointDelegationRead(env,visible.decisions);
+    return {items:visible.rows.map(row=>relationWithHydration(row,visible.resources,query.hydrate,visible.models)),
+      nextCursor:result.results.length>query.limit?encodeCursor(page[page.length-1]!):null};
   }
 
   // Current read Policy is identity-only. Resolve all model/scope keys once,
@@ -716,12 +779,18 @@ export async function getSemanticRelation(
   id: string,
   delegationId?: string | null,
   hydrate?: SemanticRelationQuery["hydrate"],
+  targetDelegationId?: string | null,
 ): Promise<SemanticRelation | null> {
+  if(targetDelegationId && !delegationId)
+    throw new ApiError("DELEGATION_INVALID","Explicit endpoint Delegations require a supported represented context",403);
   const row = await relationRowById(env, spaceId, id);
   if (!row) return null;
-  const visible = await visibleCandidates(env, principal, spaceId, [row], delegationId, hydrate);
+  requireRelationEndpointBinding(principal,"relation_get",entityRef(row.source_model_key,row.source_record_id),
+    entityRef(row.target_model_key,row.target_record_id),delegationId,targetDelegationId);
+  const visible = await visibleCandidates(env, principal, spaceId, [row], delegationId, hydrate,targetDelegationId);
   if (!visible.rows.length) return null;
-  if (visible.decisions.length) await consumeSingleUseRead(env, visible.decisions[0]!);
+  if (targetDelegationId) await consumeEndpointDelegationRead(env,visible.decisions);
+  else if (visible.decisions.length) await consumeSingleUseRead(env, visible.decisions[0]!);
   return relationWithHydration(row, visible.resources, hydrate, visible.models);
 }
 

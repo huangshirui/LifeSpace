@@ -2,7 +2,8 @@ import type { Hono } from "hono";
 import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields, externalFileReadFields } from "./file-read-fields";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { oauthMcpServerId } from "./mcp-oauth-server-policy";
+import { oauthMcpServerId, oauthRelationOperation } from "./mcp-oauth-server-policy";
+import { isSemanticRelationOperation, semanticRelationOperationAccess, SEMANTIC_RELATION_OPERATIONS, type SemanticRelationOperation } from "./semantic-relation-definition";
 import { getRuntimeModel } from "./model-registry";
 import { getExternalModel } from "./external-model";
 import { requirePersonDirectoryPermission } from "./authorization";
@@ -11,7 +12,7 @@ import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues
 // This is a transport-specific pending-approval bridge, NOT a second
 // Delegation authority. Trusted in-app / WeCom arq_* routes are untouched.
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
-type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | `action:${string}`;
+type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | SemanticRelationOperation | `action:${string}`;
 type Access = "read" | "write";
 type BoundOperation = {modelKey:string; operation:Op; requestedAccess?:Access};
 type Binding = {
@@ -42,7 +43,7 @@ const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
 const PERSON_MODEL = "person";
 const PERSON_TARGET = "person_directory";
 const delegationTarget = (modelKey: string) => modelKey === PERSON_MODEL ? PERSON_TARGET : modelKey;
-const OPS = new Set<string>(["get","query","create","update","delete","file_read","file_upload"]);
+const OPS = new Set<string>(["get","query","create","update","delete","file_read","file_upload",...SEMANTIC_RELATION_OPERATIONS]);
 const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
 const validOp = (value: unknown): value is Op => typeof value === "string"
   && (OPS.has(value) || ACTION.test(value));
@@ -74,6 +75,7 @@ const fail = () => new ApiError("OAUTH_DELEGATION_NOT_FOUND", "Delegation reques
 const statusOf = (row: RequestRow) => row.transition_status ||
   (Date.parse(row.expires_at) <= Date.now() ? "expired" : "pending");
 const accessOf = (operation: Op, actual?: Access): Access => {
+  if(isSemanticRelationOperation(operation))return semanticRelationOperationAccess(operation);
   if (ACTION.test(operation)) {
     if (actual !== "read" && actual !== "write") throw fail();
     return actual;
@@ -126,7 +128,7 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   // Person is exposed as an ordinary consumer-facing "person" model, but
   // the exact Kernel target and current Grant stay Core-private.
   if (modelKey === PERSON_MODEL) {
-    if (ACTION.test(operation) || operation === "file_read" || operation === "file_upload") throw fail();
+    if (ACTION.test(operation) || operation === "file_read" || operation === "file_upload" || isSemanticRelationOperation(operation)) throw fail();
     const resources = (config as {resources?: unknown}).resources;
     if (!Array.isArray(resources)) throw fail();
     const person = resources.find(r => r && typeof r === "object" && !Array.isArray(r)
@@ -147,6 +149,17 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   if (!cache.models.has(modelKey)) cache.models.set(modelKey,await getRuntimeModel(env,modelKey));
   const model=cache.models.get(modelKey);
   if (!model) throw fail();
+  if(isSemanticRelationOperation(operation)){
+    const required=semanticRelationOperationAccess(operation);
+    if(!model.definition.semanticRelations?.outgoing?.length || !model.definition.access.includes(required))throw fail();
+    if(model.definition.origin==="external"){
+      if(!cache.external.has(modelKey))cache.external.set(modelKey,await getExternalModel(env,spaceId,modelKey));
+      const bound=cache.external.get(modelKey);
+      if(!bound || bound.status!=="active" || !bound.snapshot.capabilities.get
+        ||(required==="write"&&bound.declared_access!=="write"))throw fail();
+    }
+    return required;
+  }
   if (operation === "file_read" && model.definition.origin !== "external"
     && !nativeFileReadFields(model.definition).length) throw fail();
   if (operation === "file_upload" && model.definition.origin !== "external"
@@ -287,11 +300,9 @@ function assertAccountOwner(principal: Principal, env: Bindings, row: RequestRow
   if (row.intended_user_id !== userId) throw fail();
 }
 
-export async function requireOAuthMcpDelegatedOperation(
-  env: Bindings, principal: Principal, method: string, path: string, providedId: string,
-): Promise<void> {
-  const x = principal.oauthExecution;
-  if (!x?.delegationId || providedId !== x.delegationId || principal.type !== "user"
+async function approvedOperation(env:Bindings,principal:Principal,providedId:string){
+  const x=principal.oauthExecution;
+  if(!x?.delegationId || principal.type !== "user"
     || principal.id !== x.userId || principal.actor?.id !== x.agentId || !x.allowUserAuthorization) throw fail();
   const bindingRow = await env.DB.prepare(
     "SELECT r.id,r.application_id,r.requesting_agent_id,r.intended_user_id,r.source_space_id," +
@@ -308,7 +319,41 @@ export async function requireOAuthMcpDelegatedOperation(
     || loaded.binding.clientId !== x.clientId || loaded.binding.resource !== x.resource) throw fail();
   const selected=requestedOperations(loaded.binding)[bindingRow.selected_ordinal];
   if (!selected || loaded.items[bindingRow.selected_ordinal]?.ordinal!==bindingRow.selected_ordinal) throw fail();
-  const op:Op=selected.operation;
+  return {loaded,selected,ordinal:bindingRow.selected_ordinal};
+}
+
+export async function requireOAuthMcpDelegatedOperation(
+  env: Bindings, principal: Principal, method: string, path: string, providedId: string,
+  targetDelegationId?:string, query?:URLSearchParams,
+): Promise<void|NonNullable<NonNullable<Principal["oauthExecution"]>["relationEndpoints"]>> {
+  const x=principal.oauthExecution;
+  if(!x || providedId!==x.delegationId)throw fail();
+  const {loaded,selected,ordinal}=await approvedOperation(env,principal,providedId);
+  const op=selected.operation;
+  // A non-consuming exact relation-contract preview is not edge execution.
+  // Ordinary operation previews are provided by #646.
+  if(isSemanticRelationOperation(op)&&method==="GET"&&path==="/api/v1/spaces/"+x.spaceId+"/_discovery/operations"){
+    if(targetDelegationId||!query||[...query.keys()].length!==2
+      ||query.getAll("modelKey").length!==1||query.getAll("operation").length!==1
+      ||query.get("modelKey")!==selected.modelKey||query.get("operation")!==op)throw fail();
+    await liveConsent(env,loaded.row,loaded.binding,ordinal);
+    return;
+  }
+  const relation=oauthRelationOperation(method,path);
+  if(relation){
+    // Both explicit selectors must be approvals under the SAME current
+    // verified OAuth authorization and exact operations. No second User
+    // credential or model-wide fallback is accepted.
+    if(op!==relation || !targetDelegationId || targetDelegationId===providedId
+      || !/^dlg_[A-Za-z0-9_-]{1,128}$/u.test(targetDelegationId))throw fail();
+    const target=await approvedOperation(env,principal,targetDelegationId);
+    if(target.selected.operation!=="get" || target.selected.modelKey===PERSON_MODEL)throw fail();
+    await liveConsent(env,loaded.row,loaded.binding,ordinal);
+    await liveConsent(env,target.loaded.row,target.loaded.binding,target.ordinal);
+    return {sourceModelKey:selected.modelKey,targetModelKey:target.selected.modelKey,
+      operation:relation,targetDelegationId};
+  }
+  if(targetDelegationId || isSemanticRelationOperation(op))throw fail();
   const personPrefix="/api/v1/spaces/" + x.spaceId + "/people";
   if (selected.modelKey === PERSON_MODEL) {
     const personRecord=new RegExp("^"+personPrefix+"/per_[A-Za-z0-9_-]+$","u").test(path);
@@ -318,7 +363,7 @@ export async function requireOAuthMcpDelegatedOperation(
       : op === "update" ? method === "PATCH" && personRecord
       : op === "delete" ? method === "DELETE" && personRecord : false;
     if (!validPerson) throw fail();
-    await liveConsent(env,loaded.row,loaded.binding,bindingRow.selected_ordinal);
+    await liveConsent(env,loaded.row,loaded.binding,ordinal);
     return;
   }
   const prefix="/api/v1/spaces/" + x.spaceId + "/models/" + selected.modelKey + "/records";
@@ -337,7 +382,7 @@ export async function requireOAuthMcpDelegatedOperation(
     : (op==="update" || op==="delete") && method===(op==="update"?"PATCH":"DELETE")
       && path.startsWith(prefix+"/") && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1));
   if (!valid) throw fail();
-  await liveConsent(env,loaded.row,loaded.binding,bindingRow.selected_ordinal);
+  await liveConsent(env,loaded.row,loaded.binding,ordinal);
 }
 
 export function registerOAuthDelegationRoutes(app: App): void {

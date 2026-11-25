@@ -90,7 +90,7 @@ export function createApp() {
   });
   app.use("*", cors({
     origin: (origin, context) => origins(context.env).includes(origin) ? origin : undefined,
-    allowHeaders: ["Authorization", "Content-Type", "X-Request-ID", "X-LifeSpace-Actor-Token", "X-LifeSpace-Delegation-Id"],
+    allowHeaders: ["Authorization", "Content-Type", "X-Request-ID", "X-LifeSpace-Actor-Token", "X-LifeSpace-Delegation-Id", "X-LifeSpace-Target-Delegation-Id"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }));
   app.get("/health", (context) => context.json(success({ status: "ok" })));

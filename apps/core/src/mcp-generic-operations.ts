@@ -11,6 +11,8 @@ import { getExternalModel, externalAuthorityModel } from "./external-model";
 import { externalSemanticDetail } from "./external-runtime";
 import { evaluateModelAccessMany, type ModelAccessRequest, type ModelAuthorityTarget } from "./model-authorization";
 import { getRuntimeModel } from "./model-registry";
+import { isSemanticRelationOperation, semanticRelationOperationAccess, type SemanticRelationOperation } from "./semantic-relation-definition";
+import { semanticRelationOperationInputSchema } from "./semantic-relation-model-contract";
 import { discoveryPrincipal, evaluateDelegationEligibleModels, projectPersonAuthorityOperations } from "./authority-capability-discovery";
 import { projectModelSemanticFacts } from "./model-semantic-projection";
 import { getActiveModelContract } from "./model-contract-store";
@@ -23,7 +25,7 @@ type AppEnv={Bindings:Bindings;Variables:Variables};
 type ContextApp=Context<AppEnv>;
 type Access="read"|"write";
 type Kind="native"|"external"|"person"|"action";
-type Operation="query"|"get"|"create"|"update"|"delete"|"file_read"|"file_upload"|`action:${string}`;
+type Operation="query"|"get"|"create"|"update"|"delete"|"file_read"|"file_upload"|SemanticRelationOperation|`action:${string}`;
 type Contract={ contractId?:string; modelKey:string; display:string; operation:Operation;
   operationRef:string; inputSchema:Record<string,unknown>; title:string; description:string;
   requiredScopes:string[]; };
@@ -129,7 +131,7 @@ function projectionOptions(c:ContextApp):ProjectionOptions{
     ||params.getAll("modelKey").length>1||params.getAll("operation").length>1||params.getAll("mode").length>1
     ||(mode!==null&&mode!=="delegation_request"&&mode!=="configuration")
     ||(modelKey!==null&&!MODEL.test(modelKey))
-    ||(operation!==null&&(!modelKey||!/^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation))))
+    ||(operation!==null&&(!modelKey||!/^(query|get|create|update|delete|file_read|file_upload|relation_create|relation_get|relation_query|relation_delete|action:[a-z][a-z0-9_-]{0,62})$/u.test(operation))))
     throw new ApiError("INVALID_REQUEST","Invalid operation projection filter",400);
   return {eligibility:mode==="delegation_request",configuration:mode==="configuration",...(modelKey?{filter:{modelKey,...(operation===null?{}:{operation})}}:{})};
 }
@@ -438,9 +440,42 @@ function targetRequest(c:ContextApp,item:Entry,args:Record<string,unknown>) {
   }
   return {method,path,body};
 }
+// Exact represented relation contract preview. The ordinary generic manifest
+// remains unchanged: this descriptor is never a direct/invocable tool.
+async function relationContractPreview(c:ContextApp,filter:ProjectionFilter):Promise<Contract[]>{
+  const principal=c.get("principal"), execution=principal.oauthExecution;
+  const spaceId=c.req.param("spaceId"),op=filter.operation!;
+  const selector=c.req.header("x-lifespace-delegation-id");
+  if(principal.purpose!=="oauth_agent_execution"||!principal.actor||!execution||!selector
+    ||execution.delegationId!==selector||execution.spaceId!==spaceId||!isSemanticRelationOperation(op)
+    ||!execution.modelOperations?.[filter.modelKey]?.includes(op))throw denied();
+  const model=await getRuntimeModel(c.env,filter.modelKey);
+  if(!model?.definition.semanticRelations?.outgoing?.length)return [];
+  const required=semanticRelationOperationAccess(op);
+  const requiredScopes=required==="read"?["resources:read"]:["resources:read","resources:write"];
+  if(!requiredScopes.every(scope=>principal.scopes.includes(scope)))return [];
+  const bound=model.definition.origin==="external"?await getExternalModel(c.env,spaceId,model.key):null;
+  if(model.definition.origin==="external"&&(!bound||!bound.snapshot.capabilities.get))return [];
+  const [decision]=await evaluateModelAccessMany(c.env,principal,spaceId,[{
+    model:bound?externalAuthorityModel(bound):model,required,selector:{delegationId:selector},
+  }]);
+  if(!decision?.ok)return [];
+  const display=names(model.definition.display.singular);
+  return [{modelKey:model.key,display,operation:op,
+    operationRef:await ref([execution.serverId,spaceId,model.key,op,"represented_relation"].join(":")),
+    title:op+" "+display,description:"Standalone Semantic Relation. Use the exact approved source operation and a separate approved target get selector. Core rechecks both endpoint authorities and predicate semantics.",
+    requiredScopes,inputSchema:{type:"object",additionalProperties:false,
+      required:["spaceId","targetDelegationId","data"],
+      properties:{spaceId:{type:"string",enum:[spaceId]},targetDelegationId:{type:"string",pattern:"^dlg_[A-Za-z0-9_-]+$"},
+        data:semanticRelationOperationInputSchema(model,op)}}}];
+}
+
 export function registerMcpGenericOperationRoutes(app:Hono<AppEnv>):void {
   app.get("/api/v1/spaces/:spaceId/_discovery/operations",async c=>{
     const options=projectionOptions(c);
+    if(options.filter?.operation&&isSemanticRelationOperation(options.filter.operation)&&!options.eligibility&&!options.configuration){
+      return c.json(success({operations:await relationContractPreview(c,options.filter)}),200,{"cache-control":"no-store"});
+    }
     const all=await measurePerformancePhase(c,"operation.discovery",
       ()=>manifest(c,undefined,options.filter,options.eligibility,options.configuration));
     if(options.configuration){

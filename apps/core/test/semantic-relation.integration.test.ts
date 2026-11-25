@@ -144,14 +144,14 @@ async function createRecord(
 }
 
 async function delegation(f: Awaited<ReturnType<typeof fixture>>, agentId: string, singleUse = false,
-  scope: { type: "space" | "record"; id: string; modelKey?: string } = { type: "space", id: f.spaceId }) {
+  scope: { type: "space" | "model" | "record"; id: string; modelKey?: string; access?: "read" | "write" } = { type: "space", id: f.spaceId }) {
   const id = `dlg_${crypto.randomUUID().replaceAll("-", "")}`;
   await f.db.batch([
     f.db.prepare(`INSERT INTO delegations(id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
       created_by_type,created_by_id,created_at,max_uses) VALUES(?,'user',?,'agent',?,?,?,'user',?,?,?)`)
       .bind(id, f.userId, agentId, f.clientId, f.spaceId, f.userId, new Date().toISOString(), singleUse ? 1 : null),
     f.db.prepare("INSERT INTO delegation_scopes(delegation_id,target_type,target_id,target_model_key,max_access) VALUES(?,?,?,?,?)")
-      .bind(id, scope.type, scope.id, scope.modelKey ?? null, "write"),
+      .bind(id, scope.type, scope.id, scope.modelKey ?? null, scope.access ?? "write"),
   ]);
   return id;
 }
@@ -367,6 +367,74 @@ describe("Semantic Relation Runtime", () => {
     const recordScope = await delegation(f, agent.id, false, { type: "record", id: source.id, modelKey: f.sourceModelKey });
     const narrow = await request(f.publicKey, "lsp_agt_test", `/api/v1/spaces/${f.spaceId}/semantic-relations`, { ...init, headers: { "x-lifespace-delegation-id": recordScope } }, identity);
     expect(narrow.status).toBe(403);
+  });
+  it("composes explicit endpoint authority without a broad Space Delegation and records both leaves", async () => {
+    const f=await fixture();
+    const source=await createRecord(f,f.sourceModelKey,"source");
+    const target=await createRecord(f,f.targetModelKey,"target");
+    const secondTarget=await createRecord(f,f.targetModelKey,"second target");
+    const agent:Principal={type:"agent",id:"agt_"+f.userId.slice(4),clientId:f.clientId,
+      scopes:["resources:read","resources:write"],tokenId:"tok_agent",purpose:"agent_api"};
+    const identity=opaqueIdentity(agent,{count:0});
+    const issueSource=(once=false)=>delegation(f,agent.id,once,{type:"model",id:f.sourceModelKey,modelKey:f.sourceModelKey});
+    const issueTarget=(once=false)=>delegation(f,agent.id,once,{type:"model",id:f.targetModelKey,modelKey:f.targetModelKey,access:"read"});
+    const sourceId=await issueSource(true), targetId=await issueTarget(true);
+    const path=`/api/v1/spaces/${f.spaceId}/semantic-relations`;
+    const edge={source:{kind:"record",modelKey:f.sourceModelKey,recordId:source.id},predicate:"relates_to",
+      target:{kind:"record",modelKey:f.targetModelKey,recordId:target.id}};
+    const call=(s:string,t:string|undefined,input=edge)=>request(f.publicKey,"lsp_agt_test",path,{method:"POST",
+      headers:{"x-lifespace-delegation-id":s,...(t?{"x-lifespace-target-delegation-id":t}:{})},body:JSON.stringify(input)},identity);
+    expect((await call(sourceId,undefined)).status).toBe(403);
+    expect((await call(targetId,sourceId)).status).toBe(403);
+    const foreign=await delegation(f,"agt_foreign",false,{type:"model",id:f.targetModelKey,modelKey:f.targetModelKey,access:"read"});
+    expect((await call(sourceId,foreign)).status).toBe(403);
+    const revoked=await issueTarget();
+    await f.db.prepare("UPDATE delegations SET revoked_at=? WHERE id=?").bind(new Date().toISOString(),revoked).run();
+    expect((await call(sourceId,revoked)).status).toBe(403);
+    const direct=await request(f.publicKey,f.bearer,path,{method:"POST",headers:{"x-lifespace-delegation-id":sourceId,
+      "x-lifespace-target-delegation-id":targetId},body:JSON.stringify(edge)});
+    expect(direct.status).toBe(403);
+    const alternate={...edge,target:{...edge.target,recordId:secondTarget.id}};
+    const responses=await Promise.all([call(sourceId,targetId),call(sourceId,targetId,alternate)]);
+    expect(responses.filter(r=>r.status===200)).toHaveLength(1);
+    const winner=responses.find(r=>r.status===200)!;
+    const relation=(await json(winner)).data;
+    const audit=await f.db.prepare("SELECT id,principal_id,actor_id,delegation_id FROM semantic_relation_changes WHERE relation_id=?").bind(relation.id).first<any>();
+    expect(audit).toMatchObject({principal_id:f.userId,actor_id:agent.id,delegation_id:sourceId});
+    const evidence=await f.db.prepare("SELECT endpoint,delegation_id FROM semantic_relation_change_delegations WHERE change_id=? ORDER BY endpoint").bind(audit.id).all();
+    expect(evidence.results).toEqual([{endpoint:"source",delegation_id:sourceId},{endpoint:"target",delegation_id:targetId}]);
+    const consumed=await f.db.prepare("SELECT consumed_by_change_id FROM delegations WHERE id IN (?,?)").bind(sourceId,targetId).all();
+    expect(consumed.results).toEqual([{consumed_by_change_id:audit.id},{consumed_by_change_id:audit.id}]);
+    const sourceLong=await issueSource(), targetLong=await issueTarget();
+    const remove=(t:string)=>request(f.publicKey,"lsp_agt_test",path+"/"+relation.id,{method:"DELETE",headers:{
+      "x-lifespace-delegation-id":sourceLong,"x-lifespace-target-delegation-id":t}},identity);
+    expect((await remove(revoked)).status).toBe(403);
+    expect((await remove(targetLong)).status).toBe(204);
+    expect(await f.db.prepare("SELECT COUNT(*) n FROM resource_records WHERE id IN (?,?) AND deleted_at IS NULL").bind(source.id,target.id).first("n")).toBe(2);
+    const first=await call(sourceLong,targetLong);
+    expect(first.status).toBe(200);
+    const same=await call(sourceLong,targetLong);
+    expect(same.status).toBe(200);
+    expect((await json(first)).data.id).toBe((await json(same)).data.id);
+    expect(await f.db.prepare("SELECT COUNT(*) n FROM semantic_relations WHERE space_id=?").bind(f.spaceId).first("n")).toBe(1);
+    const readSource=await delegation(f,agent.id,true,{type:"model",id:f.sourceModelKey,modelKey:f.sourceModelKey,access:"read"});
+    const readTarget=await issueTarget(true);
+    const id=(await json(await call(sourceLong,targetLong))).data.id;
+    const read=(path:string,s:string,t:string)=>request(f.publicKey,"lsp_agt_test",path,{headers:{
+      "x-lifespace-delegation-id":s,"x-lifespace-target-delegation-id":t}},identity);
+    expect((await read(path+"/"+id,readSource,revoked)).status).toBe(404);
+    expect((await f.db.prepare("SELECT consumed_at FROM delegations WHERE id=?").bind(readSource).first("consumed_at"))).toBeNull();
+    const listing=path+`?sourceModelKey=${f.sourceModelKey}&sourceRecordId=${source.id}&targetModelKey=${f.targetModelKey}&targetRecordId=${target.id}`;
+    expect((await read(path,readSource,readTarget)).status).toBe(400);
+    const concurrent=await Promise.all([read(path+"/"+id,readSource,readTarget),read(listing,readSource,readTarget)]);
+    // The query may return an empty page if the competing read already won.
+    const payloads=await Promise.all(concurrent.map(r=>json(r)));
+    expect(payloads.filter(x=>x.data?.id===id||x.data?.items?.some((e:any)=>e.id===id))).toHaveLength(1);
+    const consumedReads=await f.db.prepare("SELECT consumed_at FROM delegations WHERE id IN (?,?)").bind(readSource,readTarget).all<any>();
+    expect(consumedReads.results.every(x=>x.consumed_at)).toBe(true);
+    const verified=await read(listing,sourceLong,targetLong);
+    expect(verified.status).toBe(200);
+    expect((await json(verified)).data.items.map((x:any)=>x.id)).toEqual([id]);
   });
   it("selects visible results before pagination across 1000 hidden edges with bounded RTT", async () => {
     const f = await fixture();

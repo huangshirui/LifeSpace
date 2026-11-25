@@ -689,7 +689,7 @@ components:
           minItems: 1
           maxItems: 32
           uniqueItems: true
-          items: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$' }
+          items: { type: string, pattern: '^(get|query|create|update|delete|file_read|file_upload|relation_create|relation_get|relation_query|relation_delete|action:[a-z][a-z0-9_-]{0,62})$' }
     McpKernelResourceSelection:
       type: object
       additionalProperties: false
