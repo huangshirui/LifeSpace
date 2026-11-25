@@ -23,9 +23,9 @@
 | Service Auth | OAuth `client_credentials` | ✅ | 面向第三方/策略控制服务 |
 | OAuth | Authorization code / PKCE, refresh / revoke, Resource-bound execution | ✅ | Identity 0.19.0 已部署；真实 Production CIMD 授权、撤销及重连通过；未重放旧 Token |
 | OAuth | Console-managed CIMD / DCR admission | ✅ | 当前 Identity 准入策略、网络和 limiter 约束；CIMD 显式 freshness 上限五分钟；ChatGPT 冷缓存上游 403 仍待解决 #580 |
-| MCP | Current Server configuration / enabled state | ✅ | Core schema 79，配置不产生底层 Authority |
-| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 95c3fb5d + private Adapter cc15736；内部凭据已同步，真实 Production Discovery、读取及重连通过 |
-| OAuth | Core/Account Person Directory consent projection | ✅ | Core and Account 95c3fb5d deployed; owner-confirmed actual Person preview and read, #581 closed |
+| MCP | Current Server configuration / enabled state | ✅ | Core schema 84，配置不产生底层 Authority |
+| MCP | Core generic Operation Projection / private protocol Adapter | ✅ | Core 3be8d4c + private Adapter 018844c；本次部署通过，历史 Discovery/读取/重连验收不替代新功能 E2E |
+| OAuth | Core/Account Person Directory consent projection | ✅ | Core and Account 3be8d4c deployed; historical Person preview/read #581 closed |
 | MCP | Private Resource Server credential recovery | ✅ | #43602173685 actual synthetic negative-token probe passed after Adapter-only synchronization; real positive read and reconnect passed, #585 closed |
 | MCP | Real Production CIMD consent / discovery / read / cold-cache reconnect | ✅ | 2026-11-15 two successful cycles, old authorization revoked; #580 intermittent availability remains open |
 | MCP | Real Production OAuth/Delegation E2E on latest release | ❓ | 独立验收，不能用 Staging 或部署成功替代 |
@@ -33,7 +33,7 @@
 | Space | Data Grant | ✅ | 显式、可撤销的数据授权 |
 | Person | First-class Person Directory CRUD/list/search | ✅ | Kernel `per_*`，不是普通 metadata model |
 | Person | Alternate names / aliases | ✅ | primary + alternate names 参与检索 |
-| Person | 独立只读/读写 Person Directory Data Grant（Service / Agent） | ✅ | Kernel `0.54.0`，Candidate `/person-directory/grants`；需要 Scope + Grant， 不开放 User/Membership、整个 Space 或普通模型 |
+| Person | 独立只读/读写 Person Directory Data Grant（Service / Agent） | ✅ | Kernel `0.58.0`，独立 `/person-directory/grants`；需要 Scope + Grant， 不开放 User/Membership、整个 Space 或普通模型 |
 | Authorization | Application × Model Access | ✅ | 与 credential scope / Space authority 共同生效 |
 | Authorization | Core-side effective authorization | ✅ | UI/BFF 不是安全边界 |
 | Authorization | Principal / Actor attribution | ✅ | Change 记录执行主体与代表关系 |
@@ -45,6 +45,13 @@
 | Delegation | Single-use ancestor consumption | ✅ | mutation commit 时原子消费 Authority chain |
 | Delegation | Account-approved once / time-limited / until revoked | ✅ | 用户确认时选择时效，当前 Scope、Resource、Space、Actor 与操作约束不变；External 单次写入限制保留 |
 | Delegation | Atomic multi-Delegation issuance (`1..20`) | ✅ | `/delegations/batch`；全部成功或零落地 |
+| Delegation | Composite OAuth User approval | ✅ | #651，单项或 2–64 项/最多 8 模型；每项独立 selector、原子签发；真实大组合及 D1 成本待实测 |
+| Delegation | Exact approved-operation input contract preview | ✅ | #646，Core 权威 Schema，Adapter describe；不消费、不授予执行权限；真实 Agent E2E 待验收 |
+| Authorization | User Model Access Ceiling V1 | ✅ | schema80，Space × User × Model，仅收窄正向权限；Owner 豁免，None/Read/Write/Manage 或 inherit |
+| Authorization | Core delegation eligibility projection | ✅ | 当前 `_authority/delegation-eligibility` 只返回资格，不产生 Grant 或批准 |
+| Runtime | Safe Native PATCH version diagnostics | ✅ | #646，version 必需；有限字段级诊断，仍保持乐观并发 |
+| Models | Explicit dual-endpoint Semantic Relation Delegations | ✅ | #652，schema84；standalone create/get/query/delete；source 独立 relation op + 同 OAuth 上下文 target get；pair query 需完整双 refs；不含 direct OAuth 或双 selector Batch |
+| Performance | Scheduled cleanup and OAuth/webhook history indexes | ✅ | Core schema81/82、Identity schema20；保留历史/权限语义，不宣称真实成本降幅 |
 | Models | Metadata-driven Model Definition / Registry | ✅ | 普通模型由元数据驱动 |
 | Models | Immutable Model Contract revision | ✅ | `mct_*` revision |
 | Models | New baseline ordinary models (Anniversary / Activity / Goal / Person Profile / Habit) | ✅ | Current Model Contract has 19 published ordinary models (10 baseline + 2 football + 7 health) |
@@ -74,9 +81,9 @@
 | Change / Audit | Operation Attribution | ✅ | Application / Principal / Actor / Delegation / ChangeSet/Bulk correlation / occurredAt |
 | Legacy | Creation Draft API/runtime/current storage | 🗑️ | 当前 API/contract/runtime 已移除，schema 53 删除 runtime table；历史 migrations 保留 |
 | Provenance | Generic Resource Provenance envelope | 🧭 | 当前 concept-only；无 production 平台能力 |
-| Console | Platform Console | ✅ | 独立 Production #43533673820，533321d；可搜索 Grant 对象与独立编辑流程；真实浏览器操作待独立验收 |
-| Account | Account Center / approval UI | ✅ | 独立 Production #43606678174，95c3fb5d；部分完整自助管理及审计后续补齐 |
-| Performance | OAuth execution context / live authorization optimization | ✅ | Identity 0.19.0、Adapter cc15736；保留独立 Core 实时授权；不宣称生产耗时提升 |
+| Console | Platform Console | ✅ | 独立 Production #45554381800，3be8d4c；可搜索 Grant 对象与独立编辑流程；真实浏览器操作待独立验收 |
+| Account | Account Center / approval UI | ✅ | 独立 Production #45554361890，3be8d4c；部分完整自助管理及审计后续补齐 |
+| Performance | OAuth execution context / live authorization optimization | ✅ | Identity 0.19.0、Adapter 018844c；保留独立 Core 实时授权；不宣称生产耗时提升 |
 | Control Plane | Identity Platform Admin API | ✅ | Identity `0.17.0` 普通 API 不再声明 Bootstrap 管理契约；必要 Seed/Break-glass 路由仍由独立 companion 管理 |
 | Control Plane | Bootstrap-free routine platform production release | ✅ | 默认保留 Identity Bootstrap Secret；Model Admin 通过预配置 `models:manage` Service Token 验证，不以 Bootstrap 日常创建身份 |
 | Control Plane | Core Platform Admin API | ✅ | 与普通 Kernel API 分离 |
@@ -110,27 +117,21 @@
 | Health Observation | 1 | ✅ | `health_observation` |
 | Health Regimen | 1 | ✅ | `health_regimen` |
 
-Active Model Contract: `mct_143d1f71246161628208ae657ef4a73b1c20fe4714384bc2e2e22d886fda1b56`
+Active Model Contract: `mct_e915b2c08bb199005f1fd438d3d3f41a98fa6cd148ea0a58c0cccf82e75b35a1`
 
 > Space Person Directory 是 Kernel first-class resource，因此不会作为 ordinary model 出现在本表。
 
 ## Release binding
 
-- Release date: **2026-11-14 (UTC+8)**
-- Exact production SHA: `95c3fb5d4d40a88cf68f9e32a65aedb9c4dfa159`
-- Production workflow: **[#43605536269](https://github.com/huangshirui/LifeSpace/actions/runs/43605536269)** — ✅ success
-- Changes: Activity v3 #579; CIMD freshness #582/#584; Person consent preview #587; private Adapter Resource Secret recovery #586. Prior security changes retained.
-- Core: Kernel `0.54.0` / schema `79`
-- Identity: contract `0.19.0` / schema `19`
-- APAC exact-candidate performance + Platform Golden Flow prerequisite: ✅ success
-- Production HTTP convergence + Cloudflare isolation/bindings: ✅ success
-- Production `lsp_svc_* -> Core -> Identity introspection` + active Model Contract verification: ✅ success
-- External Provider: **enabled**, Notion Adapter private routing and vault/secret verification ✅；R2 signing credentials ✅
-- Core↔Identity shared-secret repair requested: **false**；Bootstrap re-synchronization requested: **false**；既有 Secrets 未重写，Service Token 真实认证成功
-- Production Model Admin 使用已配置的专用 `models:manage` `lsp_svc_*`，不再每次通过 Bootstrap 临时创建 Application/User/Principal/Token 或直接删除生产 Identity D1
-- 正式 APAC User JWT + Service Token 性能门禁：✅；临时 Probe/Smoke Authority Cleanup：✅
-
-- 独立 Console [#43533673820](https://github.com/huangshirui/LifeSpace/actions/runs/43533673820)、Account [#43606678174](https://github.com/huangshirui/LifeSpace/actions/runs/43606678174)、private MCP Adapter [#43362441505](https://github.com/huangshirui/lifespace-adapters/actions/runs/43362441505) 部署通过；真实 Production CIMD/MCP read、重连/撤销已验证；更广泛 Delegation/写入与否定矩阵仍独立。
+- Release date: **2026-11-25 (UTC+8)**
+- Exact production SHA: `3be8d4c454843c4069e5163bd2bccc1ee09138bf`
+- Production workflow: [Platform #45552990116](https://github.com/huangshirui/LifeSpace/actions/runs/45552990116) — ✅ success
+- Core: Kernel `0.58.0` / schema `84`; Generic Operations `0.7.0`; OAuth Consent `0.6.0`
+- Identity: contract `0.19.0` / schema `20`
+- APAC exact-candidate gate, Production migrations 0083/0084, HTTP convergence, Cloudflare isolation/bindings, private External routing and active Model Contract service authentication: ✅ success
+- Independent rollouts: [Console #45554381800](https://github.com/huangshirui/LifeSpace/actions/runs/45554381800), [Account #45554361890](https://github.com/huangshirui/LifeSpace/actions/runs/45554361890) same platform SHA; [private MCP Adapter #45555658087](https://github.com/huangshirui/lifespace-adapters/actions/runs/45555658087) `018844ca90fca0bbcc0f8a412c7479e4b3899ba4`.
+- Latest deployed changes: #646 canonical approved-operation preview / version diagnostics; #651 bounded composite approval; #652 explicit dual-endpoint relation authority. Schema80–82 and Identity schema20 included in current verified snapshot. Historical release dates not reconstructed.
+- Latest real Production OAuth/Delegation E2E: ❓ not independently verified; private Worker deploy and automated checks do not prove consumer acceptance. #646/#651/#652 remain open. #580 not resolved by this release. No downstream application deployment.
 
 Feature Matrix 状态必须由成功的 production workflow 明确推进，不以 main / staging / downstream consumer 状态代替 production 事实。
 

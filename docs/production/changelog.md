@@ -2,6 +2,17 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-11-25 (UTC+8) — Agent exact operation contracts, composite approvals and Semantic Relations
+
+- **Verified release:** [Platform #45552990116](https://github.com/huangshirui/LifeSpace/actions/runs/45552990116), SHA `3be8d4c454843c4069e5163bd2bccc1ee09138bf`; [Account #45554361890](https://github.com/huangshirui/LifeSpace/actions/runs/45554361890) and [Console #45554381800](https://github.com/huangshirui/LifeSpace/actions/runs/45554381800) same SHA; [private MCP Adapter #45555658087](https://github.com/huangshirui/lifespace-adapters/actions/runs/45555658087), `018844ca90fca0bbcc0f8a412c7479e4b3899ba4`. Exact platform Staging [#45548566650](https://github.com/huangshirui/LifeSpace/actions/runs/45548566650), APAC gate and all Production jobs succeeded. Core Kernel 0.58.0/schema84, Identity 0.19.0/schema20. Active contract `mct_e915b2c08bb199005f1fd438d3d3f41a98fa6cd148ea0a58c0cccf82e75b35a1`, 19 models, verified via configured production service token.
+- **#646:** exact approved-operation canonical input discovery; MCP describe tool projects it without consuming an approval or adding Authority. Native PATCH version diagnostics preserve existing error status and concurrency control.
+- **#651:** Schema83, single or 2–64 exact operations across at most 8 models in one Account decision; independent selectors/revocation, set-oriented issuance; generic 20-item API unchanged.
+- **#652:** Schema84, standalone relation endpoint selectors, current independent source/target authority, atomic endpoint-specific evidence/consumption, exact OAuth source relation operations plus separately approved target get. Console/Account and Adapter projection deployed; explicit paired query, no direct OAuth relation or dual-selector Batch.
+- **Catch-up from 2026-11-14 documented baseline:** current verified snapshot also includes User-only Model Access Ceiling V1 (schema80), scheduled cleanup and webhook history indexes (81/82), OAuth client-reference indexes (Identity20), Core authority eligibility projection and intervening exact delegated file-operation capabilities subject to published model/provider and approval constraints. Intermediate dates not inferred.
+- **Limits:** production deployment and workflow verification passed, not an independently observed new OAuth Agent business E2E; large-bundle/live D1, migration retention, revoked/cross-authorization and external endpoint cases remain acceptance work. Adapter workflow is private-only. User chose to skip additional manual staging matrix; no claim that it was completed. #646/#651/#652 open; #580 unresolved by this release. No downstream ALOHA/HomeMew/n8n deployment.
+
+---
+
 ## 2026-11-14 (UTC+8) — Activity v3、CIMD freshness、Person Consent / OAuth 生产恢复
 
 - **Verified releases:** Platform [#43595262721](https://github.com/huangshirui/LifeSpace/actions/runs/43595262721) at `542c0b052b7fbc620eab05e0e84c4254fca02149`, then Platform [#43605536269](https://github.com/huangshirui/LifeSpace/actions/runs/43605536269) and Account [#43606678174](https://github.com/huangshirui/LifeSpace/actions/runs/43606678174) at `95c3fb5d4d40a88cf68f9e32a65aedb9c4dfa159`; exact-candidate Staging [#43603770149](https://github.com/huangshirui/LifeSpace/actions/runs/43603770149) / [#43605033109](https://github.com/huangshirui/LifeSpace/actions/runs/43605033109), APAC and Production gates successful.
