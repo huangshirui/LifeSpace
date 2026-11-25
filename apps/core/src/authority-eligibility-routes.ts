@@ -6,7 +6,7 @@ import { projectDelegationEligibleOperations, type DelegationEligibilityCandidat
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
 const SPACE = /^spc_[A-Za-z0-9_-]+$/u;
 const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
-const OPERATION = /^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$/u;
+const OPERATION = /^(query|get|create|update|delete|file_read|file_upload|relation_create|relation_get|relation_query|relation_delete|action:[a-z][a-z0-9_-]{0,62})$/u;
 
 function requester(principal: Principal, spaceId: string): {
   user: Principal;

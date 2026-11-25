@@ -528,37 +528,28 @@ export function delegationIssueStatements(
   spaceId: string,
   issues: readonly PreparedDelegationIssue[],
 ): D1PreparedStatement[] {
-  return issues.flatMap((issue) => [
+  if (!issues.length) return [];
+  // Use a bounded JSON input per table instead of 2*N D1 statements.
+  // All callers retain the existing batch transaction and row constraints.
+  const delegations=issues.map(issue=>[
+    issue.delegationId,principal.type,principal.id,issue.actor.type,issue.actor.id,
+    principal.clientId,spaceId,issue.issuer.type,issue.issuer.id,issue.createdAt,
+    issue.constraints.expiresAt,issue.constraints.maxUses,issue.parent?.delegation_id??null,
+    issue.constraints.remainingRedelegationDepth,
+  ]);
+  const scopes=issues.map(issue=>[issue.delegationId,issue.scope.target.type,
+    issue.scope.target.id,issue.targetModelKey,issue.scope.maxAccess]);
+  const selectJson=(count:number)=>Array.from({length:count},(_,index)=>`json_extract(value,'$[${index}]')`).join(",");
+  return [
     env.DB.prepare(`INSERT INTO delegations(
       id,principal_type,principal_id,actor_type,actor_id,application_id,source_space_id,
       created_by_type,created_by_id,created_at,expires_at,max_uses,
       parent_delegation_id,remaining_redelegation_depth
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
-      issue.delegationId,
-      principal.type,
-      principal.id,
-      issue.actor.type,
-      issue.actor.id,
-      principal.clientId,
-      spaceId,
-      issue.issuer.type,
-      issue.issuer.id,
-      issue.createdAt,
-      issue.constraints.expiresAt,
-      issue.constraints.maxUses,
-      issue.parent?.delegation_id ?? null,
-      issue.constraints.remainingRedelegationDepth,
-    ),
+    ) SELECT ${selectJson(14)} FROM json_each(?)`).bind(JSON.stringify(delegations)),
     env.DB.prepare(`INSERT INTO delegation_scopes(
       delegation_id,target_type,target_id,target_model_key,max_access
-    ) VALUES(?,?,?,?,?)`).bind(
-      issue.delegationId,
-      issue.scope.target.type,
-      issue.scope.target.id,
-      issue.targetModelKey,
-      issue.scope.maxAccess,
-    ),
-  ]);
+    ) SELECT ${selectJson(5)} FROM json_each(?)`).bind(JSON.stringify(scopes)),
+  ];
 }
 
 export function delegationIssueDtos(

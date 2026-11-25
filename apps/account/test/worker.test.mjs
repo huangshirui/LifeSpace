@@ -364,6 +364,11 @@ test("Account previews composite model operations in one approval with strict pe
   assert.equal(timed.status,200);
   const duplicate=fixture(["resources:read"],[operations[0],operations[0]]);
   assert.equal((await duplicate.request("/api/delegation/request?request_id="+arq)).status,502);
+  const wide=Array.from({length:8},(_,i)=>["get","query","create","update"].map(operation=>({modelKey:"task"+i,operation}))).flat();
+  const wideFixture=fixture(["resources:read","resources:write"],wide);
+  const widePreview=await wideFixture.request("/api/delegation/request?request_id="+arq);
+  assert.equal(widePreview.status,200);
+  assert.deepEqual((await widePreview.json()).data.operations,wide);
   const tooMany=fixture(["resources:read"],Array.from({length:9},(_,i)=>({
     modelKey:"task"+i,operation:"query",
   })));

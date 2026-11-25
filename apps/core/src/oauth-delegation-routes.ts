@@ -2,7 +2,8 @@ import type { Hono } from "hono";
 import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields, externalFileReadFields } from "./file-read-fields";
 import type { Bindings, Principal, Variables } from "./env";
 import { ApiError, success } from "./http";
-import { oauthMcpServerId } from "./mcp-oauth-server-policy";
+import { oauthMcpServerId, oauthRelationOperation } from "./mcp-oauth-server-policy";
+import { isSemanticRelationOperation, semanticRelationOperationAccess, SEMANTIC_RELATION_OPERATIONS, type SemanticRelationOperation } from "./semantic-relation-definition";
 import { getRuntimeModel } from "./model-registry";
 import { getExternalModel } from "./external-model";
 import { requirePersonDirectoryPermission } from "./authorization";
@@ -11,7 +12,7 @@ import { delegationIssueStatements, delegationIssueDtos, prepareDelegationIssues
 // This is a transport-specific pending-approval bridge, NOT a second
 // Delegation authority. Trusted in-app / WeCom arq_* routes are untouched.
 type App = Hono<{ Bindings: Bindings; Variables: Variables }>;
-type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | `action:${string}`;
+type Op = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | SemanticRelationOperation | `action:${string}`;
 type Access = "read" | "write";
 type BoundOperation = {modelKey:string; operation:Op; requestedAccess?:Access};
 type Binding = {
@@ -25,7 +26,9 @@ type Binding = {
 };
 const requestedOperations = (binding: Binding): BoundOperation[] => binding.operations ??
   [{modelKey:binding.modelKey!,operation:binding.operation!,requestedAccess:binding.requestedAccess}];
-const MAX_COMPOSITE_OPERATIONS = 8;
+const MAX_COMPOSITE_OPERATIONS = 64;
+// Preserve the original maximum number of distinct models per request to bound live authority lookups.
+const MAX_COMPOSITE_MODELS = 8;
 type RequestRow = {
   id: string; application_id: string; requesting_agent_id: string;
   intended_user_id: string; source_space_id: string; correlation_json: string | null;
@@ -40,7 +43,7 @@ const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
 const PERSON_MODEL = "person";
 const PERSON_TARGET = "person_directory";
 const delegationTarget = (modelKey: string) => modelKey === PERSON_MODEL ? PERSON_TARGET : modelKey;
-const OPS = new Set<string>(["get","query","create","update","delete","file_read","file_upload"]);
+const OPS = new Set<string>(["get","query","create","update","delete","file_read","file_upload",...SEMANTIC_RELATION_OPERATIONS]);
 const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
 const validOp = (value: unknown): value is Op => typeof value === "string"
   && (OPS.has(value) || ACTION.test(value));
@@ -72,6 +75,7 @@ const fail = () => new ApiError("OAUTH_DELEGATION_NOT_FOUND", "Delegation reques
 const statusOf = (row: RequestRow) => row.transition_status ||
   (Date.parse(row.expires_at) <= Date.now() ? "expired" : "pending");
 const accessOf = (operation: Op, actual?: Access): Access => {
+  if(isSemanticRelationOperation(operation))return semanticRelationOperationAccess(operation);
   if (ACTION.test(operation)) {
     if (actual !== "read" && actual !== "write") throw fail();
     return actual;
@@ -108,19 +112,23 @@ function approvalOrigin(env: Bindings): string {
     || url.username || url.password) throw new ApiError("OAUTH_NOT_CONFIGURED", "Invalid approval origin", 503);
   return url.origin;
 }
-async function serverOperation(env: Bindings, resource: string, spaceId: string, modelKey: string, operation: Op) {
+type OperationValidationCache = {config?:unknown; models:Map<string,Awaited<ReturnType<typeof getRuntimeModel>>>; external:Map<string,Awaited<ReturnType<typeof getExternalModel>>>};
+const validationCache = ():OperationValidationCache => ({models:new Map(),external:new Map()});
+async function serverOperation(env: Bindings, resource: string, spaceId: string, modelKey: string, operation: Op, cache=validationCache()) {
   const serverId = oauthMcpServerId(resource);
   if (!serverId) throw fail();
-  const row = await env.DB.prepare("SELECT enabled,config_json FROM mcp_server_definitions WHERE id=?")
-    .bind(serverId).first<{enabled:number;config_json:string}>();
-  if (!row || row.enabled !== 1) throw fail();
-  let config: unknown;
-  try { config = JSON.parse(row.config_json); } catch { throw fail(); }
+  if (cache.config === undefined) {
+    const row = await env.DB.prepare("SELECT enabled,config_json FROM mcp_server_definitions WHERE id=?")
+      .bind(serverId).first<{enabled:number;config_json:string}>();
+    if (!row || row.enabled !== 1) throw fail();
+    try { cache.config = JSON.parse(row.config_json); } catch { throw fail(); }
+  }
+  const config = cache.config;
   if (!config || typeof config !== "object" || Array.isArray(config)) throw fail();
   // Person is exposed as an ordinary consumer-facing "person" model, but
   // the exact Kernel target and current Grant stay Core-private.
   if (modelKey === PERSON_MODEL) {
-    if (ACTION.test(operation) || operation === "file_read" || operation === "file_upload") throw fail();
+    if (ACTION.test(operation) || operation === "file_read" || operation === "file_upload" || isSemanticRelationOperation(operation)) throw fail();
     const resources = (config as {resources?: unknown}).resources;
     if (!Array.isArray(resources)) throw fail();
     const person = resources.find(r => r && typeof r === "object" && !Array.isArray(r)
@@ -138,8 +146,20 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
   // OAuth Account approval must never issue an unusable Delegation just
   // because an MCP Server configuration lists an operation. Use the same
   // published Model origin and current Provider capability as Core runtime.
-  const model=await getRuntimeModel(env,modelKey);
+  if (!cache.models.has(modelKey)) cache.models.set(modelKey,await getRuntimeModel(env,modelKey));
+  const model=cache.models.get(modelKey);
   if (!model) throw fail();
+  if(isSemanticRelationOperation(operation)){
+    const required=semanticRelationOperationAccess(operation);
+    if(!model.definition.semanticRelations?.outgoing?.length || !model.definition.access.includes(required))throw fail();
+    if(model.definition.origin==="external"){
+      if(!cache.external.has(modelKey))cache.external.set(modelKey,await getExternalModel(env,spaceId,modelKey));
+      const bound=cache.external.get(modelKey);
+      if(!bound || bound.status!=="active" || !bound.snapshot.capabilities.get
+        ||(required==="write"&&bound.declared_access!=="write"))throw fail();
+    }
+    return required;
+  }
   if (operation === "file_read" && model.definition.origin !== "external"
     && !nativeFileReadFields(model.definition).length) throw fail();
   if (operation === "file_upload" && model.definition.origin !== "external"
@@ -148,7 +168,8 @@ async function serverOperation(env: Bindings, resource: string, spaceId: string,
     // Read and upload both require a live Space-bound Provider field,
     // not an assumed Native File capability or a new ACL.
     if (ACTION.test(operation)) throw fail();
-    const bound=await getExternalModel(env,spaceId,modelKey);
+    if (!cache.external.has(modelKey)) cache.external.set(modelKey,await getExternalModel(env,spaceId,modelKey));
+    const bound=cache.external.get(modelKey);
     if (!bound || bound.status!=="active"
       || (operation === "file_read" ? !externalFileReadFields(bound).length
         : operation === "file_upload" ? !externalFileUploadFields(bound).length
@@ -200,6 +221,7 @@ async function load(env: Bindings, id: string) {
     if (unique.has(key)) throw fail();
     unique.add(key);
   }
+  if (new Set(operations.map(op=>op.modelKey)).size>MAX_COMPOSITE_MODELS) throw fail();
   const details=await env.DB.prepare(
     "SELECT ordinal,target_type,target_id,max_access,max_uses,delegation_expires_at,remaining_redelegation_depth " +
     "FROM authorization_request_items WHERE request_id=? ORDER BY ordinal"
@@ -256,11 +278,12 @@ async function liveConsent(env: Bindings, row: RequestRow, binding: Binding, sel
   const operations=requestedOperations(binding);
   const selected=selectedOrdinal===undefined?operations:[operations[selectedOrdinal]];
   if (selected.some(op=>!op)) throw fail();
+  const cache=validationCache();
   for (const op of selected) {
     const required=accessOf(op!.operation,op!.requestedAccess);
     if (!scopes.includes("resources:"+required))
       throw new ApiError("OAUTH_AUTHORIZATION_REVOKED","OAuth authorization is unavailable",403);
-    const current=await serverOperation(env,binding.resource,row.source_space_id,op!.modelKey,op!.operation);
+    const current=await serverOperation(env,binding.resource,row.source_space_id,op!.modelKey,op!.operation,cache);
     if (current!==required) throw fail();
   }
   return scopes as string[];
@@ -277,11 +300,9 @@ function assertAccountOwner(principal: Principal, env: Bindings, row: RequestRow
   if (row.intended_user_id !== userId) throw fail();
 }
 
-export async function requireOAuthMcpDelegatedOperation(
-  env: Bindings, principal: Principal, method: string, path: string, providedId: string,
-): Promise<void> {
-  const x = principal.oauthExecution;
-  if (!x?.delegationId || providedId !== x.delegationId || principal.type !== "user"
+async function approvedOperation(env:Bindings,principal:Principal,providedId:string){
+  const x=principal.oauthExecution;
+  if(!x?.delegationId || principal.type !== "user"
     || principal.id !== x.userId || principal.actor?.id !== x.agentId || !x.allowUserAuthorization) throw fail();
   const bindingRow = await env.DB.prepare(
     "SELECT r.id,r.application_id,r.requesting_agent_id,r.intended_user_id,r.source_space_id," +
@@ -298,7 +319,42 @@ export async function requireOAuthMcpDelegatedOperation(
     || loaded.binding.clientId !== x.clientId || loaded.binding.resource !== x.resource) throw fail();
   const selected=requestedOperations(loaded.binding)[bindingRow.selected_ordinal];
   if (!selected || loaded.items[bindingRow.selected_ordinal]?.ordinal!==bindingRow.selected_ordinal) throw fail();
-  const op:Op=selected.operation;
+  return {loaded,selected,ordinal:bindingRow.selected_ordinal};
+}
+
+export async function requireOAuthMcpDelegatedOperation(
+  env: Bindings, principal: Principal, method: string, path: string, providedId: string,
+  targetDelegationId?:string, query?:URLSearchParams,
+): Promise<void|NonNullable<NonNullable<Principal["oauthExecution"]>["relationEndpoints"]>> {
+  const x=principal.oauthExecution;
+  if(!x || providedId!==x.delegationId)throw fail();
+  const {loaded,selected,ordinal}=await approvedOperation(env,principal,providedId);
+  const op=selected.operation;
+  // A non-consuming exact approved-operation preview is not business execution.
+  // The discovery handler rechecks the current chain and actual scopes for both
+  // ordinary and relation operations. A target selector is never accepted here.
+  if(method==="GET"&&path==="/api/v1/spaces/"+x.spaceId+"/_discovery/operations"){
+    if(targetDelegationId||!query||[...query.keys()].length!==2
+      ||query.getAll("modelKey").length!==1||query.getAll("operation").length!==1
+      ||query.get("modelKey")!==selected.modelKey||query.get("operation")!==op)throw fail();
+    await liveConsent(env,loaded.row,loaded.binding,ordinal);
+    return;
+  }
+  const relation=oauthRelationOperation(method,path);
+  if(relation){
+    // Both explicit selectors must be approvals under the SAME current
+    // verified OAuth authorization and exact operations. No second User
+    // credential or model-wide fallback is accepted.
+    if(op!==relation || !targetDelegationId || targetDelegationId===providedId
+      || !/^dlg_[A-Za-z0-9_-]{1,128}$/u.test(targetDelegationId))throw fail();
+    const target=await approvedOperation(env,principal,targetDelegationId);
+    if(target.selected.operation!=="get" || target.selected.modelKey===PERSON_MODEL)throw fail();
+    await liveConsent(env,loaded.row,loaded.binding,ordinal);
+    await liveConsent(env,target.loaded.row,target.loaded.binding,target.ordinal);
+    return {sourceModelKey:selected.modelKey,targetModelKey:target.selected.modelKey,
+      operation:relation,targetDelegationId};
+  }
+  if(targetDelegationId || isSemanticRelationOperation(op))throw fail();
   const personPrefix="/api/v1/spaces/" + x.spaceId + "/people";
   if (selected.modelKey === PERSON_MODEL) {
     const personRecord=new RegExp("^"+personPrefix+"/per_[A-Za-z0-9_-]+$","u").test(path);
@@ -308,7 +364,7 @@ export async function requireOAuthMcpDelegatedOperation(
       : op === "update" ? method === "PATCH" && personRecord
       : op === "delete" ? method === "DELETE" && personRecord : false;
     if (!validPerson) throw fail();
-    await liveConsent(env,loaded.row,loaded.binding,bindingRow.selected_ordinal);
+    await liveConsent(env,loaded.row,loaded.binding,ordinal);
     return;
   }
   const prefix="/api/v1/spaces/" + x.spaceId + "/models/" + selected.modelKey + "/records";
@@ -327,7 +383,7 @@ export async function requireOAuthMcpDelegatedOperation(
     : (op==="update" || op==="delete") && method===(op==="update"?"PATCH":"DELETE")
       && path.startsWith(prefix+"/") && /^rec_[A-Za-z0-9_-]+$/u.test(path.slice(prefix.length+1));
   if (!valid) throw fail();
-  await liveConsent(env,loaded.row,loaded.binding,bindingRow.selected_ordinal);
+  await liveConsent(env,loaded.row,loaded.binding,ordinal);
 }
 
 export function registerOAuthDelegationRoutes(app: App): void {
@@ -396,7 +452,7 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const spaceId=c.req.param("spaceId");
     if (x.spaceId!==spaceId) throw fail();
     const raw=await c.req.text();
-    if (raw.length>3500) throw new ApiError("INVALID_REQUEST","Request too large",413);
+    if (new TextEncoder().encode(raw).byteLength>16_384) throw new ApiError("INVALID_REQUEST","Request too large",413);
     let input:unknown;
     try {input=JSON.parse(raw);} catch {throw new ApiError("INVALID_REQUEST","Invalid request",400);}
     if (!input || typeof input!=="object" || Array.isArray(input)) throw new ApiError("INVALID_REQUEST","Invalid request",400);
@@ -417,9 +473,12 @@ export function registerOAuthDelegationRoutes(app: App): void {
     const selected=requested as Array<{modelKey:string;operation:Op}>;
     if (new Set(selected.map(op=>op.modelKey+":"+op.operation)).size!==selected.length)
       throw new ApiError("INVALID_REQUEST","Duplicate operation in the same approval",400);
+    if (new Set(selected.map(op=>op.modelKey)).size>MAX_COMPOSITE_MODELS)
+      throw new ApiError("INVALID_REQUEST","Too many distinct models in the same approval",400);
     const operations:BoundOperation[]=[];
+    const cache=validationCache();
     for (const op of selected) {
-      const required=await serverOperation(c.env,x.resource,spaceId,op.modelKey,op.operation);
+      const required=await serverOperation(c.env,x.resource,spaceId,op.modelKey,op.operation,cache);
       if (!principal.scopes.includes("resources:"+required))
         throw new ApiError("FORBIDDEN","Client did not request the operation's OAuth Scope",403);
       operations.push({...op,requestedAccess:required});
@@ -443,10 +502,10 @@ export function registerOAuthDelegationRoutes(app: App): void {
         "VALUES(?,?,?,?,?,?,?,?,?,?,?)"
       ).bind(requestId,principal.clientId,x.agentId,x.userId,spaceId,ACCOUNT_TIMEOUT_MINUTES,
         uuid("fingerprint"),uuid("oauth_reuse"),JSON.stringify(binding),now.toISOString(),expiration),
-      ...operations.map((op,i)=>c.env.DB.prepare(
+      c.env.DB.prepare(
         "INSERT INTO authorization_request_items(request_id,ordinal,target_type,target_id,max_access,max_uses,delegation_expires_at,remaining_redelegation_depth) "+
-        "VALUES(?,?,'model',?,?,1,?,0)"
-      ).bind(requestId,i,delegationTarget(op.modelKey),op.requestedAccess,delegationExpiresAt)),
+        "SELECT ?,CAST(key AS INTEGER),'model',json_extract(value,'$[0]'),json_extract(value,'$[1]'),1,?,0 FROM json_each(?)"
+      ).bind(requestId,delegationExpiresAt,JSON.stringify(operations.map(op=>[delegationTarget(op.modelKey),op.requestedAccess]))),
     ]);
     c.header("Cache-Control","no-store");
     return c.json(success({id:requestId,status:"pending",approvalUrl:origin+"/delegation?request_id="+requestId,
@@ -508,13 +567,14 @@ export function registerOAuthDelegationRoutes(app: App): void {
       c.env.DB.prepare(
         "INSERT INTO authorization_request_transitions(request_id,status,transitioned_at,actor_type,actor_id) VALUES(?,'approved',?,'user',?)"
       ).bind(loaded.row.id,now,userId),
-      ...loaded.items.map(item=>c.env.DB.prepare(
-        "UPDATE authorization_request_items SET max_uses=?,delegation_expires_at=? WHERE request_id=? AND ordinal=?"
-      ).bind(lifetime!.maxUses,lifetime!.expiresAt,loaded.row.id,item.ordinal)),
+      c.env.DB.prepare(
+        "UPDATE authorization_request_items SET max_uses=?,delegation_expires_at=? WHERE request_id=?"
+      ).bind(lifetime!.maxUses,lifetime!.expiresAt,loaded.row.id),
       ...delegationIssueStatements(c.env,delegated,loaded.row.source_space_id,issues),
-      ...issues.map((issue,i)=>c.env.DB.prepare(
-        "INSERT INTO authorization_request_delegations(request_id,ordinal,delegation_id) VALUES(?,?,?)"
-      ).bind(loaded.row.id,i,issue.delegationId)),
+      c.env.DB.prepare(
+        "INSERT INTO authorization_request_delegations(request_id,ordinal,delegation_id) "+
+        "SELECT ?,CAST(key AS INTEGER),value FROM json_each(?)"
+      ).bind(loaded.row.id,JSON.stringify(issues.map(issue=>issue.delegationId))),
     ]);
     c.header("Cache-Control","no-store");
     return c.json(success({id:loaded.row.id,status:"approved",

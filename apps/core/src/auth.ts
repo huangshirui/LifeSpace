@@ -4,7 +4,8 @@ import { isPrincipalType, type Bindings, type Principal, type Variables } from "
 import { ApiError } from "./http";
 import { servicePrincipalAuthority } from "./service-principal-authority";
 import { measurePerformancePhase } from "./performance-timing";
-import { currentMcpOAuthQueryPolicy, oauthMcpServerId } from "./mcp-oauth-server-policy";
+import { currentMcpOAuthQueryPolicy, oauthMcpServerId, oauthRelationOperation } from "./mcp-oauth-server-policy";
+import { semanticRelationOperationAccess } from "./semantic-relation-definition";
 import { requireOAuthMcpDelegatedOperation } from "./oauth-delegation-routes";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
@@ -24,6 +25,9 @@ export function oauthExecutionRouteAllowed(method: string, path: string, spaceId
   if (!/^spc_[A-Za-z0-9_-]+$/u.test(spaceId)) return false;
   // spaceId is validated against an ASCII-only identifier grammar above.
   const escaped = spaceId;
+  const relation=oauthRelationOperation(method,path);
+  if(relation&&path.startsWith("/api/v1/spaces/"+escaped+"/"))
+    return semanticRelationOperationAccess(relation)==="read" || write;
   if (method === "GET") {
     return path === "/api/v1/spaces/" + escaped + "/_authority/delegation-eligibility"
       || path === "/api/v1/spaces/" + escaped + "/_discovery/operations"
@@ -380,15 +384,20 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         await next();
         return;
       }
+      let relationEndpoints:NonNullable<Principal["oauthExecution"]>["relationEndpoints"];
+      const targetSelector=context.req.header("x-lifespace-target-delegation-id");
       if (principal.actor) {
         const delegated = context.req.header("x-lifespace-delegation-id");
         if (!execution.delegationId || delegated !== execution.delegationId)
           throw new ApiError("FORBIDDEN", "Signed OAuth Delegation selector is required", 403);
-        await measurePerformancePhase(context, "security.oauth_delegation_operation",
+        const selection=await measurePerformancePhase(context, "security.oauth_delegation_operation",
           () => requireOAuthMcpDelegatedOperation(
-            context.env, principal, context.req.method, context.req.path, delegated,
+            context.env, principal, context.req.method, context.req.path, delegated,targetSelector,
+            new URL(context.req.url).searchParams,
           ));
-      } else if (context.req.header("x-lifespace-delegation-id")) {
+        if(selection)relationEndpoints=selection;
+      } else if (context.req.header("x-lifespace-delegation-id") || targetSelector!==undefined
+          || oauthRelationOperation(context.req.method,context.req.path)) {
         throw new ApiError("FORBIDDEN", "Direct OAuth execution cannot select Delegation", 403);
       }
       const policy = await measurePerformancePhase(context, "security.oauth_server_policy",
@@ -399,6 +408,7 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         ...execution, serverId: policy.serverId, queryModelKeys: policy.queryModelKeys,
         toolModelKeys: policy.toolModelKeys, modelOperations: policy.modelOperations,
         personOperations: policy.personOperations,
+        ...(relationEndpoints?{relationEndpoints}:{}),
       } };
     }
     context.set("principal", principal);

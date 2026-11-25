@@ -715,3 +715,27 @@ export async function consumeSingleUseRead(
     );
   }
 }
+
+// One relationship read can exercise two independent endpoint chains. A
+// single SQL statement conditionally consumes all distinct single-use leaves
+// and ancestors, or none. Ordinary read paths retain their existing helper.
+export async function consumeEndpointDelegationRead(
+  env: Bindings,
+  decisions: readonly ModelAccessDecision[],
+): Promise<void> {
+  const ids=[...new Set(decisions.flatMap(d=>d.authority.singleUseDelegationIds))];
+  if (!ids.length) return;
+  const chain=[...new Set(decisions.flatMap(d=>d.authority.delegationChain))];
+  const placeholders=ids.map(()=>"?").join(",");
+  const chainPlaceholders=chain.map(()=>"?").join(",");
+  const result=await env.DB.prepare(`UPDATE delegations
+    SET consumed_at=?,consumed_by_change_id=NULL
+    WHERE id IN (${placeholders}) AND max_uses=1 AND consumed_at IS NULL
+      AND revoked_at IS NULL AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
+      AND (SELECT COUNT(*) FROM delegations required WHERE required.id IN (${chainPlaceholders})
+        AND required.consumed_at IS NULL AND required.revoked_at IS NULL
+        AND (required.expires_at IS NULL OR julianday(required.expires_at)>julianday('now')))=?
+    `).bind(new Date().toISOString(),...ids,...chain,chain.length).run();
+  if (result.meta.changes!==ids.length)
+    throw new ApiError("DELEGATION_INVALID","Endpoint Delegation chain is unavailable",403);
+}

@@ -20,7 +20,7 @@ import { deleteGenericResource, getGenericResource, type GenericResource } from 
 import { hasLegacyGenericCursor, queryGenericResources, translateGenericGetQuery } from "./generic-query";
 import { isTemporalSpecialQuery, queryTemporalResources } from "./temporal-query";
 import { loadSpaceTemporalContext, type SpaceTemporalContext } from "./temporal-capability";
-import { ApiError, success } from "./http";
+import { ApiError, modelFieldValidationDetails, success } from "./http";
 import { consumeSingleUseRead, requireModelAccess } from "./model-authorization";
 import { authorityD1Observer, measurePerformancePhase, runtimeD1Observer } from "./performance-timing";
 import { getRuntimeModel, type PublishedModel } from "./model-registry";
@@ -312,6 +312,13 @@ export function registerGenericResourceRoutes(app: App): void {
       () => requireModelAccess(context.env, principal, spaceId, resolved, "write", accessSelector(context, recordId), authorityD1Observer(context)),
     );
     const request = await body(context);
+    // Version is a canonical PATCH envelope field, not a model-specific rule.
+    // Keep the original error code/status; provide a bounded repair hint after
+    // current model write authority has been accepted.
+    if (!Number.isInteger(request.version) || Number(request.version) < 1) {
+      throw new ApiError("INVALID_REQUEST", "version must be a positive integer", 400,
+        modelFieldValidationDetails("version", request.version===undefined?"FIELD_REQUIRED":"FIELD_INVALID_VALUE"));
+    }
     const expected = positiveVersion(request.version);
     const changes = Object.fromEntries(Object.entries(request).filter(([key]) => key !== "version"));
     if (!Object.keys(changes).length) throw new ApiError("INVALID_REQUEST", "At least one resource field change is required", 400);

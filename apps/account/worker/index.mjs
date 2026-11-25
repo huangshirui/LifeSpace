@@ -464,7 +464,7 @@ export async function accountFetch(req, env) {
     if (!source?.ok) return fail(source?.status === 404 ? 404 : source?.status === 403 ? 403 : 503,
       "DELEGATION_REQUEST_UNAVAILABLE", "委托申请已失效或不属于当前用户");
     const preview = await data(source);
-    const validOps=["get","query","create","update","delete","file_read","file_upload"];
+    const validOps=["get","query","create","update","delete","file_read","file_upload","relation_create","relation_get","relation_query","relation_delete"];
     const composite=Array.isArray(preview?.operations);
     const operations=composite?preview.operations:null;
     if (!preview || preview.id !== requestId || !DELEGATION_REQUEST.test(preview.id)
@@ -472,7 +472,8 @@ export async function accountFetch(req, env) {
       || !APPLICATION.test(preview.applicationId || "") || !safeText(preview.clientId, 1024)
       || (composite
         ? (preview.modelKey!==undefined || preview.operation!==undefined
-          || operations.length<2 || operations.length>8
+          || operations.length<2 || operations.length>64
+          || new Set(operations.map(item=>item?.modelKey)).size>8
           || operations.some(item=>!isObject(item)
             || !safeText(item.modelKey,70) || !validOps.includes(item.operation))
           || new Set(operations.map(item=>item.modelKey+":"+item.operation)).size!==operations.length)

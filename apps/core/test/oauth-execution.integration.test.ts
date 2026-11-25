@@ -312,6 +312,135 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",route,patch,payload)).status).toBe(403);
   });
 
+  it("authorizes a relation only with exact approved source operation and target get from the same OAuth context", async()=>{
+    const f=await fixture(), suffix=crypto.randomUUID().replaceAll("-","").slice(0,12), now=new Date().toISOString();
+    const sourceKey="rel_source_"+suffix,targetKey="rel_target_"+suffix;
+    const publisher:Principal={type:"service",id:"svc_"+suffix,clientId:"lifespace-platform-admin",scopes:["models:manage"],tokenId:"tok_"+suffix};
+    for(const key of [sourceKey,targetKey]){
+      await publishModelDefinition({DB:f.db} as Bindings,publisher,{
+        definitionVersion:1,key,display:{singular:"Synthetic",plural:"Synthetic records"},
+        fields:{name:{type:"string",required:true}},access:["read","write"],
+        ...(key===sourceKey?{semanticRelations:{outgoing:["relates_to"]}}:{}),
+      },"initial");
+    }
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+suffix,f.space,f.oauthUser,now,now),
+      f.db.prepare("DELETE FROM data_grants WHERE grantee_type='agent' AND grantee_id=?").bind(f.agent),
+      ...[sourceKey,targetKey].map(key=>f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)")
+        .bind(f.application,key,"write","service",publisher.id)),
+      f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?").bind(JSON.stringify({models:[
+        {modelKey:sourceKey,operations:["create","update","relation_create","relation_get","relation_query","relation_delete"]},
+        {modelKey:targetKey,operations:["create","get","query"]},
+      ]}),f.serverId),
+    ]);
+    f.setDelegationEnabled(true);f.setConsentScopes(["resources:read","resources:write"]);
+    const actor={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    const base="/api/v1/spaces/"+f.space;
+    const operations=[...["create","update","relation_create","relation_get","relation_query","relation_delete"].map(operation=>({modelKey:sourceKey,operation})),
+      ...["create","get","query"].map(operation=>({modelKey:targetKey,operation}))];
+    const eligible=await f.request("GET",base+"/_authority/delegation-eligibility",actor);
+    expect(eligible.status).toBe(200);
+    expect((await eligible.json() as {data:{eligibleOperations:Array<{operation:string}>}}).data.eligibleOperations.map(x=>x.operation)).toContain("relation_create");
+    const pending=await f.request("POST",base+"/oauth-delegation-requests",actor,{operations,reason:"Synthetic governed relation"});
+    expect(pending.status).toBe(201);
+    const id=(await pending.json() as {data:{id:string}}).data.id;
+    const approval=await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+id+"/approve",{mode:"until_revoked"});
+    expect(approval.status).toBe(200);
+    const granted=(await approval.json() as {data:{delegations:Array<{id:string}>}}).data.delegations;
+    const get=(model:string,operation:string)=>granted[operations.findIndex(op=>op.modelKey===model&&op.operation===operation)]!.id;
+    const call=(method:string,path:string,dlg:string,body?:unknown,target?:string)=>f.request(method,path,
+      {...actor,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg},body,
+      {"x-lifespace-delegation-id":dlg,...(target?{"x-lifespace-target-delegation-id":target}:{})});
+    const record=async(key:string)=>{const r=await call("POST",base+"/models/"+key+"/records",get(key,"create"),{name:"Synthetic"});expect(r.status).toBe(201);return (await r.json() as {data:{id:string}}).data.id};
+    const source={kind:"record",modelKey:sourceKey,recordId:await record(sourceKey)};
+    const target={kind:"record",modelKey:targetKey,recordId:await record(targetKey)};
+    const edge={source,target,predicate:"relates_to"};
+    const path=base+"/semantic-relations", create=get(sourceKey,"relation_create"), targetGet=get(targetKey,"get");
+    expect((await call("POST",path,get(sourceKey,"update"),edge,targetGet)).status).toBe(404);
+    expect((await call("POST",path,create,edge)).status).toBe(404);
+    expect((await call("POST",path,create,edge,get(targetKey,"query"))).status).toBe(404);
+    expect((await f.request("POST",path,actor,edge)).status).toBe(403);
+    expect((await call("POST",path,create,{...edge,target:{...target,modelKey:sourceKey}},targetGet)).status).toBe(404);
+    const describe=await call("GET",base+"/_discovery/operations?modelKey="+sourceKey+"&operation=relation_create",create);
+    expect(describe.status).toBe(200);
+    const descriptor=(await describe.json() as {data:{operations:Array<{inputSchema:Record<string,unknown>}>}}).data.operations;
+    expect(descriptor).toHaveLength(1);
+    expect(descriptor[0]!.inputSchema).toMatchObject({required:["spaceId","targetDelegationId","data"],
+      properties:{data:{properties:{predicate:{enum:["relates_to"]}}}}});
+    expect((await call("GET",base+"/_discovery/operations?modelKey="+sourceKey+"&operation=relation_create",get(sourceKey,"update"))).status).toBe(404);
+    // Joint regression: the same nine-operation approval permits exact CRUD
+    // preview/PATCH and standalone edge execution, without cross-operation use.
+    const update=get(sourceKey,"update");
+    const updatePreview=base+"/_discovery/operations?modelKey="+sourceKey+"&operation=update";
+    const ordinary=await call("GET",updatePreview,update);
+    expect(ordinary.status).toBe(200);
+    const ordinarySchema=(await ordinary.json() as {data:{operations:Array<{operation:string;inputSchema:{properties:{data:{$ref:string}};$defs:Record<string,{required:string[]}>}}>}}).data.operations;
+    expect(ordinarySchema).toHaveLength(1);
+    expect(ordinarySchema[0]!.operation).toBe("update");
+    const input=ordinarySchema[0]!.inputSchema;
+    expect(input.$defs[input.properties.data.$ref.slice(8)]!.required).toContain("version");
+    expect((await call("GET",updatePreview,create)).status).toBe(404);
+    expect((await call("GET",updatePreview,update,undefined,targetGet)).status).toBe(404);
+    const recordPath=base+"/models/"+sourceKey+"/records/"+source.recordId;
+    const corrected=await call("PATCH",recordPath,update,{version:1,name:"Synthetic corrected"});
+    expect(corrected.status).toBe(200);
+    expect((await corrected.json() as {data:{version:number}}).data.version).toBe(2);
+    expect((await call("PATCH",recordPath,create,{version:2,name:"Forbidden"})).status).toBe(404);
+    const added=await call("POST",path,create,edge,targetGet);
+    expect(added.status).toBe(200);
+    const relationId=(await added.json() as {data:{id:string}}).data.id;
+    const read=await call("GET",path+"/"+relationId,get(sourceKey,"relation_get"),undefined,targetGet);
+    expect(read.status).toBe(200);
+    const query=path+"?"+new URLSearchParams({sourceModelKey:sourceKey,sourceRecordId:source.recordId,targetModelKey:targetKey,targetRecordId:target.recordId}).toString();
+    expect((await call("GET",query,get(sourceKey,"relation_query"),undefined,targetGet)).status).toBe(200);
+    expect((await call("GET",path+"/"+relationId,create,undefined,targetGet)).status).toBe(404);
+    expect((await call("DELETE",path+"/"+relationId,get(sourceKey,"relation_delete"),undefined,targetGet)).status).toBe(204);
+    expect((await call("POST",path,create,edge,targetGet)).status).toBe(200);
+    await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+targetGet+"/revoke",{});
+    const denied=await call("POST",path,create,edge,targetGet);
+    expect([403,404]).toContain(denied.status);
+  });
+
+  it("approves 32 exact operations across 8 models in one atomic Account decision", async () => {
+    const f=await fixture();
+    const suffix=crypto.randomUUID().replaceAll("-","");
+    const timestamp=new Date().toISOString();
+    const publisher:Principal={type:"service",id:"svc_"+suffix,clientId:"lifespace-platform-admin",scopes:["models:manage"],tokenId:"tok_publish_"+suffix};
+    const modelKeys=Array.from({length:8},(_,i)=>"oauth_batch_"+suffix.slice(0,10)+"_"+i);
+    const ops=["get","query","create","update"];
+    for(const key of modelKeys) {
+      await publishModelDefinition({DB:f.db} as Bindings,publisher,{
+        definitionVersion:1,key,display:{singular:"Synthetic",plural:"Synthetic records"},
+        fields:{label:{type:"string",nullable:true}},access:["read","write"],
+      },"initial");
+    }
+    await f.db.batch([
+      ...modelKeys.map(key=>f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)").bind(f.application,key,"write","service",publisher.id)),
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)").bind("mem_"+suffix,f.space,f.oauthUser,timestamp,timestamp),
+      f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?").bind(JSON.stringify({models:modelKeys.map(modelKey=>({modelKey,operations:ops}))}),f.serverId),
+    ]);
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    const patch={oauth_allow_user_authorization:true,scope:"resources:read resources:write"};
+    const operations=modelKeys.flatMap(modelKey=>ops.map(operation=>({modelKey,operation})));
+    const base="/api/v1/spaces/"+f.space+"/oauth-delegation-requests";
+    const pending=await f.request("POST",base,patch,{operations,reason:"Approve a bounded synthetic workflow"});
+    expect(pending.status).toBe(201);
+    const requestId=(await pending.json() as {data:{id:string}}).data.id;
+    const preview=await f.accountRequest("GET","/api/v1/me/oauth/delegation-requests/"+requestId);
+    expect(preview.status).toBe(200);
+    expect((await preview.json() as {data:{operations:unknown[]}}).data.operations).toEqual(operations);
+    const result=await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+requestId+"/approve",{mode:"until_revoked"});
+    expect(result.status).toBe(200);
+    const issued=(await result.json() as {data:{delegations:Array<{id:string}>}}).data.delegations;
+    expect(issued).toHaveLength(32);
+    expect(new Set(issued.map(x=>x.id)).size).toBe(32);
+    const status=await f.request("GET",base+"/"+requestId,patch);
+    expect((await status.json() as {data:{operations:Array<{delegationId:string}>}}).data.operations.map(x=>x.delegationId)).toEqual(issued.map(x=>x.id));
+    expect((await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+requestId+"/approve",{mode:"until_revoked"})).status).toBe(409);
+  });
+
   it("projects native file_upload, verifies both phases and preserves write and exact delegated authority", async () => {
     const f=await fixture();
     const suffix=crypto.randomUUID().replaceAll("-","");
@@ -831,6 +960,65 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     f.setDelegationEnabled(false);
     expect((await f.request("GET",eligibility)).status).toBe(404);
   });
+  it("previews only the currently approved exact operation contract without consuming a single use", async () => {
+    const f=await fixture();
+    const base="/api/v1/spaces/"+f.space;
+    const discovery=base+"/_discovery/operations";
+    const now=new Date().toISOString();
+    f.setDelegationEnabled(true);
+    f.setConsentScopes(["resources:read","resources:write"]);
+    await f.setServerOperations(["get","create","update"]);
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+crypto.randomUUID().replaceAll("-",""),f.space,f.oauthUser,now,now),
+      f.db.prepare("UPDATE application_model_access SET max_access='write' WHERE application_id=? AND model_key='task'").bind(f.application),
+      f.db.prepare("DELETE FROM data_grants WHERE grantee_id=? AND grantee_type='agent'").bind(f.agent),
+    ]);
+    const actor={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    const narrow=discovery+"?modelKey=task&operation=update";
+    const direct=await f.request("GET",narrow,actor);
+    expect((await direct.json() as {data:{operations:unknown[]}}).data.operations).toEqual([]);
+    const request=await f.request("POST",base+"/oauth-delegation-requests",actor,{
+      operations:["create","get","update"].map(operation=>({modelKey:"task",operation})),
+      reason:"Synthetic contract preview and exact patch",
+    });
+    expect(request.status).toBe(201);
+    const id=(await request.json() as {data:{id:string}}).data.id;
+    const approval=await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+id+"/approve",{});
+    expect(approval.status).toBe(200);
+    const [create,get,update]=(await approval.json() as {data:{delegations:Array<{id:string}>}}).data.delegations.map(d=>d.id);
+    const represented=(dlg:string)=>({...actor,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg});
+    const header=(dlg:string)=>({"x-lifespace-delegation-id":dlg});
+    const preview=await f.request("GET",narrow,represented(update!),undefined,header(update!));
+    expect(preview.status).toBe(200);
+    const rows=(await preview.json() as {data:{operations:Array<{modelKey:string;operation:string;inputSchema:{properties:{data:{$ref:string}};$defs:Record<string,{required:string[];properties:Record<string,unknown>}>}}>} }).data.operations;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({modelKey:"task",operation:"update"});
+    const schema=rows[0]!.inputSchema;
+    const fields=schema.$defs[schema.properties.data.$ref.slice(8)]!;
+    expect(fields.required).toContain("version");
+    expect(fields.properties).toHaveProperty("name");
+    for(const path of [discovery,discovery+"?modelKey=task",discovery+"?modelKey=task&operation=create",narrow+"&mode=delegation_request",narrow+"&operation=update"]) {
+      expect((await f.request("GET",path,represented(update!),undefined,header(update!))).status).toBe(404);
+    }
+    expect((await f.request("GET",narrow,represented(get!),undefined,header(get!))).status).toBe(404);
+    const records=base+"/models/task/records";
+    const created=await f.request("POST",records,represented(create!),{name:"Synthetic original"},header(create!));
+    expect(created.status).toBe(201);
+    const record=(await created.json() as {data:{id:string;version:number}}).data;
+    const missing=await f.request("PATCH",records+"/"+record.id,represented(update!),{name:"Synthetic correction"},header(update!));
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toMatchObject({error:{code:"INVALID_REQUEST",details:{fieldPath:"data.version",reasonCode:"FIELD_REQUIRED"}}});
+    const patched=await f.request("PATCH",records+"/"+record.id,represented(update!),{version:record.version,name:"Synthetic correction"},header(update!));
+    expect(patched.status).toBe(200);
+    const current=await f.request("GET",records+"/"+record.id,represented(get!),undefined,header(get!));
+    expect(current.status).toBe(200);
+    expect(await current.json()).toMatchObject({data:{id:record.id,version:record.version+1,name:"Synthetic correction"}});
+    const consumed=await f.request("GET",narrow,represented(update!),undefined,header(update!));
+    expect(consumed.status).toBe(200);
+    expect((await consumed.json() as {data:{operations:unknown[]}}).data.operations).toEqual([]);
+  });
+
   it("Account User can grant bounded repeated / long-lived exact operation and revoke without OAuth consent", async () => {
     const f=await fixture();
     const base="/api/v1/spaces/"+f.space+"/models/task/records";

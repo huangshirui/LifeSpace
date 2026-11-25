@@ -69,6 +69,7 @@ export async function evaluateDelegationEligibleModels(
 
 
 import { getRuntimeModel } from "./model-registry";
+import { isSemanticRelationOperation, semanticRelationOperationAccess } from "./semantic-relation-definition";
 import { getExternalModel, externalAuthorityModel } from "./external-model";
 import { nativeFileReadFields, nativeFileUploadFields, externalFileUploadFields, externalFileReadFields } from "./file-read-fields";
 
@@ -82,7 +83,7 @@ export type DelegationEligibilityResult = DelegationEligibilityCandidate & {
 
 type OperationAccess = "read" | "write";
 const MODEL_KEY = /^[a-z][a-z0-9_]{1,62}$/u;
-const OPERATION = /^(query|get|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$/u;
+const OPERATION = /^(query|get|create|update|delete|file_read|file_upload|relation_create|relation_get|relation_query|relation_delete|action:[a-z][a-z0-9_-]{0,62})$/u;
 const PERSON_OPERATIONS = new Set(["query", "get", "create", "update", "delete"]);
 
 // A read-only Authority query used by independent consumer transports.
@@ -120,7 +121,8 @@ export async function projectDelegationEligibleOperations(
     const id = modelKey + ":" + operation;
     if (unique.has(id)) continue;
     unique.add(id);
-    let access: OperationAccess = ["query", "get", "file_read"].includes(operation) ? "read" : "write";
+    let access: OperationAccess = isSemanticRelationOperation(operation)?semanticRelationOperationAccess(operation)
+      : ["query", "get", "file_read"].includes(operation) ? "read" : "write";
     if (modelKey === "person") {
       if (PERSON_OPERATIONS.has(operation) && verifiedUser.scopes.includes("resources:" + access))
         personCandidates.push(operation);
@@ -129,6 +131,7 @@ export async function projectDelegationEligibleOperations(
     if (!modelCache.has(modelKey)) modelCache.set(modelKey, await getRuntimeModel(env, modelKey));
     const published = modelCache.get(modelKey);
     if (!published) continue;
+    if(isSemanticRelationOperation(operation)&&!published.definition.semanticRelations?.outgoing?.length)continue;
     const external = published.definition.origin === "external";
     // Current published Action DSL supports write/manage here, not a read
     // Action. Only explicitly writable Actions can be requested under the
@@ -141,7 +144,8 @@ export async function projectDelegationEligibleOperations(
       if (!externalCache.has(modelKey)) externalCache.set(modelKey, await getExternalModel(env, spaceId, modelKey));
       const bound = externalCache.get(modelKey);
       if (!bound || bound.status !== "active") continue;
-      const supported = operation === "file_read"
+      const supported = isSemanticRelationOperation(operation)?bound.snapshot.capabilities.get===true
+        : operation === "file_read"
         ? externalFileReadFields(bound).length > 0
         : operation === "file_upload"
           ? externalFileUploadFields(bound).length > 0

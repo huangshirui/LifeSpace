@@ -457,7 +457,7 @@ async function revokeDataGrant(request: Request, env: Env, spaceId: string, gran
 
 // MCP Server control plane: one active configuration, one internal revision.
 const MCP_SERVER_ID = /^mcp_[a-f0-9]{32}$/u;
-const MCP_OPERATION = /^(get|query|create|update|delete|file_read|file_upload|action:[a-z][a-z0-9_-]{0,62})$/u;
+const MCP_OPERATION = /^(get|query|create|update|delete|file_read|file_upload|relation_create|relation_get|relation_query|relation_delete|action:[a-z][a-z0-9_-]{0,62})$/u;
 function mcpConfiguration(value: unknown): {
   models: Array<{ modelKey: string; operations: string[] }>;
   resources?: Array<{ resourceKey: "person_directory"; operations: string[] }>;

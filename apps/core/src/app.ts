@@ -90,7 +90,7 @@ export function createApp() {
   });
   app.use("*", cors({
     origin: (origin, context) => origins(context.env).includes(origin) ? origin : undefined,
-    allowHeaders: ["Authorization", "Content-Type", "X-Request-ID", "X-LifeSpace-Actor-Token", "X-LifeSpace-Delegation-Id"],
+    allowHeaders: ["Authorization", "Content-Type", "X-Request-ID", "X-LifeSpace-Actor-Token", "X-LifeSpace-Delegation-Id", "X-LifeSpace-Target-Delegation-Id"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }));
   app.get("/health", (context) => context.json(success({ status: "ok" })));
@@ -151,7 +151,9 @@ export function createApp() {
       // Only model input validation, after ordinary runtime authority checks,
       // may disclose a structured field path. Other failures stay unchanged.
       const safeDetails = (error.status === 400 || error.status === 422)
-        && (error.code === "INVALID_RESOURCE" || error.code === "VALIDATION_ERROR")
+        && (error.code === "INVALID_RESOURCE" || error.code === "VALIDATION_ERROR"
+          || (error.code === "INVALID_REQUEST" && error.details?.fieldPath === "data.version"
+            && (error.details.reasonCode === "FIELD_REQUIRED" || error.details.reasonCode === "FIELD_INVALID_VALUE")))
         ? error.details : undefined;
       return context.json(failure(error.code, error.message, requestId, safeDetails), error.status);
     }

@@ -27,6 +27,7 @@ const operationNames = Object.freeze({
   query: "可查询",
   file_read: "可读取附件",
   file_upload: "可上传附件",
+  relation_create:"可创建语义关系",relation_get:"可读取语义关系",relation_query:"可查询语义关系",relation_delete:"可删除语义关系",
   create: "可创建",
   update: "可修改",
   delete: "可删除",
