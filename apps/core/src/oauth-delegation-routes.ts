@@ -324,12 +324,21 @@ async function approvedOperation(env:Bindings,principal:Principal,providedId:str
 
 export async function requireOAuthMcpDelegatedOperation(
   env: Bindings, principal: Principal, method: string, path: string, providedId: string,
-  targetDelegationId?:string,
+  targetDelegationId?:string, query?:URLSearchParams,
 ): Promise<void|NonNullable<NonNullable<Principal["oauthExecution"]>["relationEndpoints"]>> {
   const x=principal.oauthExecution;
   if(!x || providedId!==x.delegationId)throw fail();
   const {loaded,selected,ordinal}=await approvedOperation(env,principal,providedId);
   const op=selected.operation;
+  // A non-consuming exact relation-contract preview is not edge execution.
+  // Ordinary operation previews are provided by #646.
+  if(isSemanticRelationOperation(op)&&method==="GET"&&path==="/api/v1/spaces/"+x.spaceId+"/_discovery/operations"){
+    if(targetDelegationId||!query||[...query.keys()].length!==2
+      ||query.getAll("modelKey").length!==1||query.getAll("operation").length!==1
+      ||query.get("modelKey")!==selected.modelKey||query.get("operation")!==op)throw fail();
+    await liveConsent(env,loaded.row,loaded.binding,ordinal);
+    return;
+  }
   const relation=oauthRelationOperation(method,path);
   if(relation){
     // Both explicit selectors must be approvals under the SAME current

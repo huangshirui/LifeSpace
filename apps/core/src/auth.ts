@@ -393,6 +393,7 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
         const selection=await measurePerformancePhase(context, "security.oauth_delegation_operation",
           () => requireOAuthMcpDelegatedOperation(
             context.env, principal, context.req.method, context.req.path, delegated,targetSelector,
+            new URL(context.req.url).searchParams,
           ));
         if(selection)relationEndpoints=selection;
       } else if (context.req.header("x-lifespace-delegation-id") || targetSelector!==undefined

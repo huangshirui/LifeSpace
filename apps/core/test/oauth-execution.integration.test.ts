@@ -362,6 +362,13 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await call("POST",path,create,edge,get(targetKey,"query"))).status).toBe(404);
     expect((await f.request("POST",path,actor,edge)).status).toBe(403);
     expect((await call("POST",path,create,{...edge,target:{...target,modelKey:sourceKey}},targetGet)).status).toBe(404);
+    const describe=await call("GET",base+"/_discovery/operations?modelKey="+sourceKey+"&operation=relation_create",create);
+    expect(describe.status).toBe(200);
+    const descriptor=(await describe.json() as {data:{operations:Array<{inputSchema:Record<string,unknown>}>}}).data.operations;
+    expect(descriptor).toHaveLength(1);
+    expect(descriptor[0]!.inputSchema).toMatchObject({required:["spaceId","targetDelegationId","data"],
+      properties:{data:{properties:{predicate:{enum:["relates_to"]}}}}});
+    expect((await call("GET",base+"/_discovery/operations?modelKey="+sourceKey+"&operation=relation_create",get(sourceKey,"update"))).status).toBe(404);
     const added=await call("POST",path,create,edge,targetGet);
     expect(added.status).toBe(200);
     const relationId=(await added.json() as {data:{id:string}}).data.id;

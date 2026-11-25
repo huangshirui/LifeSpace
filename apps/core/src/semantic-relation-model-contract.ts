@@ -3,7 +3,7 @@ import type {
   OpenApiDocument,
 } from "./model-contract";
 import type { PublishedModel } from "./model-registry";
-import { semanticRelationDiscovery, SEMANTIC_RELATION_RUNTIME } from "./semantic-relation-definition";
+import { semanticRelationDiscovery, SEMANTIC_RELATION_RUNTIME, type SemanticRelationOperation } from "./semantic-relation-definition";
 
 function schemaPrefix(modelKey: string): string {
   return modelKey.replace(/(^|_)([a-z])/g, (_match, _prefix, letter: string) => letter.toUpperCase());
@@ -239,4 +239,23 @@ export function applySemanticRelationContract(models: PublishedModel[], openapi:
   addSemanticRelationSchemas(models, openapi);
   addSemanticRelationPaths(openapi);
   addSemanticRelationMetadata(models, jsonSchema);
+}
+
+/** Canonical standalone relation operation input for a represented consumer.
+ * Only stable source-model predicate semantics are projected. A target
+ * selector never makes another model's field schema or data discoverable.
+ */
+export function semanticRelationOperationInputSchema(model:PublishedModel,operation:SemanticRelationOperation):JsonSchema{
+  const predicates=semanticRelationDiscovery(model.key,model.definition.semanticRelations).map(x=>x.predicate);
+  const source=entityRefSchema([model.key]);
+  const target=entityRefSchema([]);
+  (target.properties as Record<string,unknown>).modelKey={type:"string",pattern:"^[a-z][a-z0-9_]{1,62}$"};
+  const predicate={type:"string",enum:predicates};
+  const hydrate={type:"string",enum:["source","target","both"]};
+  const data:JsonSchema={type:"object",additionalProperties:false,
+    ...(operation==="relation_create"||operation==="relation_query"
+      ?{required:operation==="relation_create"?["source","target","predicate"]:["source","target"],
+        properties:{source,target,predicate,...(operation==="relation_query"?{hydrate,limit:{type:"integer",minimum:1,maximum:100},cursor:{type:"string"}}:{})}}
+      :{required:["relationId"],properties:{relationId:{type:"string",pattern:"^rel_[A-Za-z0-9_-]+$"},...(operation==="relation_get"?{hydrate}:{})}})};
+  return data;
 }
