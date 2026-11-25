@@ -242,7 +242,9 @@ export async function fetchClientMetadataResult(
       // A fresh Worker subrequest has no browser cookie jar. Do not forward
       // any inbound headers or use a Request derived from the user session.
       method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000),
-      headers: { accept: "application/json" },
+      // Identify the server-side client honestly for general HTTP/WAF compatibility.
+      // This is not a browser identity and does not change metadata validation.
+      headers: { accept: "application/json", "user-agent": "LifeSpace-Identity" },
     });
   } catch { return failure("metadata_transport", true); }
   const responseReceivedMs = Date.now();
