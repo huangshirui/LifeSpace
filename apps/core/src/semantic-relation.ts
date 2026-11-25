@@ -135,6 +135,7 @@ function endpointRequests(
   sourceRecordId: string,
   targetRecordId: string,
   delegationId?: string | null,
+  targetDelegationId?: string | null,
 ): ModelAccessRequest[] {
   return [
     {
@@ -145,7 +146,7 @@ function endpointRequests(
     {
       model: targetModel,
       required: "read",
-      selector: { delegationId: delegationId ?? null, recordId: targetRecordId },
+      selector: { delegationId: targetDelegationId ?? delegationId ?? null, recordId: targetRecordId },
     },
   ];
 }
@@ -153,6 +154,7 @@ function endpointRequests(
 function sameExecutionPrincipal(left: Principal, right: Principal): boolean {
   return left.type === right.type
     && left.id === right.id
+    && left.clientId === right.clientId
     && left.actor?.type === right.actor?.type
     && left.actor?.id === right.actor?.id;
 }
@@ -161,19 +163,26 @@ function normalizedChain(decision: ModelAccessDecision): string[] {
   return [...decision.authority.delegationChain];
 }
 
-function mutationDelegation(decisions: readonly ModelAccessDecision[]): {
+function mutationDelegation(source: ModelAccessDecision, target: ModelAccessDecision, explicitTarget: boolean): {
   delegationId: string | null;
   chain: string[];
+  sourceChain: string[];
+  targetChain: string[];
 } {
-  const ids = [...new Set(decisions.map((decision) => decision.authority.delegationId).filter(Boolean))] as string[];
-  if (ids.length > 1) {
-    throw new ApiError("DELEGATION_INVALID", "One Semantic Relation mutation must use one Delegation leaf", 403);
+  const sourceChain=normalizedChain(source);
+  const targetChain=normalizedChain(target);
+  if (!explicitTarget && (source.authority.delegationId !== target.authority.delegationId
+    || JSON.stringify(sourceChain) !== JSON.stringify(targetChain))) {
+    throw new ApiError("DELEGATION_INVALID", "One Semantic Relation mutation requires matching Delegation chains unless a target selector is explicit", 403);
   }
-  const chains = decisions.map(normalizedChain).filter((chain) => chain.length);
-  if (chains.length > 1 && chains.some((chain) => JSON.stringify(chain) !== JSON.stringify(chains[0]))) {
-    throw new ApiError("DELEGATION_INVALID", "Semantic Relation endpoints resolved through different Delegation chains", 403);
-  }
-  return { delegationId: ids[0] ?? null, chain: chains[0] ?? [] };
+  return {
+    delegationId: source.authority.delegationId,
+    chain: [...new Set([...sourceChain,...targetChain])],
+    sourceChain,
+    // Preserve the legacy single-chain evidence representation unless the caller
+    // explicitly selected a different endpoint leaf.
+    targetChain: explicitTarget && source.authority.delegationId !== target.authority.delegationId ? targetChain : [],
+  };
 }
 
 async function mutationContext(
@@ -183,7 +192,13 @@ async function mutationContext(
   input: SemanticRelationCreateInput,
   delegationId?: string | null,
   knownExternal = false,
+  targetDelegationId?: string | null,
 ): Promise<RelationMutationContext> {
+  if (targetDelegationId && (!delegationId || principal.purpose === "oauth_agent_execution")) {
+    // OAuth has an additional exact-operation binding. Do not admit a second
+    // selector there until that binding can validate both endpoints.
+    throw new ApiError("DELEGATION_INVALID", "Explicit endpoint Delegations require a supported represented execution context", 403);
+  }
   validateCreateInput(input);
   const [sourceModel, targetModel] = await Promise.all([
     modelOr404(env, input.source.modelKey, spaceId),
@@ -208,6 +223,7 @@ async function mutationContext(
       input.source.recordId,
       input.target.recordId,
       delegationId,
+      targetDelegationId,
     ),
   );
   const [sourceDecision, targetDecision] = decisions;
@@ -305,12 +321,13 @@ function delegationEvidenceStatements(
   env: Bindings,
   relationChangeId: string,
   chain: readonly string[],
+  endpoint: "source" | "target" = "source",
 ): D1PreparedStatement[] {
   return chain.map((delegationId, chainPosition) => env.DB.prepare(`INSERT INTO semantic_relation_change_delegations(
-      change_id,delegation_id,chain_position
-    ) SELECT ?,?,? WHERE EXISTS(
+      change_id,delegation_id,chain_position,endpoint
+    ) SELECT ?,?,?,? WHERE EXISTS(
       SELECT 1 FROM semantic_relation_changes WHERE id=?
-    )`).bind(relationChangeId, delegationId, chainPosition, relationChangeId));
+    )`).bind(relationChangeId, delegationId, chainPosition, endpoint, relationChangeId));
 }
 
 export async function createSemanticRelation(
@@ -319,9 +336,10 @@ export async function createSemanticRelation(
   spaceId: string,
   input: SemanticRelationCreateInput,
   delegationId?: string | null,
+  targetDelegationId?: string | null,
 ): Promise<SemanticRelation> {
-  const resolved = await mutationContext(env, principal, spaceId, input, delegationId);
-  const attribution = mutationDelegation([resolved.sourceDecision, resolved.targetDecision]);
+  const resolved = await mutationContext(env, principal, spaceId, input, delegationId, false, targetDelegationId);
+  const attribution = mutationDelegation(resolved.sourceDecision, resolved.targetDecision, Boolean(targetDelegationId));
   const id = relationId();
   const relationChangeId = changeId();
   const timestamp = new Date().toISOString();
@@ -349,7 +367,8 @@ export async function createSemanticRelation(
       timestamp,
       id,
     ),
-    ...delegationEvidenceStatements(env, relationChangeId, attribution.chain),
+    ...delegationEvidenceStatements(env, relationChangeId, attribution.sourceChain),
+    ...delegationEvidenceStatements(env, relationChangeId, attribution.targetChain, "target"),
     env.DB.prepare(`SELECT id,space_id,source_model_key,source_record_id,predicate,
         target_model_key,target_record_id,created_at
       FROM semantic_relations
@@ -395,6 +414,7 @@ export async function deleteSemanticRelation(
   spaceId: string,
   id: string,
   delegationId?: string | null,
+  targetDelegationId?: string | null,
 ): Promise<void> {
   const row = await relationRowById(env, spaceId, id, true);
   if (!row) throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
@@ -404,8 +424,8 @@ export async function deleteSemanticRelation(
     predicate: relation.predicate,
     target: relation.target,
   };
-  const resolved = await mutationContext(env, principal, spaceId, input, delegationId, true);
-  const attribution = mutationDelegation([resolved.sourceDecision, resolved.targetDecision]);
+  const resolved = await mutationContext(env, principal, spaceId, input, delegationId, true, targetDelegationId);
+  const attribution = mutationDelegation(resolved.sourceDecision, resolved.targetDecision, Boolean(targetDelegationId));
   const relationChangeId = changeId();
   const timestamp = new Date().toISOString();
   const statements: D1PreparedStatement[] = [
@@ -420,7 +440,8 @@ export async function deleteSemanticRelation(
       timestamp,
       id,
     ),
-    ...delegationEvidenceStatements(env, relationChangeId, attribution.chain),
+    ...delegationEvidenceStatements(env, relationChangeId, attribution.sourceChain),
+    ...delegationEvidenceStatements(env, relationChangeId, attribution.targetChain, "target"),
     env.DB.prepare(`DELETE FROM semantic_relations
       WHERE id=? AND space_id=? AND EXISTS(
         SELECT 1 FROM semantic_relation_changes WHERE id=?
