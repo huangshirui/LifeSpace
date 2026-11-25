@@ -22,12 +22,12 @@ CREATE TRIGGER trg_semantic_relation_change_delegation_consume_single_use
 BEFORE INSERT ON semantic_relation_change_delegations
 BEGIN
   -- Also enforce commit-time expiry/revocation for repeated-use leaves.
-  SELECT CASE WHEN NOT EXISTS(
+  SELECT (CASE WHEN NOT EXISTS(
     SELECT 1 FROM delegations WHERE id=NEW.delegation_id
       AND revoked_at IS NULL
       AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
       AND (consumed_at IS NULL OR consumed_by_change_id=NEW.change_id)
-  ) THEN RAISE(ABORT,'DELEGATION_SINGLE_USE_UNAVAILABLE') END;
+  ) THEN RAISE(ABORT,'DELEGATION_SINGLE_USE_UNAVAILABLE') END);
   UPDATE delegations
   SET consumed_at=(SELECT occurred_at FROM semantic_relation_changes WHERE id=NEW.change_id),
       consumed_by_change_id=NEW.change_id
