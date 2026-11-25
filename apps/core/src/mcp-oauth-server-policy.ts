@@ -1,4 +1,5 @@
 import { ApiError } from "./http";
+import { isSemanticRelationOperation, semanticRelationOperationAccess, type SemanticRelationOperation } from "./semantic-relation-definition";
 
 // Core owns the current MCP Server selection. OAuth Scope, current Agent
 // authority, and this tool-exposure policy are independent restrictions.
@@ -66,7 +67,8 @@ export function configuredMcpOAuthScopes(configJson: string): string[] {
     if (typeof row.modelKey !== "string" || !MODEL_KEY.test(row.modelKey)
       || !Array.isArray(row.operations) || !row.operations.length
       || row.operations.some(op => typeof op !== "string")) throw forbidden();
-    return row.operations.some(op => ["create", "update", "delete", "file_upload"].includes(op));
+    return row.operations.some(op => ["create", "update", "delete", "file_upload"].includes(op)
+      || (isSemanticRelationOperation(op) && semanticRelationOperationAccess(op)==="write"));
   });
   const resources = config.resources ?? [];
   const personWrites = (resources as unknown[]).some(entry => {
@@ -98,9 +100,19 @@ export function allowedMcpToolModels(configJson: string): string[] {
       || !Array.isArray(operations) || !operations.length
       || operations.some(op => typeof op !== "string")) throw forbidden();
     seen.add(modelKey);
-    if (operations.some(op => ["get","query","create","update","delete","file_read","file_upload"].includes(op) || op.startsWith("action:"))) allowed.push(modelKey);
+    if (operations.some(op => ["get","query","create","update","delete","file_read","file_upload"].includes(op) || isSemanticRelationOperation(op) || op.startsWith("action:"))) allowed.push(modelKey);
   }
   return allowed.sort();
+}
+
+// Only existing standalone semantic relation routes are admitted.
+export function oauthRelationOperation(method:string,path:string):SemanticRelationOperation|null {
+  const match=/^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/semantic-relations(?:\/(rel_[A-Za-z0-9_-]+))?$/u.exec(path);
+  if(!match)return null;
+  if(method==="GET")return match[1]?"relation_get":"relation_query";
+  if(method==="POST"&&!match[1])return "relation_create";
+  if(method==="DELETE"&&match[1])return "relation_delete";
+  return null;
 }
 
 export async function currentMcpOAuthQueryPolicy(
@@ -123,6 +135,13 @@ export async function currentMcpOAuthQueryPolicy(
   const selected = new Set(queryModelKeys);
   const gettable = new Set(toolModelKeys);
 
+  const relationOperation=oauthRelationOperation(method,path);
+  if(relationOperation){
+    // The verified exact source and target approval bindings are checked
+    // separately by authentication and the relation runtime.
+    if(!Object.values(modelOperations).some(ops=>ops.includes(relationOperation)))throw forbidden();
+    return {serverId,queryModelKeys,toolModelKeys,modelOperations,personOperations};
+  }
   if (method === "GET" && path === INVENTORY) return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };
   if (method === "GET" && /^\/api\/v1\/spaces\/spc_[A-Za-z0-9_-]+\/_authority\/delegation-eligibility$/u.test(path)) {
     return { serverId, queryModelKeys, toolModelKeys, modelOperations, personOperations };

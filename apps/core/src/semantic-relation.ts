@@ -187,6 +187,19 @@ function mutationDelegation(source: ModelAccessDecision, target: ModelAccessDeci
   };
 }
 
+// The canonical relation runtime still checks actual endpoint models and
+// authority. The approved pair is a Core-derived ceiling, not a new Grant.
+function requireRelationEndpointBinding(principal:Principal,operation:string,source:SemanticEntityRef|undefined,
+  target:SemanticEntityRef|undefined,delegationId?:string|null,targetDelegationId?:string|null){
+  if(principal.purpose!=="oauth_agent_execution")return;
+  const verified=principal.oauthExecution?.relationEndpoints;
+  if(!principal.actor || !verified || verified.operation!==operation
+    || principal.oauthExecution?.delegationId!==delegationId
+    || verified.targetDelegationId!==targetDelegationId
+    || verified.sourceModelKey!==source?.modelKey || verified.targetModelKey!==target?.modelKey)
+    throw new ApiError("RESOURCE_NOT_FOUND","Resource not found",404);
+}
+
 async function mutationContext(
   env: Bindings,
   principal: Principal,
@@ -196,10 +209,8 @@ async function mutationContext(
   knownExternal = false,
   targetDelegationId?: string | null,
 ): Promise<RelationMutationContext> {
-  if (targetDelegationId && (!delegationId || principal.purpose === "oauth_agent_execution")) {
-    // OAuth has an additional exact-operation binding. Do not admit a second
-    // selector there until that binding can validate both endpoints.
-    throw new ApiError("DELEGATION_INVALID", "Explicit endpoint Delegations require a supported represented execution context", 403);
+  if (targetDelegationId && !delegationId) {
+    throw new ApiError("DELEGATION_INVALID", "Explicit endpoint Delegations require a source selector", 403);
   }
   validateCreateInput(input);
   const [sourceModel, targetModel] = await Promise.all([
@@ -340,6 +351,7 @@ export async function createSemanticRelation(
   delegationId?: string | null,
   targetDelegationId?: string | null,
 ): Promise<SemanticRelation> {
+  requireRelationEndpointBinding(principal,"relation_create",input.source,input.target,delegationId,targetDelegationId);
   const resolved = await mutationContext(env, principal, spaceId, input, delegationId, false, targetDelegationId);
   const attribution = mutationDelegation(resolved.sourceDecision, resolved.targetDecision, Boolean(targetDelegationId));
   const id = relationId();
@@ -426,6 +438,7 @@ export async function deleteSemanticRelation(
     predicate: relation.predicate,
     target: relation.target,
   };
+  requireRelationEndpointBinding(principal,"relation_delete",input.source,input.target,delegationId,targetDelegationId);
   const resolved = await mutationContext(env, principal, spaceId, input, delegationId, true, targetDelegationId);
   const attribution = mutationDelegation(resolved.sourceDecision, resolved.targetDecision, Boolean(targetDelegationId));
   const relationChangeId = changeId();
@@ -657,10 +670,11 @@ export async function querySemanticRelations(
     args.push(cursor.createdAt, cursor.createdAt, cursor.id);
   }
 
+  requireRelationEndpointBinding(principal,"relation_query",query.source,query.target,query.delegationId,query.targetDelegationId);
   if (query.targetDelegationId) {
     // A pair selector must explicitly identify both endpoints. This avoids
     // scanning unapproved models or using a cursor derived from hidden edges.
-    if (!query.delegationId || principal.purpose==="oauth_agent_execution" || !query.source || !query.target)
+    if (!query.delegationId || !query.source || !query.target)
       throw new ApiError("INVALID_QUERY","Explicit endpoint Delegations require both record references and a supported represented context",400);
     where.push(endpointExists("source"),endpointExists("target"));
     const result=await env.DB.prepare(`SELECT id,space_id,source_model_key,source_record_id,predicate,
@@ -767,10 +781,12 @@ export async function getSemanticRelation(
   hydrate?: SemanticRelationQuery["hydrate"],
   targetDelegationId?: string | null,
 ): Promise<SemanticRelation | null> {
-  if(targetDelegationId && (!delegationId || principal.purpose==="oauth_agent_execution"))
+  if(targetDelegationId && !delegationId)
     throw new ApiError("DELEGATION_INVALID","Explicit endpoint Delegations require a supported represented context",403);
   const row = await relationRowById(env, spaceId, id);
   if (!row) return null;
+  requireRelationEndpointBinding(principal,"relation_get",entityRef(row.source_model_key,row.source_record_id),
+    entityRef(row.target_model_key,row.target_record_id),delegationId,targetDelegationId);
   const visible = await visibleCandidates(env, principal, spaceId, [row], delegationId, hydrate,targetDelegationId);
   if (!visible.rows.length) return null;
   if (targetDelegationId) await consumeEndpointDelegationRead(env,visible.decisions);

@@ -312,6 +312,71 @@ describe("OAuth MCP Agent Direct execution: Core fail-closed route and Space bou
     expect((await f.request("POST",route,patch,payload)).status).toBe(403);
   });
 
+  it("authorizes a relation only with exact approved source operation and target get from the same OAuth context", async()=>{
+    const f=await fixture(), suffix=crypto.randomUUID().replaceAll("-","").slice(0,12), now=new Date().toISOString();
+    const sourceKey="rel_source_"+suffix,targetKey="rel_target_"+suffix;
+    const publisher:Principal={type:"service",id:"svc_"+suffix,clientId:"lifespace-platform-admin",scopes:["models:manage"],tokenId:"tok_"+suffix};
+    for(const key of [sourceKey,targetKey]){
+      await publishModelDefinition({DB:f.db} as Bindings,publisher,{
+        definitionVersion:1,key,display:{singular:"Synthetic",plural:"Synthetic records"},
+        fields:{name:{type:"string",required:true}},access:["read","write"],
+        ...(key===sourceKey?{semanticRelations:{outgoing:["relates_to"]}}:{}),
+      },"initial");
+    }
+    await f.db.batch([
+      f.db.prepare("INSERT INTO space_memberships(id,space_id,user_id,role,created_at,updated_at) VALUES(?,?,?,'owner',?,?)")
+        .bind("mem_"+suffix,f.space,f.oauthUser,now,now),
+      f.db.prepare("DELETE FROM data_grants WHERE grantee_type='agent' AND grantee_id=?").bind(f.agent),
+      ...[sourceKey,targetKey].map(key=>f.db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)")
+        .bind(f.application,key,"write","service",publisher.id)),
+      f.db.prepare("UPDATE mcp_server_definitions SET config_json=? WHERE id=?").bind(JSON.stringify({models:[
+        {modelKey:sourceKey,operations:["create","update","relation_create","relation_get","relation_query","relation_delete"]},
+        {modelKey:targetKey,operations:["create","get","query"]},
+      ]}),f.serverId),
+    ]);
+    f.setDelegationEnabled(true);f.setConsentScopes(["resources:read","resources:write"]);
+    const actor={scope:"resources:read resources:write",oauth_allow_user_authorization:true};
+    const base="/api/v1/spaces/"+f.space;
+    const operations=[...["create","update","relation_create","relation_get","relation_query","relation_delete"].map(operation=>({modelKey:sourceKey,operation})),
+      ...["create","get","query"].map(operation=>({modelKey:targetKey,operation}))];
+    const eligible=await f.request("GET",base+"/_authority/delegation-eligibility",actor);
+    expect(eligible.status).toBe(200);
+    expect((await eligible.json() as {data:{eligibleOperations:Array<{operation:string}>}}).data.eligibleOperations.map(x=>x.operation)).toContain("relation_create");
+    const pending=await f.request("POST",base+"/oauth-delegation-requests",actor,{operations,reason:"Synthetic governed relation"});
+    expect(pending.status).toBe(201);
+    const id=(await pending.json() as {data:{id:string}}).data.id;
+    const approval=await f.accountRequest("POST","/api/v1/me/oauth/delegation-requests/"+id+"/approve",{mode:"until_revoked"});
+    expect(approval.status).toBe(200);
+    const granted=(await approval.json() as {data:{delegations:Array<{id:string}>}}).data.delegations;
+    const get=(model:string,operation:string)=>granted[operations.findIndex(op=>op.modelKey===model&&op.operation===operation)]!.id;
+    const call=(method:string,path:string,dlg:string,body?:unknown,target?:string)=>f.request(method,path,
+      {...actor,principal_type:"user",principal_id:f.oauthUser,oauth_delegation_id:dlg},body,
+      {"x-lifespace-delegation-id":dlg,...(target?{"x-lifespace-target-delegation-id":target}:{})});
+    const record=async(key:string)=>{const r=await call("POST",base+"/models/"+key+"/records",get(key,"create"),{name:"Synthetic"});expect(r.status).toBe(201);return (await r.json() as {data:{id:string}}).data.id};
+    const source={kind:"record",modelKey:sourceKey,recordId:await record(sourceKey)};
+    const target={kind:"record",modelKey:targetKey,recordId:await record(targetKey)};
+    const edge={source,target,predicate:"relates_to"};
+    const path=base+"/semantic-relations", create=get(sourceKey,"relation_create"), targetGet=get(targetKey,"get");
+    expect((await call("POST",path,get(sourceKey,"update"),edge,targetGet)).status).toBe(404);
+    expect((await call("POST",path,create,edge)).status).toBe(404);
+    expect((await call("POST",path,create,edge,get(targetKey,"query"))).status).toBe(404);
+    expect((await f.request("POST",path,actor,edge)).status).toBe(403);
+    expect((await call("POST",path,create,{...edge,target:{...target,modelKey:sourceKey}},targetGet)).status).toBe(404);
+    const added=await call("POST",path,create,edge,targetGet);
+    expect(added.status).toBe(200);
+    const relationId=(await added.json() as {data:{id:string}}).data.id;
+    const read=await call("GET",path+"/"+relationId,get(sourceKey,"relation_get"),undefined,targetGet);
+    expect(read.status).toBe(200);
+    const query=path+"?"+new URLSearchParams({sourceModelKey:sourceKey,sourceRecordId:source.recordId,targetModelKey:targetKey,targetRecordId:target.recordId}).toString();
+    expect((await call("GET",query,get(sourceKey,"relation_query"),undefined,targetGet)).status).toBe(200);
+    expect((await call("GET",path+"/"+relationId,create,undefined,targetGet)).status).toBe(404);
+    expect((await call("DELETE",path+"/"+relationId,get(sourceKey,"relation_delete"),undefined,targetGet)).status).toBe(204);
+    expect((await call("POST",path,create,edge,targetGet)).status).toBe(200);
+    await f.accountRequest("POST","/api/v1/me/oauth/delegations/"+targetGet+"/revoke",{});
+    const denied=await call("POST",path,create,edge,targetGet);
+    expect([403,404]).toContain(denied.status);
+  });
+
   it("approves 32 exact operations across 8 models in one atomic Account decision", async () => {
     const f=await fixture();
     const suffix=crypto.randomUUID().replaceAll("-","");

@@ -2,12 +2,13 @@ import type { Context, Hono } from "hono";
 import { nativeFileReadFields, nativeFileUploadFields } from "./file-read-fields";
 import type { Bindings, Variables } from "./env";
 import { ApiError, success } from "./http";
+import { SEMANTIC_RELATION_OPERATIONS, isSemanticRelationOperation, semanticRelationOperationAccess, type SemanticRelationOperation } from "./semantic-relation-definition";
 import { requirePlatformAdminContext, type PlatformAdminContext } from "./platform-admin-auth";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 type App = Hono<AppEnv>;
 type Json = Record<string, unknown>;
-type Operation = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | `action:${string}`;
+type Operation = "get" | "query" | "create" | "update" | "delete" | "file_read" | "file_upload" | SemanticRelationOperation | `action:${string}`;
 type PersonOperation = "list" | "get" | "create" | "update" | "delete";
 type ModelSelection = { modelKey: string; operations: Operation[] };
 type ResourceSelection = { resourceKey: "person_directory"; operations: PersonOperation[] };
@@ -22,7 +23,7 @@ type ModelRow = { model_key: string; definition_json: string };
 const ID = /^mcp_[a-f0-9]{32}$/u;
 const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
 const ACTION = /^action:([a-z][a-z0-9_-]{0,62})$/u;
-const OPERATIONS = new Set(["get", "query", "create", "update", "delete", "file_read", "file_upload"]);
+const OPERATIONS = new Set(["get", "query", "create", "update", "delete", "file_read", "file_upload", ...SEMANTIC_RELATION_OPERATIONS]);
 const PERSON_OPERATIONS = new Set(["list", "get", "create", "update", "delete"]);
 const now = () => new Date().toISOString();
 const newId = () => "mcp_" + crypto.randomUUID().replaceAll("-", "");
@@ -113,10 +114,12 @@ async function validateModels(context: Context<AppEnv>, config: Configuration): 
   for (const entry of config.models) {
     const found = models.get(entry.modelKey);
     if (!found) throw new ApiError("MODEL_NOT_FOUND", "Model " + entry.modelKey + " is not published", 422);
-    const definition = JSON.parse(found.definition_json) as { access?: unknown; actions?: unknown };
+    const definition = JSON.parse(found.definition_json) as { access?: unknown; actions?: unknown; semanticRelations?: {outgoing?:unknown[]} };
     const access = Array.isArray(definition.access) ? definition.access : [];
     const actions = object(definition.actions) ? definition.actions : {};
     for (const operation of entry.operations) {
+      if(isSemanticRelationOperation(operation)&&!definition.semanticRelations?.outgoing?.length)
+        throw new ApiError("VALIDATION_ERROR",entry.modelKey+" has no declared outgoing Semantic Relation",422);
       if (operation === "file_read" && (definition as { origin?: unknown }).origin !== "external"
         && !nativeFileReadFields(definition).length) {
         throw new ApiError("VALIDATION_ERROR", entry.modelKey + " has no supported Core file download field", 422);
@@ -132,6 +135,7 @@ async function validateModels(context: Context<AppEnv>, config: Configuration): 
       const candidate = action ? actions[action[1] ?? ""] : null;
       const required = action
         ? object(candidate) ? candidate.access : null
+        : isSemanticRelationOperation(operation)?semanticRelationOperationAccess(operation)
         : operation === "get" || operation === "query" || operation === "file_read" ? "read" : "write";
       if ((required !== "read" && required !== "write") || !access.includes(required)) {
         throw new ApiError("VALIDATION_ERROR", entry.modelKey + " has no published capability " + operation, 422);

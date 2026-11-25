@@ -99,3 +99,13 @@ export function semanticRelationDiscovery(
   });
 }
 
+
+// Stable source-model operation names for an independent governed edge.
+export type SemanticRelationOperation = "relation_create" | "relation_get" | "relation_query" | "relation_delete";
+export const SEMANTIC_RELATION_OPERATIONS = ["relation_create","relation_get","relation_query","relation_delete"] as const;
+export function isSemanticRelationOperation(value: string): value is SemanticRelationOperation {
+  return (SEMANTIC_RELATION_OPERATIONS as readonly string[]).includes(value);
+}
+export function semanticRelationOperationAccess(operation: SemanticRelationOperation): "read" | "write" {
+  return operation==="relation_get" || operation==="relation_query" ? "read" : "write";
+}

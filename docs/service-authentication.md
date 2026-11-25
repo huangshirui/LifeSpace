@@ -446,3 +446,6 @@ The configured MCP Resource and selected Space are transport context, not author
 ### OAuth composite User Delegation capacity (candidate, #651)
 
 The explicit Account approval supports 2–64 exact operations across at most eight distinct models (including Person), while generic authorization requests remain capped at 20 items. The request and issuance transactions use set-oriented statements; operation capabilities are checked with a request-local cache that is never shared between requests. Existing approval and Delegation IDs survive migration. Each approved operation retains independent lifetime and revocation. The larger bound is subject to CI and staging D1 budget verification before rollout.
+
+### Exact OAuth Semantic Relation approvals (development candidate)
+A source relation operation is an explicit independent approval, never implicitly supplied by ordinary `update` or `get`. Standalone edge operations require the signed source selector and explicit target `get` selector from the same current verified OAuth authorization. Core verifies both approved bindings and actual endpoint models; existing single-scope Delegations, identity and record authority remain unchanged. No new Identity credential format. Adapter may only project the canonical relation contract after companion discovery/UI support is available.
