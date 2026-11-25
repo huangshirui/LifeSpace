@@ -151,7 +151,9 @@ export function createApp() {
       // Only model input validation, after ordinary runtime authority checks,
       // may disclose a structured field path. Other failures stay unchanged.
       const safeDetails = (error.status === 400 || error.status === 422)
-        && (error.code === "INVALID_RESOURCE" || error.code === "VALIDATION_ERROR")
+        && (error.code === "INVALID_RESOURCE" || error.code === "VALIDATION_ERROR"
+          || (error.code === "INVALID_REQUEST" && error.details?.fieldPath === "data.version"
+            && (error.details.reasonCode === "FIELD_REQUIRED" || error.details.reasonCode === "FIELD_INVALID_VALUE")))
         ? error.details : undefined;
       return context.json(failure(error.code, error.message, requestId, safeDetails), error.status);
     }

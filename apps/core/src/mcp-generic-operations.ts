@@ -140,10 +140,16 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
   const spaceId=c.req.param("spaceId");
   if(!spaceId)throw denied();
   const trusted=principal.purpose==="agent_api"&&principal.type==="agent"&&!principal.actor;
-  const selector=trusted?c.req.header("x-lifespace-delegation-id"):undefined;
+  const represented=principal.purpose==="oauth_agent_execution"&&principal.type==="user"&&Boolean(principal.actor);
+  const selector=trusted||represented?c.req.header("x-lifespace-delegation-id"):undefined;
+  // The auth middleware validates the exact approved operation in the query.
+  // Never accept represented OAuth on the generic invoke route or other modes.
+  if(represented&&(!selector||selector!==execution?.delegationId||targetRef||eligibility||configuration
+    ||!filter?.modelKey||!filter.operation||c.req.method!=="GET"
+    ||c.req.path!=="/api/v1/spaces/"+spaceId+"/_discovery/operations"))throw denied();
   const trustedResource=trusted?c.req.header("x-lifespace-mcp-resource"):undefined;
   if(!trusted&&(principal.purpose!=="oauth_agent_execution"||!execution||execution.spaceId!==spaceId
-    ||principal.actor||!execution.serverId||!execution.modelOperations||!execution.personOperations))throw denied();
+    ||(principal.actor&&!represented)||!execution.serverId||!execution.modelOperations||!execution.personOperations))throw denied();
   if(trusted&&eligibility)throw denied();
   if(configuration&&(!trusted||selector!==undefined||targetRef))throw denied();
   const metadataOnly=eligibility||configuration;
@@ -165,7 +171,7 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
     ||principal.type!=="agent"||!principal.scopes.includes("resources:read")))throw denied();
   const projectedPrincipal:Principal=eligibility
     ?{type:"user",id:execution!.userId!,clientId:principal.clientId,tokenId:principal.tokenId,scopes:[...principal.scopes]}
-    :trusted?principal:discoveryPrincipal(principal,"write");
+    :trusted||represented?principal:discoveryPrincipal(principal,"write");
   const out:Entry[]=[];
   const operationRef=(kind:Kind,key:string,op:string)=>ref([policy.serverId,spaceId,key,op,kind].join(":"));
   const matches=async(kind:Kind,key:string,op:string)=>
@@ -215,9 +221,9 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
       }
     }
     for(const access of needed){
-      if((eligibility||trusted)&&!principal.scopes.includes("resources:"+access))continue;
+      if((eligibility||trusted||represented)&&!principal.scopes.includes("resources:"+access))continue;
       requested.push({key,access});
-      requests.push({model:authority,required:access,...(trusted&&selector!==undefined?{selector:{delegationId:selector}}:{}),observeAuthorityBatch:authorityD1Observer(c)});
+      requests.push({model:authority,required:access,...((trusted||represented)&&selector!==undefined?{selector:{delegationId:selector}}:{}),observeAuthorityBatch:authorityD1Observer(c)});
     }
   }
   const permissions=new Map<string,{read:boolean;write:boolean}>();
@@ -364,12 +370,12 @@ async function manifest(c:ContextApp,targetRef?:string,filter?:ProjectionFilter,
   const choices:string[]=[];
   for(const op of policy.personOperations){
     const normalized=op==="list"?"query":op;
-    if(validCrud(normalized)&&(!(eligibility||trusted)||principal.scopes.includes("resources:"+(["query","get"].includes(normalized)?"read":"write")))
+    if(validCrud(normalized)&&(!(eligibility||trusted||represented)||principal.scopes.includes("resources:"+(["query","get"].includes(normalized)?"read":"write")))
       &&await matches("person","person",normalized))choices.push(normalized);
   }
   let personChoices:string[];
   if(configuration)personChoices=choices;
-  else if(trusted){
+  else if(trusted||represented){
     const may=async(access:Access)=>{
       try{await requireDirectoryAccess(c,spaceId,access);return true;}
       catch(error){if(error instanceof ApiError&&[403,404,405].includes(error.status))return false;throw error;}
