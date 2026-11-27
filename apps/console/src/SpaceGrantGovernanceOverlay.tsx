@@ -4,7 +4,7 @@ import { SearchableSelect } from "./SearchableSelect";
 import { GrantGranteePicker, GrantGranteeLabel, grantGranteeSummary, useGrantLabels, type GrantGranteeType } from "./GrantGranteePicker";
 
 type GrantPermission = "free_busy" | "read" | "write" | "manage";
-type GrantResourceType = "space" | "model";
+type GrantResourceType = "space" | "model" | "person_directory";
 
 type DataGrant = {
   id: string;
@@ -112,8 +112,12 @@ function toUtcInstant(value: string): string | null {
   return date.toISOString();
 }
 
+function grantResourceLabel(grant: DataGrant) {
+  return grant.resourceType === "space" ? "Whole Space" : grant.resourceType === "person_directory" ? "Person Directory · 人员目录" : grant.resourceId ?? "model";
+}
+
 function grantSummary(grant: DataGrant, labels: ReturnType<typeof useGrantLabels>) {
-  const resource = grant.resourceType === "space" ? "Whole Space" : grant.resourceId ?? "model";
+  const resource = grantResourceLabel(grant);
   return `${grantGranteeSummary(grant, labels)} → ${resource} · ${grant.permission}`;
 }
 
@@ -236,11 +240,12 @@ function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose:
     <fieldset className="console-editor-fields" disabled={busy}>
       <label className="cp-field"><span>Grantee type</span><select value={granteeType} onChange={event => { setGranteeType(event.target.value as GrantGranteeType); setGranteeId(""); setConfirmed(false); }}><option value="service">Service</option><option value="agent">Agent</option><option value="user">User</option><option value="space">Space</option><option value="device">Device</option></select></label>
       <GrantGranteePicker key={granteeType} type={granteeType} value={granteeId} sourceSpaceId={spaceId} onChange={id => { setGranteeId(id); setConfirmed(false); }} />
-      <label className="cp-field"><span>Resource</span><select value={resourceType} onChange={event => { const next = event.target.value as GrantResourceType; setResourceType(next); setResourceId(""); setModelQuery(""); setConfirmed(false); if (next === "model" && permission === "free_busy") setPermission("read"); }}><option value="space">Whole Space</option><option value="model">Specific Model</option></select></label>
+      <label className="cp-field"><span>Resource</span><select value={resourceType} onChange={event => { const next = event.target.value as GrantResourceType; setResourceType(next); setResourceId(""); setModelQuery(""); setConfirmed(false); if ((next !== "space" && permission === "free_busy") || (next === "person_directory" && permission === "manage")) setPermission("read"); }}><option value="space">Whole Space</option><option value="model">Specific Model</option><option value="person_directory">Person Directory · 人员目录</option></select></label>
+      {resourceType === "person_directory" && <p>仅授权人员目录，不授予其他模型、用户身份或 Space 管理权限。</p>}
       {resourceType === "model" && <SearchableSelect label="Model" value={resourceId} query={modelQuery} onQueryChange={setModelQuery}
         options={models.filter(model => model.key.toLowerCase().includes(modelQuery.trim().toLowerCase())).map(model => ({ id: model.key, name: model.key }))}
         onChange={id => { setResourceId(id); setConfirmed(false); }} placeholder="搜索并选择 Model" />}
-      <label className="cp-field"><span>Permission</span><select value={permission} onChange={event => { setPermission(event.target.value as GrantPermission); setConfirmed(false); }}>{resourceType === "space" && <option value="free_busy">free_busy</option>}<option value="read">read</option><option value="write">write</option><option value="manage">manage</option></select></label>
+      <label className="cp-field"><span>Permission</span><select value={permission} onChange={event => { setPermission(event.target.value as GrantPermission); setConfirmed(false); }}>{resourceType === "space" && <option value="free_busy">free_busy</option>}<option value="read">read</option><option value="write">write</option>{resourceType !== "person_directory" && <option value="manage">manage</option>}</select></label>
       <label className="cp-field"><span>Expires (optional)</span><input type="datetime-local" value={expiresAt} onChange={event => { setExpiresAt(event.target.value); setConfirmed(false); }} /></label>
       <label className="cp-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>我确认创建此 Data Grant，并理解它会立即影响后续 Runtime Authority。</span></label>
     </fieldset>
@@ -251,7 +256,7 @@ function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose:
     description={grantSummary(mode.grant, labels)} onClose={cancelEditor}
     footer={<>{cancel}<button type="button" className="cp-primary" disabled={busy || !confirmed} onClick={() => void updateGrant()}>{busy ? "保存中…" : "保存 Grant"}</button></>}>
     <fieldset className="console-editor-fields" disabled={busy}>
-      <label className="cp-field"><span>Permission</span><select value={permission} onChange={event => { setPermission(event.target.value as GrantPermission); setConfirmed(false); }}>{mode.grant.resourceType === "space" && <option value="free_busy">free_busy</option>}<option value="read">read</option><option value="write">write</option><option value="manage">manage</option></select></label>
+      <label className="cp-field"><span>Permission</span><select value={permission} onChange={event => { setPermission(event.target.value as GrantPermission); setConfirmed(false); }}>{mode.grant.resourceType === "space" && <option value="free_busy">free_busy</option>}<option value="read">read</option><option value="write">write</option>{mode.grant.resourceType !== "person_directory" && <option value="manage">manage</option>}</select></label>
       <label className="cp-field"><span>Expires (empty = never)</span><input type="datetime-local" value={expiresAt} onChange={event => { setExpiresAt(event.target.value); setConfirmed(false); }} /></label>
       <label className="cp-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>我确认修改此 Grant 的权限/有效期。</span></label>
     </fieldset>
@@ -275,7 +280,7 @@ function GrantGovernanceDialog({ spaceId, onClose }: { spaceId: string; onClose:
           <div className="cp-access-head"><span>Grantee</span><span>Resource</span><span>Permission / expiry</span></div>
           {activeGrants.map(grant => <div className="cp-access-row" key={grant.id}>
             <div><GrantGranteeLabel grant={grant} labels={labels} /></div>
-            <div><strong>{grant.resourceType === "space" ? "Whole Space" : grant.resourceId}</strong><small>{grant.id}</small></div>
+            <div><strong>{grantResourceLabel(grant)}</strong><small>{grant.id}</small></div>
             <div><strong>{grant.permission}</strong><small>{grant.expiresAt ? new Date(grant.expiresAt).toLocaleString() : "Never expires"}</small><div className="cp-row"><button className="cp-secondary" disabled={busy} onClick={() => startEdit(grant)}>Edit</button><button className="cp-danger" disabled={busy} onClick={() => startRevoke(grant)}>Revoke</button></div></div>
           </div>)}
         </div>
