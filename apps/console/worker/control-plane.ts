@@ -20,7 +20,7 @@ type AdminContext = {
 };
 
 type GrantPermission = "free_busy" | "read" | "write" | "manage";
-type GrantResourceType = "space" | "model";
+type GrantResourceType = "space" | "model" | "person_directory";
 type GrantGranteeType = "user" | "space" | "service" | "device" | "agent";
 
 const ACCESS_ASSERTION_HEADER = "cf-access-jwt-assertion";
@@ -367,7 +367,7 @@ function granteeType(value: unknown): value is GrantGranteeType {
 }
 
 function resourceType(value: unknown): value is GrantResourceType {
-  return value === "space" || value === "model";
+  return value === "space" || value === "model" || value === "person_directory";
 }
 
 async function createDataGrant(request: Request, env: Env, spaceId: string): Promise<Response> {
@@ -385,8 +385,11 @@ async function createDataGrant(request: Request, env: Env, spaceId: string): Pro
   if (!granteeType(targetGranteeType) || !targetGranteeId || !resourceType(targetResourceType) || !grantPermission(targetPermission)) {
     return failure("VALIDATION_ERROR", "Grant requires valid granteeType, granteeId, resourceType and permission", 422, requestId(request));
   }
-  if (targetResourceType === "space" && body.resourceId !== undefined && body.resourceId !== null) {
-    return failure("VALIDATION_ERROR", "Space grants must omit resourceId", 422, requestId(request));
+  if (targetResourceType !== "model" && body.resourceId !== undefined && body.resourceId !== null) {
+    return failure("VALIDATION_ERROR", "Space and Person Directory grants must omit resourceId", 422, requestId(request));
+  }
+  if (targetResourceType === "person_directory" && targetPermission !== "read" && targetPermission !== "write") {
+    return failure("VALIDATION_ERROR", "Person Directory grants support read or write only", 422, requestId(request));
   }
   const resourceId = targetResourceType === "model" ? stringValue(body.resourceId)?.trim() ?? "" : null;
   if (targetResourceType === "model" && (!resourceId || !validModelKey(resourceId))) {

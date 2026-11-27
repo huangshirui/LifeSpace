@@ -3,7 +3,7 @@ import YAML from "yaml";
 
 const document = YAML.parse(fs.readFileSync(new URL("../platform-admin.openapi.yaml", import.meta.url), "utf8"));
 
-if (document.openapi !== "3.1.0" || document.info?.version !== "0.11.0") {
+if (document.openapi !== "3.1.0" || document.info?.version !== "0.12.0") {
   throw new Error("Core Platform Admin OpenAPI version metadata is invalid");
 }
 if (!document.info?.title?.includes("Platform Admin")) {
@@ -108,6 +108,16 @@ for (const operation of [grants.post, grant.patch, grant.delete]) {
 const grantTypes = document.components?.schemas?.PlatformDataGrant?.properties?.granteeType?.enum ?? [];
 if (!grantTypes.includes("agent") || !grantTypes.includes("service")) {
   throw new Error("Platform Data Grant governance must expose Agent and Service grantees");
+}
+
+for (const key of ["PlatformDataGrant", "CreateDataGrantRequest"]) {
+  const schema = document.components?.schemas?.[key];
+  const condition = schema?.allOf?.find(rule => rule.if?.properties?.resourceType?.const === "person_directory");
+  if (!schema?.properties?.resourceType?.enum?.includes("person_directory")
+    || condition?.then?.properties?.resourceId?.type !== "null"
+    || condition?.then?.properties?.permission?.enum?.join(",") !== "read,write") {
+    throw new Error("Platform Person Directory grant must be a distinct null-id read/write resource");
+  }
 }
 
 const externalPaths = requiredPaths.filter((path) => path.includes("/external-"));

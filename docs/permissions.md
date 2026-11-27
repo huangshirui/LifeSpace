@@ -409,3 +409,8 @@ For standalone relation operations, an optional explicit target Delegation selec
 
 ### OAuth Semantic Relation operation ceiling (development candidate)
 The current approval bridge treats relation_create/delete as source write, relation_get/query as source read, all separately selectable and independent from CRUD; target get is independently approved read. Both exact bindings must match one verified current OAuth authorization and the actual endpoint pair. Core additionally checks current model authority, Policy, declared predicate and both chains. No direct OAuth relation admission or implicit Space authority. UI and protocol projection pending.
+
+
+### Platform Admin Person Directory governance (0.12.0 candidate)
+
+Console may create, inspect, update and revoke the same independent Person Directory Data Grant through privileged Platform Admin Space grant governance. The resource is `person_directory`, with null/omitted resourceId and read/write only. Existing human actor proof and scoped service executor checks and atomic audit remain mandatory. No membership, ordinary model access or broader Space permission is created. The Stable Space-user /grants contract remains space/model-only; the Candidate Person Directory companion remains unchanged. Not yet deployed.

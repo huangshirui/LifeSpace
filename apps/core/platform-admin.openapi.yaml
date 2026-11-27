@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LifeSpace Core Platform Admin API
-  version: 0.11.0
+  version: 0.12.0
   description: >-
     Privileged LifeSpace Core control-plane contract for the LifeSpace Console and approved
     platform automation. This contract is separate from both the downstream Core Kernel Contract and
@@ -221,7 +221,7 @@ paths:
       description: >-
         Update the permission and/or expiry of one active Data Grant. Requires grants:manage plus
         the platform-admin actor proof. The mutation and platform-admin audit evidence are committed
-        together in Core D1.
+        together in Core D1. Person Directory grants permit only read or write.
       requestBody:
         required: true
         content:
@@ -869,13 +869,19 @@ components:
         sourceSpaceId: { type: string, pattern: '^spc_' }
         granteeType: { type: string, enum: [user, space, service, device, agent] }
         granteeId: { type: string }
-        resourceType: { type: string, enum: [space, model] }
+        resourceType: { type: string, enum: [space, model, person_directory] }
         resourceId: { anyOf: [{ type: string }, { type: 'null' }] }
         permission: { type: string, enum: [free_busy, read, write, manage] }
         createdByUserId: { type: string }
         createdAt: { type: string, format: date-time }
         expiresAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
         revokedAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+      allOf:
+        - if:
+            properties: { resourceType: { const: person_directory } }
+            required: [resourceType]
+          then:
+            properties: { resourceId: { type: 'null' }, permission: { enum: [read, write] } }
     CreateDataGrantRequest:
       type: object
       additionalProperties: false
@@ -883,10 +889,16 @@ components:
       properties:
         granteeType: { type: string, enum: [user, space, service, device, agent] }
         granteeId: { type: string, minLength: 1 }
-        resourceType: { type: string, enum: [space, model], default: space }
+        resourceType: { type: string, enum: [space, model, person_directory], default: space }
         resourceId: { anyOf: [{ type: string }, { type: 'null' }] }
         permission: { type: string, enum: [free_busy, read, write, manage] }
         expiresAt: { anyOf: [{ type: string, format: date-time }, { type: 'null' }] }
+      allOf:
+        - if:
+            properties: { resourceType: { const: person_directory } }
+            required: [resourceType]
+          then:
+            properties: { resourceId: { type: 'null' }, permission: { enum: [read, write] } }
     UpdateDataGrantRequest:
       type: object
       additionalProperties: false

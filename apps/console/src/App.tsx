@@ -370,7 +370,7 @@ function SpaceDetailPage({ id }: { id: string }) {
     </div>
     <Section title={`Data Grants (${space.grants.length})`} description="包含已撤销 grant，便于诊断治理历史。">
       {!space.grants.length ? <Empty /> : <div className="table-wrap"><table><thead><tr><th>Grantee</th><th>Resource</th><th>Permission</th><th>Expires</th><th>状态</th></tr></thead><tbody>
-        {space.grants.map((grant) => <tr key={grant.id}><td><GrantGranteeLabel grant={grant} labels={grantLabels} /></td><td><strong>{grant.resourceType}</strong><small>{grant.resourceId ?? "all"}</small></td><td>{grant.permission}</td><td>{formatDate(grant.expiresAt)}</td><td><Badge value={grant.revokedAt ? "revoked" : "active"} /></td></tr>)}
+        {space.grants.map((grant) => <tr key={grant.id}><td><GrantGranteeLabel grant={grant} labels={grantLabels} /></td><td><strong>{grant.resourceType === "person_directory" ? "Person Directory · 人员目录" : grant.resourceType}</strong><small>{grant.resourceType === "person_directory" ? "Kernel" : grant.resourceId ?? "all"}</small></td><td>{grant.permission}</td><td>{formatDate(grant.expiresAt)}</td><td><Badge value={grant.revokedAt ? "revoked" : "active"} /></td></tr>)}
       </tbody></table></div>}
     </Section>
   </>;
