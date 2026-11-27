@@ -2,6 +2,21 @@
 
 本文件只记录**已经成功发布到 production** 的变化。开发中、staging、PR 或 main 上的变化不得提前写成 production changelog。
 
+## 2026-11-27 (UTC+8) — Console Person Directory 独立授权治理
+
+- **Verified release:** `c7446080a155bf30ec52b59bb12c454102e3563e`; [Platform Staging #45938912766](https://github.com/huangshirui/LifeSpace/actions/runs/45938912766), [Console Staging #45940314189](https://github.com/huangshirui/LifeSpace/actions/runs/45940314189), [Platform Production #45940677990](https://github.com/huangshirui/LifeSpace/actions/runs/45940677990) attempt 2 and [Console Production #45943138606](https://github.com/huangshirui/LifeSpace/actions/runs/45943138606) all succeeded on exact SHA.
+- **#660/#661:** Console Space → Data Grants 可创建、展示、编辑及撤销独立 Person Directory Grant（`person_directory`，`resourceId=null`，仅 `read/write`）；Platform Admin 0.12.0，沿用同一 Core 权威存储、双重管理员证明及审计；不增加 Membership、整 Space 或普通模型权限。Stable Space `/grants` 不变，无迁移。
+- **Verification:** APAC, HTTP convergence, Cloudflare isolation/bindings and Service Auth/Model Contract gates passed. #662 first attempt failed on transient Identity Smart Placement status; analysis returned SUCCESS and retry passed. Core Kernel 0.58.0/schema84; Identity 0.19.0/schema20; active contract `mct_e915b2c08bb199005f1fd438d3d3f41a98fa6cd148ea0a58c0cccf82e75b35a1`, 19 models unchanged. Owner confirmed Staging acceptance; real Production grant mutation not independently exercised. No downstream or Account/Adapter release in this change.
+
+---
+
+## 2026-11-25 (UTC+8) — CIMD User-Agent 维护 (#656)
+
+- **Verified release:** `5d8ff5c8f8d7f5e039d467674d4665332a3cf3ac`; [Staging #45578817186](https://github.com/huangshirui/LifeSpace/actions/runs/45578817186), [Production #45581359030](https://github.com/huangshirui/LifeSpace/actions/runs/45581359030) success.
+- Identity identifies CIMD metadata requests with truthful User-Agent; validation, no stale fallback and security boundaries unchanged. No capability-level, Schema or Authority change. #580 remains unresolved; owner cold-cache retest observed upstream 403.
+
+---
+
 ## 2026-11-25 (UTC+8) — Agent exact operation contracts, composite approvals and Semantic Relations
 
 - **Verified release:** [Platform #45552990116](https://github.com/huangshirui/LifeSpace/actions/runs/45552990116), SHA `3be8d4c454843c4069e5163bd2bccc1ee09138bf`; [Account #45554361890](https://github.com/huangshirui/LifeSpace/actions/runs/45554361890) and [Console #45554381800](https://github.com/huangshirui/LifeSpace/actions/runs/45554381800) same SHA; [private MCP Adapter #45555658087](https://github.com/huangshirui/lifespace-adapters/actions/runs/45555658087), `018844ca90fca0bbcc0f8a412c7479e4b3899ba4`. Exact platform Staging [#45548566650](https://github.com/huangshirui/LifeSpace/actions/runs/45548566650), APAC gate and all Production jobs succeeded. Core Kernel 0.58.0/schema84, Identity 0.19.0/schema20. Active contract `mct_e915b2c08bb199005f1fd438d3d3f41a98fa6cd148ea0a58c0cccf82e75b35a1`, 19 models, verified via configured production service token.
