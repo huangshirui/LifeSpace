@@ -193,6 +193,7 @@ describe("Core Platform Admin governance", () => {
     expect((await detail.json<any>()).data.grants).toContainEqual(expect.objectContaining({ id: grant.id, resourceType: "person_directory", resourceId: null }));
     expect((await call(pair.publicKey, target, null, runtime + "/people")).status).toBe(200);
     expect((await call(pair.publicKey, target, null, runtime)).status).toBe(403);
+    expect((await call(pair.publicKey, target, null, runtime + "/people", { method: "POST", body: { displayName: "Test Person" } })).status).toBe(403);
     expect(await db.prepare("SELECT id FROM space_memberships WHERE space_id=?").bind(spaceId).first()).toBeNull();
     const patch = (permission: string) => call(pair.publicKey, executor, actor.token, base + "/grants/" + grant.id, { method: "PATCH", body: { permission } });
     expect((await patch("manage")).status).toBe(422);
@@ -200,6 +201,7 @@ describe("Core Platform Admin governance", () => {
     const updated = await patch("write");
     expect(updated.status).toBe(200);
     expect((await updated.json<any>()).data).toMatchObject({ resourceType: "person_directory", permission: "write" });
+    expect((await call(pair.publicKey, target, null, runtime + "/people", { method: "POST", body: { displayName: "Test Person" } })).status).toBe(201);
     expect((await call(pair.publicKey, executor, actor.token, base + "/grants/" + grant.id, { method: "DELETE" })).status).toBe(204);
     expect((await call(pair.publicKey, target, null, runtime + "/people")).status).toBe(403);
     const audits = await db.prepare("SELECT operation,actor_user_id,executor_principal_id FROM platform_admin_audit WHERE target_id=?").bind(grant.id).all();
