@@ -163,6 +163,51 @@ describe("Core Platform Admin governance", () => {
     expect(audits.results.every((row) => row.actor_user_id === actor.userId && row.executor_principal_id === executorId && row.result === "success")).toBe(true);
   });
 
+  it("governs independent Person Directory grants with read/write only and immediate revocation", async () => {
+    const pair = await keys();
+    const db = (env as unknown as TestEnv).DB;
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const spaceId = "spc_" + suffix, clientId = "app_console_" + suffix;
+    const executorId = "svc_" + suffix, targetId = "svc_target_" + suffix;
+    const ownerId = "usr_owner_" + suffix, now = new Date().toISOString();
+    await db.prepare("INSERT INTO spaces(id,name,created_by_user_id,created_at,updated_at,timezone) VALUES(?,?,?,?,?,?)")
+      .bind(spaceId, "Person governance", ownerId, now, now, "UTC").run();
+    const actor = await adminActor(pair.privateKey, clientId);
+    const executor = await principalToken(pair.privateKey, "service", executorId, clientId, ["grants:manage", "spaces:inspect"]);
+    const target = await principalToken(pair.privateKey, "service", targetId, clientId, ["resources:read", "resources:write", "spaces:read"]);
+    const base = "/api/v1/platform-admin/spaces/" + spaceId;
+    const runtime = "/api/v1/spaces/" + spaceId;
+    const body = { granteeType: "service", granteeId: targetId, resourceType: "person_directory", resourceId: null, permission: "read" };
+    const create = (value: unknown, proof: string | null = actor.token) =>
+      call(pair.publicKey, executor, proof, base + "/grants", { method: "POST", body: value });
+    expect((await call(pair.publicKey, target, null, runtime + "/people")).status).toBe(403);
+    expect((await create(body, null)).status).toBe(401);
+    for (const permission of ["free_busy", "manage"]) expect((await create({ ...body, permission })).status).toBe(422);
+    expect((await create({ ...body, resourceId: "person" })).status).toBe(422);
+    const response = await create(body);
+    expect(response.status).toBe(201);
+    const grant = (await response.json<any>()).data;
+    expect(grant).toMatchObject({ sourceSpaceId: spaceId, resourceType: "person_directory", resourceId: null, permission: "read", createdByUserId: actor.userId });
+    const detail = await call(pair.publicKey, executor, actor.token, base);
+    expect(detail.status).toBe(200);
+    expect((await detail.json<any>()).data.grants).toContainEqual(expect.objectContaining({ id: grant.id, resourceType: "person_directory", resourceId: null }));
+    expect((await call(pair.publicKey, target, null, runtime + "/people")).status).toBe(200);
+    expect((await call(pair.publicKey, target, null, runtime)).status).toBe(403);
+    expect(await db.prepare("SELECT id FROM space_memberships WHERE space_id=?").bind(spaceId).first()).toBeNull();
+    const patch = (permission: string) => call(pair.publicKey, executor, actor.token, base + "/grants/" + grant.id, { method: "PATCH", body: { permission } });
+    expect((await patch("manage")).status).toBe(422);
+    expect((await patch("free_busy")).status).toBe(422);
+    const updated = await patch("write");
+    expect(updated.status).toBe(200);
+    expect((await updated.json<any>()).data).toMatchObject({ resourceType: "person_directory", permission: "write" });
+    expect((await call(pair.publicKey, executor, actor.token, base + "/grants/" + grant.id, { method: "DELETE" })).status).toBe(204);
+    expect((await call(pair.publicKey, target, null, runtime + "/people")).status).toBe(403);
+    const audits = await db.prepare("SELECT operation,actor_user_id,executor_principal_id FROM platform_admin_audit WHERE target_id=?").bind(grant.id).all();
+    expect(audits.results).toHaveLength(3);
+    expect(audits.results.map(row => row.operation).sort()).toEqual(["data_grant.create", "data_grant.revoke", "data_grant.update"]);
+    expect(audits.results.every(row => row.actor_user_id === actor.userId && row.executor_principal_id === executorId)).toBe(true);
+  });
+
   it("requires both grant executor scope and platform-admin actor proof", async () => {
     const pair = await keys();
     const clientId = `app_console_${crypto.randomUUID().replaceAll("-", "")}`;
