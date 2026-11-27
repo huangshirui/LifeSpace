@@ -6,19 +6,25 @@
 
 ## Production baseline
 
-- Release date: **2026-11-25 (UTC+8)**
-- Deployed release SHA: `3be8d4c454843c4069e5163bd2bccc1ee09138bf`
-- Production workflow: [Platform #45552990116](https://github.com/huangshirui/LifeSpace/actions/runs/45552990116) ✅
-- Production Core: `https://core.aisr.online` — Kernel `0.58.0`, schema `84`; Generic Operations `0.7.0`, OAuth Consent companion `0.6.0`.
+- Release date: **2026-11-27 (UTC+8)**
+- Deployed release SHA: `c7446080a155bf30ec52b59bb12c454102e3563e`
+- Production workflow: [Platform #45940677990](https://github.com/huangshirui/LifeSpace/actions/runs/45940677990) (attempt 2) ✅
+- Production Core: `https://core.aisr.online` — Kernel `0.58.0`, schema `84`; Generic Operations `0.7.0`, OAuth Consent companion `0.6.0`; Platform Admin `0.12.0`.
 - Production Identity: `https://auth.aisr.online` — contract `0.19.0`, schema `20`.
 - Active Model Contract: `mct_e915b2c08bb199005f1fd438d3d3f41a98fa6cd148ea0a58c0cccf82e75b35a1` (19 models, verified via configured production service token).
 - Active ordinary models (19): Task v10, Wish v10, Day Record v7, Event v8, Person Group v2, Anniversary v2, Activity v3, Goal v3, Person Profile v2, Habit v3, Football Match v1, Football Performance v1, Health Assessment v1, Health Concern v1, Health Document v1, Health Event v1, Health Metric v1, Health Observation v1, Health Regimen v1.
-- Independent rollouts: [Console #45554381800](https://github.com/huangshirui/LifeSpace/actions/runs/45554381800) and [Account #45554361890](https://github.com/huangshirui/LifeSpace/actions/runs/45554361890), same platform SHA; [private MCP Adapter #45555658087](https://github.com/huangshirui/lifespace-adapters/actions/runs/45555658087), `018844ca90fca0bbcc0f8a412c7479e4b3899ba4`, private Worker only.
+- Independent rollouts: [Console #45943138606](https://github.com/huangshirui/LifeSpace/actions/runs/45943138606), same SHA as current platform; [Account #45554361890](https://github.com/huangshirui/LifeSpace/actions/runs/45554361890), `3be8d4c454843c4069e5163bd2bccc1ee09138bf`; [private MCP Adapter #45555658087](https://github.com/huangshirui/lifespace-adapters/actions/runs/45555658087), `018844ca90fca0bbcc0f8a412c7479e4b3899ba4`, private Worker only.
 - Release confidence: exact-SHA production deployment, migrations, APAC gate, HTTP convergence, isolation/bindings and active Model Contract verification passed. The newly deployed operation-specific OAuth/Delegation functions still require real consumer acceptance; the private Adapter workflow does not itself prove public MCP E2E.
 
 > 本页与成功的 production workflow 精确绑定。部署成功不等于已完成所有真实业务场景验收。
 
-### 2026-11-25 · 最新生产能力与已知限制
+### 2026-11-27 · 最新生产能力与已知限制
+
+- **Person Directory governance (#660/#661)**：Console Space → Data Grants 可创建、展示、编辑及撤销独立 Person Directory Grant（`person_directory`，`resourceId=null`，仅 `read/write`）；Platform Admin 0.12.0，沿用同一 Core 权威存储、双重管理员证明及审计；不增加 Membership、整 Space 或普通模型权限。Stable Space `/grants` 不变，无迁移。 Owner 已确认 Staging 验收；真实 Production 浏览器 Grant 操作未独立复验。
+- **发布验证 (#662)**：首次 production 在 Identity Smart Placement 暂态分析状态失败；后续 Cloudflare 分析恢复 SUCCESS，重跑完整验证成功。Core 0.58.0/schema84、Identity 0.19.0/schema20 与 active Model Contract 不变；无需配置变更。
+- **2026-11-25 后续维护 (#656)**：Identity CIMD 请求标识真实 User-Agent，已由 [Production #45581359030](https://github.com/huangshirui/LifeSpace/actions/runs/45581359030) 发布；无能力层、Schema 或 Authority 变化，未证明解决 #580 上游 403。
+
+### 2026-11-25 · 已部署能力与已知限制
 
 - **已授权操作输入契约 (#646)**：具备精确批准的操作 selector 时可按需读取 Core 权威输入 Schema；Adapter 投影为 `lifespace.describe_user_delegation`。不读取记录、不消费单次委托、不新增 Grant，不使 generic invoke 获得权限。普通 Native PATCH 必需的 version 可被发现，缺失/无效 version 有有限的字段级错误信息。
 - **组合 OAuth User Delegation (#651)**：单次操作或 2–64 个不同精确操作，最多 8 个模型；Account 一次确认、各项独立 selector 与撤销，集合式 SQL 原子签发。通用 `/delegations/batch` 的 1..20 限制不变。Schema 83 已成功迁移；真实大组合签发、旧委托复用及 D1 消耗仍待专项实测。
@@ -264,7 +270,7 @@ LifeSpace Console 是平台自身的管理界面，不是普通消费者应用�
 
 历史证据：2026-11-14 (UTC+8) [Production #43605536269](https://github.com/huangshirui/LifeSpace/actions/runs/43605536269) exact candidate `95c3fb5d4d40a88cf68f9e32a65aedb9c4dfa159` completed all three jobs (provenance, APAC gate, deploy/verify). Core 0.54.0 / schema79; Identity 0.19.0 / schema19; 19 active models including Activity v3. Account same SHA independently deployed. Previous security release and intervening deployment are recorded in Changelog. On 2026-11-15 real CIMD authorization, Discovery, Person preview, paginated read and cold-cache reconnect/revoke succeeded. #580 remains open for intermittent upstream 403; full acceptance matrix #499 remains independent.
 
-2026-11-25 当前发布证据：三项平台 Job 全部通过，Core 0.58.0/schema84、Identity 0.19.0/schema20 与当前 19 模型契约收敛；见 Production baseline。历史常规发布约束：Production runtime signing material、Bootstrap Secret 与 Core↔Identity shared authentication secret 保持；`sync_production_bootstrap_secret=false`、`repair_core_identity_shared_secret=false`。真实 `lsp_svc_* -> Core -> Identity introspection` 使用专门配置的 Model Admin Service Token 通过，并验证 Active Model Contract；正常发布不创建 Bootstrap 临时生产身份。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
+2026-11-27 当前发布证据：三项平台 Job 全部通过，Core 0.58.0/schema84、Identity 0.19.0/schema20 与当前 19 模型契约收敛；见 Production baseline。历史常规发布约束：Production runtime signing material、Bootstrap Secret 与 Core↔Identity shared authentication secret 保持；`sync_production_bootstrap_secret=false`、`repair_core_identity_shared_secret=false`。真实 `lsp_svc_* -> Core -> Identity introspection` 使用专门配置的 Model Admin Service Token 通过，并验证 Active Model Contract；正常发布不创建 Bootstrap 临时生产身份。生产 R2 S3 签名凭据与 Notion Adapter 的独立生产 Secret 由该 workflow 同步和验证。
 
 ### Creation Draft retirement
 
