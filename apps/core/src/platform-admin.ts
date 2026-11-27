@@ -295,7 +295,14 @@ export function registerPlatformAdminRoutes(app: App): void {
     if (Object.keys(input).some((key) => !allowedFields.has(key))) throw new ApiError("INVALID_REQUEST", "Request contains unsupported fields", 400);
     const grantee = parseGrantGrantee(input);
     const permission = parseGrantPermission(input.permission);
-    const resource = await parseGrantResource(context.env, targetSpaceId, input);
+    // Person Directory is a Kernel resource, not a published ordinary model.
+    // Keep the Stable Space-user /grants parser unchanged.
+    if (input.resourceType === "person_directory" && input.resourceId !== undefined && input.resourceId !== null) {
+      throw new ApiError("VALIDATION_ERROR", "resourceId must be null or omitted for a Person Directory Data Grant", 422);
+    }
+    const resource = input.resourceType === "person_directory"
+      ? { resourceType: "person_directory" as const, resourceId: null }
+      : await parseGrantResource(context.env, targetSpaceId, input);
     validateModelPermission(resource.resourceType, permission);
     const expiresAt = parseGrantExpiry(input.expiresAt);
     const id = createGrantId();
