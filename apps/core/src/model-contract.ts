@@ -1,3 +1,5 @@
+import { hasEncryptedText } from "./encrypted-mutation";
+import { MAX_ENCRYPTED_TEXT_WIRE_LENGTH } from "./field-encryption";
 import { recurrenceRuleSchema } from "./recurrence-rule";
 import { entityRefSchema } from "./entity-ref";
 import { locationValueSchema } from "./location-value";
@@ -69,7 +71,11 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
     case "location": schema = locationValueSchema(); break;
     case "string":
     case "text":
-      schema = {
+      schema = field.encrypted ? {
+        type: "string",
+        pattern: "^lsenc1\\.[1-9][0-9]{0,9}\\.[A-Za-z0-9_-]{16}\\.[A-Za-z0-9_-]{22,}$",
+        maxLength: MAX_ENCRYPTED_TEXT_WIRE_LENGTH,
+      } : {
         type: "string",
         ...(field.minLength === undefined ? {} : { minLength: field.minLength }),
         ...(field.maxLength === undefined ? {} : { maxLength: field.maxLength }),
@@ -188,6 +194,14 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
       break;
   }
   const result = nullable(schema, field);
+  if (field.encrypted) result["x-lifespace-encryption"] = {
+    mode: "client", logicalType: field.type,
+    ...(field.type === "string" || field.type === "text" ? {
+      wireFormat: "lsenc1",
+      ...(field.minLength === undefined ? {} : { plaintextMinLength: field.minLength }),
+      ...(field.maxLength === undefined ? {} : { plaintextMaxLength: field.maxLength }),
+    } : { contentOnly: true }),
+  };
   const relation = relationMetadata(field);
   if (relation) result["x-lifespace-relation"] = relation;
   if (field.title) result.title = field.title;
@@ -257,6 +271,7 @@ function createSchema(model: PublishedModel): JsonSchema {
     additionalProperties: false,
     properties: {
       ...Object.fromEntries(fields.map(([key, field]) => [key, schemaWithDefault(definition, key, field)])),
+      ...(hasEncryptedText(definition) ? { id: { type: "string", pattern: "^rec_[a-f0-9]{12}4[a-f0-9]{3}[89ab][a-f0-9]{15}$", description: "Client-generated Record identity for encrypted text AAD; not a business field." } } : {}),
       presentation: recordPresentationSchema(),
     },
     required: fields
@@ -266,6 +281,9 @@ function createSchema(model: PublishedModel): JsonSchema {
   const calendar = calendarCreateConstraint(model);
   const recurrence = model.definition.capabilities?.recurrence;
   const conditions: JsonSchema[] = calendar ? [calendar] : [];
+  for (const [key, field] of fields) {
+    if (field.encrypted && (field.type === "string" || field.type === "text")) conditions.push({ if: { required: [key], properties: { [key]: { type: "string" } } }, then: { required: ["id"] } });
+  }
   if (recurrence) conditions.push({ if: { required: [recurrence.ruleField], properties: { [recurrence.ruleField]: { type: "object" } } }, then: { required: [recurrence.firstDueDateField], properties: { [recurrence.firstDueDateField]: { type: "string", format: "date" } } } });
   return conditions.length ? { ...base, allOf: conditions } : base;
 }

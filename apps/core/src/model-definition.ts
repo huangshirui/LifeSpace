@@ -1,3 +1,4 @@
+import { supportsNativeFieldEncryption } from "./field-encryption";
 import { validateCapabilities, type CapabilityDefinitions } from "./capability-definition";
 import { validateModelPolicies, type ModelPoliciesDefinition } from "./policy-definition";
 import {
@@ -89,6 +90,8 @@ export type FieldDefinition = {
   nullable?: boolean;
   immutable?: boolean;
   readOnly?: boolean;
+  /** Client-encrypted Native field; candidate validation only until Runtime integration. */
+  encrypted?: boolean;
   minLength?: number;
   maxLength?: number;
   minimum?: number;
@@ -442,7 +445,8 @@ function validateReferenceLabel(
   return issues.length === startIssueCount ? { template } : undefined;
 }
 
-export function validateModelDefinition(input: unknown): ModelValidationResult {
+/** Internal opt-in for integration tests only; Registry and External callers must use the default. */
+export function validateModelDefinition(input: unknown, options: { allowCandidateEncryption?: boolean } = {}): ModelValidationResult {
   const issues: ModelValidationIssue[] = [];
   if (!isObject(input)) {
     return {
@@ -561,6 +565,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
         "nullable",
         "immutable",
         "readOnly",
+        ...(options.allowCandidateEncryption === true ? ["encrypted"] : []),
         "minLength",
         "maxLength",
         "minimum",
@@ -590,6 +595,16 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
         continue;
       }
 
+      const encrypted = options.allowCandidateEncryption === true && raw.encrypted === true;
+      if (options.allowCandidateEncryption === true && raw.encrypted !== undefined) {
+        if (typeof raw.encrypted !== "boolean") {
+          issue(issues, `${path}.encrypted`, "INVALID_BOOLEAN", "encrypted must be boolean");
+        } else if (!supportsNativeFieldEncryption(type)) {
+          issue(issues, `${path}.encrypted`, "UNSUPPORTED_ENCRYPTED_FIELD_TYPE", "Only Native string, text, file and file_list fields support encryption");
+        } else if (encrypted && raw.readOnly === true) {
+          issue(issues, `${path}.encrypted`, "ENCRYPTED_FIELD_READ_ONLY", "Encrypted fields cannot be server-managed read-only fields");
+        }
+      }
       const fieldTitle = boundedText(issues, raw.title, `${path}.title`, 80);
       const fieldDescription = boundedText(issues, raw.description, `${path}.description`, 300);
       const required = raw.required === undefined ? undefined : raw.required === true;
@@ -698,6 +713,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
         ...(nullable === undefined ? {} : { nullable }),
         ...(immutable === undefined ? {} : { immutable }),
         ...(readOnly === undefined ? {} : { readOnly }),
+        ...(encrypted ? { encrypted: true } : {}),
         ...(minLength === undefined ? {} : { minLength }),
         ...(maxLength === undefined ? {} : { maxLength }),
         ...(minimum === undefined ? {} : { minimum }),
@@ -708,9 +724,12 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     }
   }
 
-  const timeRangeResult = validateTimeRanges(input.timeRanges, fields);
+  // Existing closed semantic validators must never resolve encrypted fields as server values.
+  const serverFields = Object.values(fields).some(field => field.encrypted)
+    ? Object.fromEntries(Object.entries(fields).filter(([, field]) => !field.encrypted)) : fields;
+  const timeRangeResult = validateTimeRanges(input.timeRanges, serverFields);
   issues.push(...timeRangeResult.issues);
-  const referenceLabel = validateReferenceLabel(input.referenceLabel, fields, issues);
+  const referenceLabel = validateReferenceLabel(input.referenceLabel, serverFields, issues);
 
   const defaultsInput = input.defaults === undefined
     ? undefined
@@ -731,6 +750,10 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
           "UNKNOWN_DEFAULT_FIELD",
           `${fieldKey} is not a declared field`,
         );
+        continue;
+      }
+      if (field.encrypted) {
+        issue(issues, `defaults.${fieldKey}`, "ENCRYPTED_FIELD_DEFAULT_UNSUPPORTED", "Encrypted fields cannot have server defaults");
         continue;
       }
       if (!validDefault(field, value)) {
@@ -781,7 +804,9 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     for (const [kind, fieldKeys] of Object.entries(query)) {
       for (const fieldKey of fieldKeys ?? []) {
         const field = fields[fieldKey];
-        if (field && ["recurrence_rule", "entity_ref"].includes(field.type)) {
+        if (field?.encrypted) {
+          issue(issues, `query.${kind}`, "ENCRYPTED_FIELD_QUERY_UNSUPPORTED", "Encrypted fields cannot be queried by Core");
+        } else if (field && ["recurrence_rule", "entity_ref"].includes(field.type)) {
           issue(issues, `query.${kind}`, "UNSUPPORTED_QUERY_FIELD_TYPE", "Structured recurrence and entity reference fields have no scalar query ordering");
         } else if (!field) {
           issue(issues, `query.${kind}`, "UNKNOWN_QUERY_FIELD", `${fieldKey} is not a declared field`);
@@ -851,7 +876,7 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     }
   }
 
-  const capabilityResult = validateCapabilities(input.capabilities, fields);
+  const capabilityResult = validateCapabilities(input.capabilities, serverFields);
   issues.push(...capabilityResult.issues);
   if (key === "task" && capabilityResult.capabilities?.recurrence) issue(issues, "capabilities.recurrence", "RECURSIVE_RECURRENCE_TARGET", "The generated Task target cannot itself be a recurring plan");
   issues.push(...validateCalendarTimeRangeCollisions(
@@ -859,10 +884,10 @@ export function validateModelDefinition(input: unknown): ModelValidationResult {
     capabilityResult.capabilities?.calendar,
   ));
 
-  const modelPolicies = validateModelPolicies(input.policies, fields);
+  const modelPolicies = validateModelPolicies(input.policies, serverFields);
   issues.push(...modelPolicies.issues);
 
-  const workflow = validateWorkflowActions(input.actions, fields);
+  const workflow = validateWorkflowActions(input.actions, serverFields);
   issues.push(...workflow.issues);
   if (workflow.actions) {
     for (const [actionKey, action] of Object.entries(workflow.actions)) {

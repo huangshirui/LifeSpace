@@ -1,3 +1,4 @@
+import { isRecordIdentityConflict, recordIdentityConflict } from "./encrypted-mutation";
 import { registerExternalModelControlRoutes } from "./external-model-routes";
 import { registerExternalConnectionDefinitionRoutes } from "./external-connection-definition-routes";
 import { registerExternalRuntimeRoutes } from "./external-runtime";
@@ -31,6 +32,7 @@ import { registerMcpServerGovernanceRoutes } from "./mcp-server-governance";
 import { registerMcpResourceIngressRoutes } from "./mcp-resource-ingress";
 import { registerPlatformInspectorRoutes } from "./platform-inspector";
 import { registerSpaceRoutes } from "./spaces";
+import { registerSpaceEncryptionRoutes } from "./space-encryption-routes";
 import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
@@ -49,6 +51,7 @@ async function schemaVersion(env: Bindings) {
 }
 
 function knownDatabaseApiError(error: unknown): ApiError | null {
+  if (isRecordIdentityConflict(error)) return recordIdentityConflict();
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("SEMANTIC_RELATION_ENDPOINT_UNAVAILABLE")) {
     return new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
@@ -117,6 +120,7 @@ export function createApp() {
   registerModelAccessCeilingRoutes(app);
   registerSpaceLifecycleRoutes(app);
   registerSpaceRoutes(app);
+  registerSpaceEncryptionRoutes(app);
   registerPersonDirectoryRoutes(app);
   registerModelAdminRoutes(app);
   registerModelAdminAiRoutes(app);

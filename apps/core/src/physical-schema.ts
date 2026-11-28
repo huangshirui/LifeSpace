@@ -1,3 +1,4 @@
+import { MAX_ENCRYPTED_TEXT_WIRE_LENGTH } from "./field-encryption";
 import { ApiError } from "./http";
 import { isFirstClassRangeFieldType, type FieldDefinition, type FieldType, type ModelDefinition } from "./model-definition";
 
@@ -80,7 +81,11 @@ function scalarColumn(fieldKey: string, field: FieldDefinition): PhysicalColumn 
       : "TEXT";
   const nullable = field.required !== true;
   let checkSql: string | undefined;
-  if (["recurrence_rule", "entity_ref"].includes(field.type)) {
+  if (field.encrypted && (field.type === "string" || field.type === "text")) {
+    const column = identifier(fieldKey);
+    // Defense in depth only: the Runtime codec validates the complete envelope.
+    checkSql = `${column} IS NULL OR (typeof(${column})='text' AND length(${column}) BETWEEN 48 AND ${MAX_ENCRYPTED_TEXT_WIRE_LENGTH} AND ${column} GLOB 'lsenc1.*')`;
+  } else if (["recurrence_rule", "entity_ref"].includes(field.type)) {
     checkSql = `${identifier(fieldKey)} IS NULL OR (json_valid(${identifier(fieldKey)}) AND json_type(${identifier(fieldKey)})='object')`;
   } else if (JSON_ARRAY_TYPES.has(field.type)) {
     checkSql = `${identifier(fieldKey)} IS NULL OR (json_valid(${identifier(fieldKey)}) AND json_type(${identifier(fieldKey)})='array')`;
@@ -291,7 +296,7 @@ export function compilePhysicalSchema(definition: ModelDefinition): PhysicalSche
     .sort()
     .flatMap((fieldKey) => {
       const mapping = mappingByField.get(fieldKey);
-      if (!mapping) return [];
+      if (!mapping || definition.fields[fieldKey]?.encrypted) return [];
       const index = indexFor(tableName, mapping);
       return index ? [index] : [];
     });

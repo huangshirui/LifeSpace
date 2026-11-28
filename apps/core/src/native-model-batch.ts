@@ -1,3 +1,4 @@
+import { candidateCreateId, hasEncryptedText, createSpaceKeyVersionReader, isRecordIdentityConflict, recordIdentityConflict } from "./encrypted-mutation";
 import { prepareRecurrenceMutations } from "./recurrence-runtime";
 import { hasTemporalCapability } from "./capability-runtime";
 import type { Bindings, Principal } from "./env";
@@ -33,6 +34,7 @@ const MODEL = /^[a-z][a-z0-9_]{1,62}$/u;
 const randomId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 const asError = (error: unknown): ApiError => {
   if (error instanceof ApiError) return error;
+  if (isRecordIdentityConflict(error)) return recordIdentityConflict();
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("SEMANTIC_RELATION_ENDPOINT_UNAVAILABLE")) return new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
   if (message.includes("DELEGATION_SINGLE_USE_UNAVAILABLE")) return new ApiError("DELEGATION_INVALID", "Delegation unavailable at commit", 403);
@@ -83,7 +85,7 @@ function parseItem(raw: unknown, index: number, defaultDelegation: string | null
     item.clientRef = clientRef;
   }
   if (input.operation === "create") {
-    item.record.newRecordId = randomId("rec");
+    item.record.newRecordId = candidateCreateId(item.record.data) ?? randomId("rec");
     if (semanticRelations !== undefined) {
       if (!Array.isArray(semanticRelations) || semanticRelations.length > 20) throw new ApiError("INVALID_REQUEST", "semanticRelations must contain at most 20 edges", 400);
       item.edges = semanticRelations.map((rawEdge) => {
@@ -127,7 +129,10 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
   const existingMutations = new Set<string>();
   for (const item of items) {
     if (item.error || !item.record) continue;
-    if (item.record.newRecordId) newIds.set(item.record.newRecordId, item);
+    if (item.record.newRecordId) {
+      if (newIds.has(item.record.newRecordId)) throw new ApiError("INVALID_REQUEST", "Duplicate create record identity", 400);
+      newIds.set(item.record.newRecordId, item);
+    }
     if (item.clientRef) {
       if (refs.has(item.clientRef)) throw new ApiError("INVALID_REQUEST", "Duplicate clientRef", 400);
       refs.set(item.clientRef, item);
@@ -136,6 +141,9 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
       if (existingMutations.has(item.record.recordId)) item.error = new ApiError("INVALID_REQUEST", "A record may be mutated once per batch", 400);
       existingMutations.add(item.record.recordId);
     }
+  }
+  for (const id of newIds.keys()) {
+    if (existingMutations.has(id)) throw new ApiError("INVALID_REQUEST", "A create identity cannot also be an existing mutation target", 400);
   }
   // Load independent relation-delete tuples together, before endpoint authority.
   const deletes = items.filter((item) => !item.error && item.operation === "relation_delete");
@@ -166,6 +174,13 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
           delete endpoint.clientRef;
         }
         if (existingMutations.has(endpoint.recordId!)) throw new ApiError("INVALID_REQUEST", "Relation endpoints cannot also be updated/deleted in this batch", 400);
+        const created = newIds.get(endpoint.recordId!);
+        if (created) {
+          if (item.operation === "relation_delete" || created.record!.modelKey !== endpoint.modelKey) throw new ApiError("INVALID_REQUEST", "Invalid newly created relation endpoint", 400);
+          // Explicit IDs, like clientRef, must depend on successful creation.
+          // Without this, non-atomic replay could link a pre-existing collision.
+          if (created.index !== item.index) item.dependencies.add(created.index);
+        }
       }
       const keys = [item.record?.modelKey, ...item.edges.flatMap((edge) => [edge.source.modelKey, edge.target.modelKey])].filter((key): key is string => Boolean(key));
       for (const key of keys) {
@@ -179,7 +194,12 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
           models.set(key, model);
         }
       }
-      if (item.record) item.model = models.get(item.record.modelKey);
+      if (item.record) {
+        item.model = models.get(item.record.modelKey);
+        if (item.record.operation === "create" && candidateCreateId(item.record.data) && !hasEncryptedText(item.model!.definition)) {
+          throw new ApiError("INVALID_RESOURCE", "Client create identity is only supported for encrypted text models", 400);
+        }
+      }
       for (const edge of item.edges) validateBatchSemanticRelation(models.get(edge.source.modelKey)!, models.get(edge.target.modelKey)!,
         { predicate: edge.predicate, target: { kind: "record", modelKey: edge.target.modelKey, recordId: edge.target.recordId! } });
     } catch (error) { item.error = asError(error); }
@@ -193,7 +213,8 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
       requests.push({ model: models.get(modelKey)!, required,
         selector: { delegationId: item.delegationId, recordId: id } });
     };
-    if (item.record) add(item.record.modelKey, "write", item.record.recordId ?? item.record.newRecordId);
+    if (item.record) add(item.record.modelKey, "write", item.record.operation === "create" && candidateCreateId(item.record.data)
+      ? undefined : item.record.recordId ?? item.record.newRecordId);
     for (const edge of item.edges) { add(edge.source.modelKey, "write", edge.source.recordId); add(edge.target.modelKey, "read", edge.target.recordId); }
   }
   // Without any resolvable operation there is no authorized Space in which to
@@ -254,6 +275,7 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
     ? await loadSpaceTemporalContext(env, spaceId) : undefined;
   const correlationId = randomId(atomic ? "cgs" : "blk");
   const timestamp = new Date().toISOString();
+  const readEncryptionKey = createSpaceKeyVersionReader(env, spaceId);
   await prepareRecurrenceMutations(env, execution, spaceId, items.filter(item => !item.error && item.record && item.record.operation !== "delete").map(item => ({
     model: item.model!, recordId: item.record!.recordId ?? item.record!.newRecordId,
     previous: item.record!.recordId ? resources.get(item.record!.recordId) : undefined,
@@ -267,8 +289,8 @@ export async function executeNativeModelBatch(env: Bindings, principal: Principa
       const entry = item.prepared!;
       const attribution = { delegationId: entry.decision.authority.delegationId, delegationChain: entry.decision.authority.delegationChain,
         ...(atomic ? { changeSetId: correlationId } : { bulkId: correlationId }) };
-      if (item.record.operation === "create") item.plan = await planCreateGenericMutation(env, execution, spaceId, item.model!, entry.preparedCreate!, entry.extension, attribution, timestamp, item.record.newRecordId);
-      else if (item.record.operation === "update") item.plan = await planUpdateGenericMutation(env, execution, spaceId, item.model!, entry.previous!, item.record.version ?? entry.previous!.version, entry.preparedUpdate!, "client", undefined, undefined, attribution, timestamp);
+      if (item.record.operation === "create") item.plan = await planCreateGenericMutation(env, execution, spaceId, item.model!, entry.preparedCreate!, entry.extension, attribution, timestamp, item.record.newRecordId, readEncryptionKey);
+      else if (item.record.operation === "update") item.plan = await planUpdateGenericMutation(env, execution, spaceId, item.model!, entry.previous!, item.record.version ?? entry.previous!.version, entry.preparedUpdate!, "client", undefined, undefined, attribution, timestamp, readEncryptionKey);
       else item.plan = planDeleteGenericMutation(env, execution, spaceId, item.model!, entry.previous!, item.record.version ?? entry.previous!.version, attribution, timestamp);
       if (item.plan.resource) resources.set(item.plan.resource.id, item.plan.resource);
     } catch (error) { item.error = asError(error); }
