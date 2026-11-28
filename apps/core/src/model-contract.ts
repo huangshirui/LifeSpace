@@ -1,3 +1,4 @@
+import { hasEncryptedText } from "./encrypted-mutation";
 import { MAX_ENCRYPTED_TEXT_WIRE_LENGTH } from "./field-encryption";
 import { recurrenceRuleSchema } from "./recurrence-rule";
 import { entityRefSchema } from "./entity-ref";
@@ -270,6 +271,7 @@ function createSchema(model: PublishedModel): JsonSchema {
     additionalProperties: false,
     properties: {
       ...Object.fromEntries(fields.map(([key, field]) => [key, schemaWithDefault(definition, key, field)])),
+      ...(hasEncryptedText(definition) ? { id: { type: "string", pattern: "^rec_[a-f0-9]{12}4[a-f0-9]{3}[89ab][a-f0-9]{15}$", description: "Client-generated Record identity for encrypted text AAD; not a business field." } } : {}),
       presentation: recordPresentationSchema(),
     },
     required: fields
@@ -279,6 +281,9 @@ function createSchema(model: PublishedModel): JsonSchema {
   const calendar = calendarCreateConstraint(model);
   const recurrence = model.definition.capabilities?.recurrence;
   const conditions: JsonSchema[] = calendar ? [calendar] : [];
+  for (const [key, field] of fields) {
+    if (field.encrypted && (field.type === "string" || field.type === "text")) conditions.push({ if: { required: [key], properties: { [key]: { type: "string" } } }, then: { required: ["id"] } });
+  }
   if (recurrence) conditions.push({ if: { required: [recurrence.ruleField], properties: { [recurrence.ruleField]: { type: "object" } } }, then: { required: [recurrence.firstDueDateField], properties: { [recurrence.firstDueDateField]: { type: "string", format: "date" } } } });
   return conditions.length ? { ...base, allOf: conditions } : base;
 }

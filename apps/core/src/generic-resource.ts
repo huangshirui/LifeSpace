@@ -1,3 +1,4 @@
+import { encryptedCreateRecordId, extractEncryptedCreateIdentity, requireCurrentEncryptedTextKey } from "./encrypted-mutation";
 import { parseEncryptedText } from "./field-encryption";
 import { isRecurrenceExecutor, recurrenceMutationStatements } from "./recurrence-runtime";
 import { parseEntityRef } from "./entity-ref";
@@ -85,6 +86,7 @@ export type FileProjection = {
 };
 
 export type PreparedCreateMutation = {
+  recordId?: string;
   icon?: RecordIcon | null;
   data: JsonObject;
   relations: RelationProjection[];
@@ -637,12 +639,14 @@ export function prepareCreateGenericMutation(
   input: unknown,
   trustedCapabilityInput = false,
 ): PreparedCreateMutation {
+  const identity = extractEncryptedCreateIdentity(model.definition, input);
   const data = validateResourceData(
     model.definition,
-    stripPresentation(input),
+    stripPresentation(identity.fields),
     trustedCapabilityInput ? "create_internal" : "create",
   );
   return {
+    ...(identity.recordId ? { recordId: identity.recordId } : {}),
     icon: optionalRecordIcon(input),
     data,
     relations: collectRelationProjections(model.definition, data),
@@ -808,7 +812,8 @@ export async function planCreateGenericMutation(
   timestamp = new Date().toISOString(),
   reservedRecordId?: string,
 ): Promise<ResourceMutationPlan> {
-  const id = reservedRecordId ?? createId();
+  const id = encryptedCreateRecordId(model.definition, prepared.data, prepared.recordId, reservedRecordId) ?? createId();
+  await requireCurrentEncryptedTextKey(env, spaceId, model.definition, prepared.data);
   await validateIconFile(env, principal, spaceId, model.key, null, prepared.icon);
   const mutationToken = changeId();
   const storageType = resourceAuditStorageType(principal.type);
@@ -918,6 +923,7 @@ export async function planUpdateGenericMutation(
     throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   }
 
+  await requireCurrentEncryptedTextKey(env, spaceId, model.definition, prepared.data);
   await validateIconFile(env, principal, spaceId, model.key, previous.id, prepared.icon);
   const mutationToken = changeId();
   const nextVersion = previous.version + 1;

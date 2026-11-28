@@ -1,3 +1,4 @@
+import { validateFieldEncryptionTransition } from "./encrypted-mutation";
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 import { generateModelContract } from "./model-contract";
@@ -223,7 +224,7 @@ export async function validateDefinitionForPublication(
   const validation = await validateDefinition(input);
   if (!validation.valid) return validation;
   const current = await getLatestModel(env, validation.definition.key);
-  const issues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
+  const issues = [...validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition), ...validateFieldEncryptionTransition(current?.definition ?? null, validation.definition)];
   if (current && current.definition.origin !== validation.definition.origin) issues.push({ path: "origin", code: "MODEL_ORIGIN_IMMUTABLE", message: "Model origin cannot change" });
   if (issues.length) return { valid: false, issues };
   return validation;
@@ -289,7 +290,7 @@ export async function publishModelDefinition(
   const active = currentModels.find((model) => model.key === validation.definition.key) ?? null;
   const current = active ?? await getLatestModel(env, validation.definition.key);
   if (current && current.definition.origin !== validation.definition.origin) throw new ApiError("MODEL_ORIGIN_IMMUTABLE", "A published Model cannot change Native/External origin", 409);
-  const temporalDslIssues = validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition);
+  const temporalDslIssues = [...validateCanonicalTemporalDslTransition(current?.definition ?? null, validation.definition), ...validateFieldEncryptionTransition(current?.definition ?? null, validation.definition)];
   if (temporalDslIssues.length) {
     throw new ApiError("INVALID_MODEL_DEFINITION", JSON.stringify(temporalDslIssues), 422);
   }
