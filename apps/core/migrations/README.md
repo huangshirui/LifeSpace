@@ -80,3 +80,8 @@ Compatible additive model release (Issue #578): a required read-only status with
 Additive sparse Core Authority storage for #589; no records backfilled, no Registry revision or Model Contract change. Only User entity type can be persisted in V1. Apply before candidate Worker. No configuration surface is exposed until all enforcement paths and governance checks are complete. Before a ceiling is set an old Worker can ignore the empty table; after activation never roll back to an implementation that ignores ceilings. No historical migration edits.
 
 Schema 80 also adds a separate transaction-time Recurrence generation guard for User ceilings (Plan and Task) and a secret-free configuration audit table; no ordinary mutation round trip is added. Audit/configuration writers are not exposed by the partial implementation.
+
+
+## 0085 Space encryption configuration (development candidate)
+
+Additive, empty tables for the wrapped Space DEK and metadata-only revision audit (#663). No business data migration, record or File mutation, public route, or model declaration activation. Apply before any future consuming Worker. Do not roll back by deleting key envelopes; once encrypted data exists, an older Worker must not be used to read/write it. Staging acceptance required.
