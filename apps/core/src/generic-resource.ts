@@ -1,4 +1,4 @@
-import { encryptedCreateRecordId, extractEncryptedCreateIdentity, requireCurrentEncryptedTextKey } from "./encrypted-mutation";
+import { encryptedCreateRecordId, extractEncryptedCreateIdentity, requireCurrentEncryptedTextKey, type SpaceKeyVersionReader } from "./encrypted-mutation";
 import { parseEncryptedText } from "./field-encryption";
 import { isRecurrenceExecutor, recurrenceMutationStatements } from "./recurrence-runtime";
 import { parseEntityRef } from "./entity-ref";
@@ -811,9 +811,10 @@ export async function planCreateGenericMutation(
   attribution: MutationAttribution = {},
   timestamp = new Date().toISOString(),
   reservedRecordId?: string,
+  readEncryptionKey?: SpaceKeyVersionReader,
 ): Promise<ResourceMutationPlan> {
   const id = encryptedCreateRecordId(model.definition, prepared.data, prepared.recordId, reservedRecordId) ?? createId();
-  await requireCurrentEncryptedTextKey(env, spaceId, model.definition, prepared.data);
+  await requireCurrentEncryptedTextKey(env, spaceId, model.definition, prepared.data, readEncryptionKey);
   await validateIconFile(env, principal, spaceId, model.key, null, prepared.icon);
   const mutationToken = changeId();
   const storageType = resourceAuditStorageType(principal.type);
@@ -915,6 +916,7 @@ export async function planUpdateGenericMutation(
   actionKey?: string,
   attribution: MutationAttribution = {},
   timestamp = new Date().toISOString(),
+  readEncryptionKey?: SpaceKeyVersionReader,
 ): Promise<ResourceMutationPlan> {
   if (previous.id === "" || previous.spaceId !== spaceId || previous.modelKey !== model.key) {
     throw new ApiError("RESOURCE_NOT_FOUND", "Resource not found", 404);
@@ -923,7 +925,7 @@ export async function planUpdateGenericMutation(
     throw new ApiError("VERSION_CONFLICT", "Resource version is stale", 409);
   }
 
-  await requireCurrentEncryptedTextKey(env, spaceId, model.definition, prepared.data);
+  await requireCurrentEncryptedTextKey(env, spaceId, model.definition, prepared.data, readEncryptionKey);
   await validateIconFile(env, principal, spaceId, model.key, previous.id, prepared.icon);
   const mutationToken = changeId();
   const nextVersion = previous.version + 1;

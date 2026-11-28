@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
 import type { ModelDefinition } from "../src/model-definition";
 import { validateModelDefinition } from "../src/model-definition";
-import { encryptedCreateRecordId, extractEncryptedCreateIdentity, requireCurrentEncryptedTextKey, validateFieldEncryptionTransition } from "../src/encrypted-mutation";
+import { candidateCreateId, createSpaceKeyVersionReader, isRecordIdentityConflict, recordIdentityConflict, encryptedCreateRecordId, extractEncryptedCreateIdentity, requireCurrentEncryptedTextKey, validateFieldEncryptionTransition } from "../src/encrypted-mutation";
 import { prepareCreateGenericMutation } from "../src/generic-resource";
 import type { PublishedModel } from "../src/model-registry";
 
@@ -51,6 +51,27 @@ describe("encrypted mutation candidate",()=>{
     expect(active.bind).toHaveBeenCalledWith("spc_probe");
     await expect(requireCurrentEncryptedTextKey(active.env,"spc_probe",definition(),{secret:wire.replace(".1.",".2.")})).rejects.toMatchObject({code:"SPACE_ENCRYPTION_KEY_VERSION_MISMATCH"});
     await expect(requireCurrentEncryptedTextKey(active.env,"spc_probe",definition(),{secret:"plaintext"})).rejects.toMatchObject({code:"INVALID_RESOURCE"});
+  });
+  it("allocates only canonical candidate create identity and hides global collision details",()=>{
+    expect(candidateCreateId({id:recordId})).toBe(recordId);
+    expect(candidateCreateId({secret:wire})).toBeUndefined();
+    expect(()=>candidateCreateId({id:"rec_not_uuid"})).toThrow("UUIDv4");
+    expect(isRecordIdentityConflict(new Error("D1_ERROR: UNIQUE constraint failed: resource_records.id: SQLITE_CONSTRAINT"))).toBe(true);
+    expect(isRecordIdentityConflict(new Error("UNIQUE constraint failed: files.id"))).toBe(false);
+    expect(recordIdentityConflict()).toMatchObject({code:"RECORD_ID_CONFLICT",status:409,message:"Record identity is unavailable"});
+  });
+  it("shares one lazy current-key lookup within a same-Space batch only",async()=>{
+    const {env,prepare}=fakeDb({key_version:1});
+    const read=createSpaceKeyVersionReader(env,"spc_probe");
+    await requireCurrentEncryptedTextKey(env,"spc_probe",definition(),{secret:null},read);
+    expect(prepare).not.toHaveBeenCalled();
+    await Promise.all([
+      requireCurrentEncryptedTextKey(env,"spc_probe",definition(),{secret:wire},read),
+      requireCurrentEncryptedTextKey(env,"spc_probe",definition(),{secret:wire},read),
+    ]);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    await requireCurrentEncryptedTextKey(env,"spc_probe",definition(),{secret:wire},createSpaceKeyVersionReader(env,"spc_probe"));
+    expect(prepare).toHaveBeenCalledTimes(2);
   });
   it("rejects published-field encryption switches and encrypted field removal",()=>{
     const plain=definition(false), encrypted=definition();

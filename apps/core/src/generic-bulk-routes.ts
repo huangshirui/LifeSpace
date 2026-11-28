@@ -1,3 +1,4 @@
+import { candidateCreateId, hasEncryptedText, createSpaceKeyVersionReader, isRecordIdentityConflict, recordIdentityConflict, type SpaceKeyVersionReader } from "./encrypted-mutation";
 import { prepareRecurrenceMutations } from "./recurrence-runtime";
 import type { Context, Hono } from "hono";
 import {
@@ -120,6 +121,7 @@ function parseEnvelope(value: unknown): unknown[] {
 }
 function asApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
+  if (isRecordIdentityConflict(error)) return recordIdentityConflict();
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN")) return new ApiError("RECURRENCE_CURRENT_TASK_DELETE_FORBIDDEN", "Use skip-occurrence or remove the Plan recurrence before deleting the current Task", 409);
   if (message.includes("RECURRENCE_VERSION_CONFLICT")) return new ApiError("VERSION_CONFLICT", "Recurring plan changed before commit", 409);
@@ -174,10 +176,10 @@ async function prepareItems(env: Bindings, principal: Principal, spaceId: string
   }
 }
 
-async function buildPlan(env: Bindings, principal: Principal, spaceId: string, entry: PreparedBulkItem, bulkId: string, timestamp: string): Promise<ResourceMutationPlan> {
+async function buildPlan(env: Bindings, principal: Principal, spaceId: string, entry: PreparedBulkItem, bulkId: string, timestamp: string, readEncryptionKey: SpaceKeyVersionReader): Promise<ResourceMutationPlan> {
   const attribution = { delegationId: entry.decision.authority.delegationId, delegationChain: entry.decision.authority.delegationChain, bulkId };
-  if (entry.operation.operation === "create") return planCreateGenericMutation(env, principal, spaceId, entry.model, entry.preparedCreate!, entry.extension, attribution, timestamp, entry.operation.newRecordId);
-  if (entry.operation.operation === "update") return planUpdateGenericMutation(env, principal, spaceId, entry.model, entry.previous!, entry.operation.version ?? entry.previous!.version, entry.preparedUpdate!, "client", undefined, undefined, attribution, timestamp);
+  if (entry.operation.operation === "create") return planCreateGenericMutation(env, principal, spaceId, entry.model, entry.preparedCreate!, entry.extension, attribution, timestamp, entry.operation.newRecordId, readEncryptionKey);
+  if (entry.operation.operation === "update") return planUpdateGenericMutation(env, principal, spaceId, entry.model, entry.previous!, entry.operation.version ?? entry.previous!.version, entry.preparedUpdate!, "client", undefined, undefined, attribution, timestamp, readEncryptionKey);
   return planDeleteGenericMutation(env, principal, spaceId, entry.model, entry.previous!, entry.operation.version ?? entry.previous!.version, attribution, timestamp);
 }
 
@@ -208,7 +210,7 @@ async function commitIndependently(env: Bindings, bulkId: string, plans: ItemSta
       if (!results[0]?.meta.changes) item.error = commitRaceError();
     } catch (error) {
       if (singleUseFailure(error)) item.error = delegationRaceError();
-      else if (currentOccurrenceDeleteFailure(error)) item.error = asApiError(error);
+      else if (currentOccurrenceDeleteFailure(error) || isRecordIdentityConflict(error)) item.error = asApiError(error);
       else throw error;
     }
   }
@@ -228,7 +230,7 @@ export function registerGenericBulkRoutes(app: App): void {
     for (const item of items) {
       try {
         item.operation = parseOperation(item.raw, item.index);
-        if (item.operation.operation === "create") item.operation.newRecordId = `rec_${crypto.randomUUID().replaceAll("-", "")}`;
+        if (item.operation.operation === "create") item.operation.newRecordId = candidateCreateId(item.operation.data) ?? `rec_${crypto.randomUUID().replaceAll("-", "")}`;
         if (item.operation.recordId) {
           const key = `${item.operation.modelKey}\u001f${item.operation.recordId}`;
           if (seenTargets.has(key)) throw new ApiError("INVALID_REQUEST", "One existing record may appear at most once in a Bulk", 400);
@@ -237,10 +239,20 @@ export function registerGenericBulkRoutes(app: App): void {
       } catch (error) { item.error = asApiError(error); }
     }
 
+    // Reject ambiguous request-local identities before resolving authority.
+    const createdIds = new Set<string>();
+    const existingIds = new Set(items.filter(item => !item.error && item.operation?.recordId).map(item => item.operation!.recordId!));
+    for (const item of items) {
+      const id = item.operation?.newRecordId;
+      if (item.error || !id) continue;
+      if (createdIds.has(id) || existingIds.has(id)) throw new ApiError("INVALID_REQUEST", "Conflicting create record identity", 400);
+      createdIds.add(id);
+    }
     for (const item of items) {
       if (item.error || !item.operation) continue;
       const model = await getRuntimeModel(context.env, item.operation.modelKey);
       if (!model) item.error = new ApiError("MODEL_NOT_FOUND", `Published model ${item.operation.modelKey} not found`, 404);
+      else if (item.operation.operation === "create" && candidateCreateId(item.operation.data) && !hasEncryptedText(model.definition)) item.error = new ApiError("INVALID_RESOURCE", "Client create identity is only supported for encrypted text models", 400);
       else item.model = model;
     }
 
@@ -285,9 +297,10 @@ export function registerGenericBulkRoutes(app: App): void {
     })));
     const bulkId = `blk_${crypto.randomUUID().replaceAll("-", "")}`;
     const timestamp = new Date().toISOString();
+    const readEncryptionKey = createSpaceKeyVersionReader(context.env, spaceId);
     for (const item of items) {
       if (item.error || !item.prepared) continue;
-      try { item.plan = await buildPlan(context.env, executionPrincipal, spaceId, item.prepared, bulkId, timestamp); }
+      try { item.plan = await buildPlan(context.env, executionPrincipal, spaceId, item.prepared, bulkId, timestamp, readEncryptionKey); }
       catch (error) { item.error = asApiError(error); }
     }
     const planned = items.filter((item) => item.plan && !item.error);
@@ -318,7 +331,7 @@ export function registerGenericBulkRoutes(app: App): void {
         if (!firstResult?.meta.changes) item.error = commitRaceError();
       }
     } catch (error) {
-      if (!singleUseFailure(error) && !currentOccurrenceDeleteFailure(error)) throw error;
+      if (!singleUseFailure(error) && !currentOccurrenceDeleteFailure(error) && !isRecordIdentityConflict(error)) throw error;
       // The grouped D1 transaction was rolled back. Recreate the durable Bulk row,
       // then replay only surviving items independently. This bounded contention
       // slow path preserves partial success without making the normal path N RTTs.

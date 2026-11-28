@@ -17,16 +17,33 @@ export function hasEncryptedTextValue(definition: ModelDefinition, data: Data): 
 
 /** ID is technical create metadata, never a business field or mutable property.
  * Client-generated UUIDv4 is only a candidate for models with encrypted text.
- * Registry still rejects encrypted models, and public batch integration is gated.
+ * Registry still rejects encrypted models until all security gates pass.
  */
-export function extractEncryptedCreateIdentity(definition: ModelDefinition, input: unknown): { recordId?: string; fields: unknown } {
-  if (!hasEncryptedText(definition) || !input || typeof input !== "object" || Array.isArray(input)) return { fields: input };
-  const object = input as Data;
-  if (!Object.prototype.hasOwnProperty.call(object, "id")) return { fields: input };
-  const { id, ...fields } = object;
+export function candidateCreateId(input: unknown): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input) || !Object.prototype.hasOwnProperty.call(input, "id")) return undefined;
+  const id = (input as Data).id;
   if (typeof id !== "string" || CLIENT_RECORD_ID.exec(id)?.[0] !== id) {
     throw new ApiError("INVALID_RESOURCE", "Encrypted create id must be a rec_ UUIDv4 without hyphens", 400);
   }
+  return id;
+}
+
+/** The global record primary key remains the final insert-only collision guard.
+ * No record existence lookup or disclosure is added, including other Spaces. */
+export function isRecordIdentityConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed:\s*resource_records\.id(?:\b|$)/u.test(message);
+}
+
+export function recordIdentityConflict(): ApiError {
+  return new ApiError("RECORD_ID_CONFLICT", "Record identity is unavailable", 409);
+}
+
+export function extractEncryptedCreateIdentity(definition: ModelDefinition, input: unknown): { recordId?: string; fields: unknown } {
+  if (!hasEncryptedText(definition) || !input || typeof input !== "object" || Array.isArray(input)) return { fields: input };
+  const id = candidateCreateId(input);
+  if (id === undefined) return { fields: input };
+  const { id: _technicalId, ...fields } = input as Data;
   return { recordId: id, fields };
 }
 
@@ -47,7 +64,19 @@ export function encryptedCreateRecordId(definition: ModelDefinition, data: Data,
  * wrapped DEK is read. Empty optional fields incur no additional D1 query.
  * V1 has no reset/delete/rotation of initialized keys.
  */
-export async function requireCurrentEncryptedTextKey(env: Bindings, spaceId: string, definition: ModelDefinition, data: Data): Promise<void> {
+export type SpaceKeyVersionReader = () => Promise<{ key_version: number } | null>;
+
+/** One lazy lookup per authorized same-Space batch; never cached across requests.
+ * V1 does not support key replacement or deletion. */
+export function createSpaceKeyVersionReader(env: Bindings, spaceId: string): SpaceKeyVersionReader {
+  let pending: ReturnType<SpaceKeyVersionReader> | undefined;
+  return () => pending ??= env.DB.prepare(`SELECT e.key_version FROM space_encryption_configs e
+    JOIN spaces s ON s.id=e.space_id AND s.deleted_at IS NULL WHERE e.space_id=?`)
+    .bind(spaceId).first<{ key_version: number }>();
+}
+
+export async function requireCurrentEncryptedTextKey(env: Bindings, spaceId: string, definition: ModelDefinition, data: Data,
+  readKey: SpaceKeyVersionReader = createSpaceKeyVersionReader(env, spaceId)): Promise<void> {
   const versions = new Set<number>();
   for (const [key, field] of Object.entries(definition.fields)) {
     if (!field.encrypted || data[key] === undefined || data[key] === null) continue;
@@ -59,9 +88,7 @@ export async function requireCurrentEncryptedTextKey(env: Bindings, spaceId: str
     versions.add(envelope.keyVersion);
   }
   if (!versions.size) return;
-  const row = await env.DB.prepare(`SELECT e.key_version FROM space_encryption_configs e
-    JOIN spaces s ON s.id=e.space_id AND s.deleted_at IS NULL WHERE e.space_id=?`)
-    .bind(spaceId).first<{ key_version: number }>();
+  const row = await readKey();
   if (!row) throw new ApiError("SPACE_ENCRYPTION_NOT_INITIALIZED", "Space encryption is not initialized", 409);
   if (versions.size !== 1 || !versions.has(row.key_version)) {
     throw new ApiError("SPACE_ENCRYPTION_KEY_VERSION_MISMATCH", "Encrypted field key version is not current for this Space", 409);
