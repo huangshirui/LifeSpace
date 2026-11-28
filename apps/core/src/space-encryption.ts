@@ -3,7 +3,7 @@ import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
 
 /** Candidate v1 profile, pending target-client benchmark. No password processing
- * occurs in Core. Do not register public routes until the contract is reviewed.
+ * occurs in Core. Candidate API is not approved for production use.
  */
 export const SPACE_KDF_PROFILE = Object.freeze({
   algorithm: "argon2id",
@@ -37,6 +37,13 @@ function canonicalBytes(value: unknown, length: number): value is string {
   } catch { return false; }
 }
 
+function parseKdf(kdf: unknown): SpaceKeyEnvelope["kdf"] {
+  if (!exactObject(kdf, [...Object.keys(SPACE_KDF_PROFILE), "salt"])
+    || Object.entries(SPACE_KDF_PROFILE).some(([key, value]) => kdf[key] !== value)
+    || !canonicalBytes(kdf.salt, 16)) return invalid();
+  return { ...SPACE_KDF_PROFILE, salt: kdf.salt };
+}
+
 function invalid(): never {
   throw new ApiError("VALIDATION_ERROR", "Invalid Space encryption key envelope", 422);
 }
@@ -46,25 +53,21 @@ function invalid(): never {
  */
 export function parseSpaceKeyEnvelope(input: unknown): SpaceKeyEnvelope {
   if (!exactObject(input, ["keyVersion", "kdf", "wrappedDek"]) || input.keyVersion !== 1) return invalid();
-  const kdf = input.kdf;
+  const kdf = parseKdf(input.kdf);
   const wrap = input.wrappedDek;
-  if (!exactObject(kdf, [...Object.keys(SPACE_KDF_PROFILE), "salt"])
-    || Object.entries(SPACE_KDF_PROFILE).some(([key, value]) => kdf[key] !== value)
-    || !canonicalBytes(kdf.salt, 16)) return invalid();
   if (!exactObject(wrap, ["algorithm", "nonce", "ciphertext"]) || wrap.algorithm !== "A256GCM"
     || !canonicalBytes(wrap.nonce, 12) || !canonicalBytes(wrap.ciphertext, 48)) return invalid();
   return {
     keyVersion: 1,
-    kdf: { ...SPACE_KDF_PROFILE, salt: kdf.salt },
+    kdf,
     wrappedDek: { algorithm: "A256GCM", nonce: wrap.nonce, ciphertext: wrap.ciphertext },
   };
 }
 
-export function spaceKeyWrapAad(spaceId: string, envelope: SpaceKeyEnvelope): Uint8Array {
-  if (typeof spaceId !== "string" || spaceId.length === 0 || spaceId.length > 256) throw new TypeError("Invalid Space identity");
-  const value = parseSpaceKeyEnvelope(envelope);
-  const k = value.kdf;
-  return new TextEncoder().encode(JSON.stringify(["LifeSpace", "wrap", 1, value.keyVersion, spaceId,
+export function spaceKeyWrapAad(spaceId: string, envelope: Pick<SpaceKeyEnvelope, "keyVersion" | "kdf">): Uint8Array {
+  if (typeof spaceId !== "string" || spaceId.length === 0 || spaceId.length > 256 || envelope.keyVersion !== 1) throw new TypeError("Invalid Space key context");
+  const k = parseKdf(envelope.kdf);
+  return new TextEncoder().encode(JSON.stringify(["LifeSpace", "wrap", 1, envelope.keyVersion, spaceId,
     k.algorithm, k.version, k.memoryKiB, k.iterations, k.parallelism, k.salt]));
 }
 

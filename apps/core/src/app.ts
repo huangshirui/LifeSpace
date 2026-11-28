@@ -31,6 +31,7 @@ import { registerMcpServerGovernanceRoutes } from "./mcp-server-governance";
 import { registerMcpResourceIngressRoutes } from "./mcp-resource-ingress";
 import { registerPlatformInspectorRoutes } from "./platform-inspector";
 import { registerSpaceRoutes } from "./spaces";
+import { registerSpaceEncryptionRoutes } from "./space-encryption-routes";
 import { registerSpaceLifecycleRoutes } from "./space-lifecycle";
 import { registerSpaceAvatarRoutes } from "./space-avatars";
 import { registerGrantRoutes } from "./grants";
@@ -117,6 +118,7 @@ export function createApp() {
   registerModelAccessCeilingRoutes(app);
   registerSpaceLifecycleRoutes(app);
   registerSpaceRoutes(app);
+  registerSpaceEncryptionRoutes(app);
   registerPersonDirectoryRoutes(app);
   registerModelAdminRoutes(app);
   registerModelAdminAiRoutes(app);
