@@ -1,3 +1,4 @@
+import { MAX_ENCRYPTED_TEXT_WIRE_LENGTH } from "./field-encryption";
 import { recurrenceRuleSchema } from "./recurrence-rule";
 import { entityRefSchema } from "./entity-ref";
 import { locationValueSchema } from "./location-value";
@@ -69,7 +70,11 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
     case "location": schema = locationValueSchema(); break;
     case "string":
     case "text":
-      schema = {
+      schema = field.encrypted ? {
+        type: "string",
+        pattern: "^lsenc1\\.[1-9][0-9]{0,9}\\.[A-Za-z0-9_-]{16}\\.[A-Za-z0-9_-]{22,}$",
+        maxLength: MAX_ENCRYPTED_TEXT_WIRE_LENGTH,
+      } : {
         type: "string",
         ...(field.minLength === undefined ? {} : { minLength: field.minLength }),
         ...(field.maxLength === undefined ? {} : { maxLength: field.maxLength }),
@@ -188,6 +193,14 @@ function fieldSchema(field: FieldDefinition): JsonSchema {
       break;
   }
   const result = nullable(schema, field);
+  if (field.encrypted) result["x-lifespace-encryption"] = {
+    mode: "client", logicalType: field.type,
+    ...(field.type === "string" || field.type === "text" ? {
+      wireFormat: "lsenc1",
+      ...(field.minLength === undefined ? {} : { plaintextMinLength: field.minLength }),
+      ...(field.maxLength === undefined ? {} : { plaintextMaxLength: field.maxLength }),
+    } : { contentOnly: true }),
+  };
   const relation = relationMetadata(field);
   if (relation) result["x-lifespace-relation"] = relation;
   if (field.title) result.title = field.title;

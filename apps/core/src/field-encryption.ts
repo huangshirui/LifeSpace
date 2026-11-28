@@ -8,6 +8,7 @@ export const GCM_TAG_BYTES = 16;
 export const GCM_NONCE_BYTES = 12;
 const MAX_CIPHERTEXT_BYTES = MAX_TEXT_PLAINTEXT_BYTES + GCM_TAG_BYTES;
 const MAX_CIPHERTEXT_CHARS = Math.ceil(MAX_CIPHERTEXT_BYTES * 4 / 3);
+export const MAX_ENCRYPTED_TEXT_WIRE_LENGTH = FIELD_WIRE_PREFIX.length + 3 + 10 + 16 + MAX_CIPHERTEXT_CHARS;
 const UINT32_MAX = 0xffffffff;
 const BASE64URL = /^[A-Za-z0-9_-]+$/u;
 const SPACE_ID = /^spc_[a-f0-9]{32}$/u;
@@ -45,7 +46,7 @@ function decodeBase64Url(input: string, maxBytes: number): Uint8Array | null {
 
 /** Strict shape validation only. Authenticity is checked with the DEK on the client. */
 export function parseEncryptedText(value: unknown): EncryptedTextEnvelope | null {
-  if (typeof value !== "string" || value.length > FIELD_WIRE_PREFIX.length + 3 + 10 + 16 + MAX_CIPHERTEXT_CHARS) return null;
+  if (typeof value !== "string" || value.length > MAX_ENCRYPTED_TEXT_WIRE_LENGTH) return null;
   const parts = value.split(".");
   if (parts.length !== 4 || parts[0] !== FIELD_WIRE_PREFIX || !/^[1-9][0-9]{0,9}$/u.test(parts[1])) return null;
   const keyVersion = Number(parts[1]);

@@ -1,3 +1,4 @@
+import { parseEncryptedText } from "./field-encryption";
 import { isRecurrenceExecutor, recurrenceMutationStatements } from "./recurrence-runtime";
 import { parseEntityRef } from "./entity-ref";
 import { parseRecurrenceRule } from "./recurrence-rule";
@@ -344,6 +345,14 @@ export function normalizeCanonicalFieldValue(fieldKey: string, field: FieldDefin
   if (value === null) {
     if (field.nullable) return null;
     throw new ApiError("INVALID_RESOURCE", `${fieldKey} cannot be null`, 400);
+  }
+  if (field.encrypted) {
+    if (field.type === "string" || field.type === "text") {
+      if (!parseEncryptedText(value)) throw new ApiError("INVALID_RESOURCE", `${fieldKey} must contain a valid encrypted text envelope`, 400);
+      return value;
+    }
+    // Do not accept ordinary File IDs until encrypted upload/reference validation is connected.
+    throw new ApiError("INVALID_RESOURCE", "Encrypted file values are not yet supported by the Runtime", 400);
   }
   switch (field.type) {
     case "location": {

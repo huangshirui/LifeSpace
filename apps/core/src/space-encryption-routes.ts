@@ -14,7 +14,7 @@ async function readBody(c: Context<AppEnv>): Promise<unknown> {
   }
   const reader = c.req.raw.body?.getReader();
   if (!reader) throw new ApiError("INVALID_REQUEST", "Request body is required", 400);
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
   let size = 0, body = "";
   try {
     while (true) {
