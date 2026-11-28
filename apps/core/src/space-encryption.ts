@@ -1,3 +1,6 @@
+import { requireModelAccess } from "./model-authorization";
+import type { PublishedModel } from "./model-registry";
+import { requireModelPolicy } from "./policy";
 import { requireSpacePermission } from "./authorization";
 import type { Bindings, Principal } from "./env";
 import { ApiError } from "./http";
@@ -102,16 +105,37 @@ function stored(row: Row): SpaceEncryptionConfig {
   }
 }
 
-/** Space-wide permission surface only. Model-only Grant projection belongs to
- * the ordinary model authority path; do not elevate that Grant to spaces:read.
- */
-export async function readSpaceEncryption(env: Bindings, principal: Principal, spaceId: string): Promise<SpaceEncryptionConfig | null> {
-  directUser(principal, "spaces:read");
-  await requireSpacePermission(env, principal, spaceId, "read");
+async function loadEnvelope(env: Bindings, spaceId: string): Promise<SpaceEncryptionConfig | null> {
   const row = await env.DB.prepare(`SELECT e.key_version,e.revision,e.kdf_salt,e.wrap_nonce,e.wrapped_dek
     FROM space_encryption_configs e JOIN spaces s ON s.id=e.space_id AND s.deleted_at IS NULL
     WHERE e.space_id=?`).bind(spaceId).first<Row>();
   return row ? stored(row) : null;
+}
+
+export async function readSpaceEncryption(env: Bindings, principal: Principal, spaceId: string): Promise<SpaceEncryptionConfig | null> {
+  directUser(principal, "spaces:read");
+  await requireSpacePermission(env, principal, spaceId, "read");
+  return loadEnvelope(env, spaceId);
+}
+
+/** Model must be resolved from the current Native Registry by the route.
+ * This projection supplies the same source-Space wrapper, not a new Grant.
+ * Reuse ordinary current Application/Model/Space authority and read policy.
+ * Direct User only; a model without encrypted fields has no such projection.
+ */
+export async function readModelSpaceEncryption(env: Bindings, principal: Principal, spaceId: string, model: PublishedModel | null): Promise<SpaceEncryptionConfig | null> {
+  directUser(principal, "resources:read");
+  if (!model || model.state !== "published" || model.definition.origin === "external" || !Object.values(model.definition.fields).some(field => field.encrypted === true)) {
+    throw new ApiError("NOT_FOUND", "Encryption projection not found", 404);
+  }
+  try {
+    const access = await requireModelAccess(env, principal, spaceId, model, "read");
+    await requireModelPolicy(env, access.principal, spaceId, model, "read", undefined, undefined, access.policyIdentity);
+  } catch (error) {
+    if (error instanceof ApiError && [403,404,405].includes(error.status)) throw new ApiError("NOT_FOUND", "Encryption projection not found", 404);
+    throw error;
+  }
+  return loadEnvelope(env, spaceId);
 }
 
 /** Authorization is rechecked in the atomic SQL mutation, not only in JS.

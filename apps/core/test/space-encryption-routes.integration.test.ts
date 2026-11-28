@@ -106,3 +106,20 @@ describe("Space encryption Kernel candidate API",()=>{
     expect(await (await request(path,space.accessToken,publicKey)).json()).toEqual({data:{...envelope(),revision:1}});
   });
 });
+
+
+describe("model scoped envelope route candidate",()=>{
+  it("does not expose an envelope for ordinary or nonexistent models",async()=>{
+    const {privateKey,publicKey}=await keys();
+    const ownerId="usr_"+crypto.randomUUID();
+    const space=await createSpace(privateKey,publicKey,ownerId);
+    const path="/api/v1/spaces/"+space.spaceId+"/encryption";
+    expect((await request(path,space.accessToken,publicKey,{method:"POST",body:JSON.stringify(envelope())})).status).toBe(201);
+    const reader=await token(privateKey,ownerId,["resources:read"]);
+    expect((await request(path+"?modelKey=task",reader,publicKey)).status).toBe(404);
+    expect((await request(path+"?modelKey=unknown_probe",reader,publicKey)).status).toBe(404);
+    expect((await request(path+"?modelKey=task&modelKey=event",reader,publicKey)).status).toBe(400);
+    expect((await request(path+"?modelKey=task",space.accessToken,publicKey)).status).toBe(403);
+    expect((await request(path,reader,publicKey)).status).toBe(403);
+  });
+});

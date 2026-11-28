@@ -1,3 +1,7 @@
+## Kernel 0.59.0 candidate · Model-scoped Space wrapper read
+
+Optional `modelKey` on GET Space encryption selects the current Native encrypted model, requires direct User `resources:read` and current model read authority/policy, returns the same source Space wrapper or null; inaccessible model is opaque 404. No new path, operation fingerprint, Scope or Grant. Space-wide GET without modelKey and owner-only POST/PATCH unchanged. Candidate only, not deployed.
+
 ## Kernel 0.59.0 · Space encryption envelope / 空间密钥封套（开发候选，未部署）
 
 Additive Candidate Public GET/POST/PATCH `/api/v1/spaces/{spaceId}/encryption`. GET returns current envelope or null, POST initializes revision 1 once, PATCH uses `expectedRevision` and `envelope` to rewrap the same key version. Exact bounded Argon2id v19 (64 MiB, 3 iterations, parallelism 1) and AES-256-GCM wrapper shape, canonical base64url, no server password processing; parameters remain provisional pending client benchmarks and protocol acceptance. Direct User scopes and Space authority apply, mutations require Owner. Responses carrying envelope are no-store. No stable operation is removed or changed; no Model Contract change or encrypted field activation. Model-only Grant projection pending. Do not deploy this incomplete feature separately.

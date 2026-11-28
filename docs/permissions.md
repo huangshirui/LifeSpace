@@ -1,3 +1,7 @@
+## Space encryption model-scoped read / 模型级密钥封套（开发候选，未部署）
+
+Candidate GET `/api/v1/spaces/{spaceId}/encryption?modelKey=...` selects the current Native encrypted model and requires direct User with `resources:read`, ordinary effective Application × Model × Space authority and the model's read policy. Missing, ordinary, External or unauthorized model returns opaque 404; no `spaces:read` or manage permission is created. Without modelKey, the existing Space-wide read rule remains. The wrapper is the same source-Space DEK envelope, not cryptographic field/model isolation; prior recipients with saved keys remain able to decrypt saved ciphertext. Real published encrypted-model route acceptance is pending activation gates.
+
 ## Space encryption envelope authority / 空间密钥封套（开发候选，未部署）
 
 Kernel 0.59.0 adds Space-wide envelope self-service. Direct User + `spaces:read` and current Space-wide read authority can read the wrapped DEK; direct User + `spaces:manage` and active Owner membership can initialize or rewrap under optimistic revision, with commit-time Owner/active Space check. Admin, service, Agent and represented execution cannot mutate. No password, raw DEK, KEK, server unlock session or reset endpoint; audit only actor/application/revision. Model-only Grants do not confer Space-wide read; their model-scoped envelope projection is pending and must preserve ordinary model authority. The password is not a Grant; revocation cannot erase cached keys or ciphertext. No field encryption is activated by this candidate.

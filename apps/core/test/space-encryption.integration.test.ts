@@ -1,7 +1,8 @@
+import { getRuntimeModel } from "../src/model-registry";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { Bindings, Principal } from "../src/env";
-import { initializeSpaceEncryption, parseSpaceKeyEnvelope, readSpaceEncryption, rewrapSpaceEncryption, spaceKeyWrapAad, SPACE_KDF_PROFILE } from "../src/space-encryption";
+import { initializeSpaceEncryption, parseSpaceKeyEnvelope, readSpaceEncryption, readModelSpaceEncryption, rewrapSpaceEncryption, spaceKeyWrapAad, SPACE_KDF_PROFILE } from "../src/space-encryption";
 
 const db = (env as unknown as Bindings).DB;
 const bindings = env as unknown as Bindings;
@@ -59,6 +60,30 @@ describe("candidate Space encryption persistence",()=>{
     await db.prepare("UPDATE spaces SET deleted_at=? WHERE id=?").bind(new Date().toISOString(),space).run();
     await expect(readSpaceEncryption(bindings,member,space)).rejects.toMatchObject({status:403});
     await expect(rewrapSpaceEncryption(bindings,owner,space,1,envelope(2))).rejects.toMatchObject({status:403});
+  });
+  it("projects a wrapper to a direct nonmember model reader without granting Space access",async()=>{
+    const {owner,outsider,space}=await fixture();
+    const now=new Date().toISOString(), grantId=id("grt"), clientId=id("app");
+    const reader:Principal={...outsider,clientId,scopes:["resources:read"]};
+    const task=await getRuntimeModel(bindings,"task");
+    if(!task)throw new Error("task missing");
+    // Synthetic descriptor only: exercise the actual D1 authority service without
+    // publishing or modifying the baseline Task model while the registry gate is closed.
+    const candidate={...task,definition:{...task.definition,policies:undefined,fields:{...task.definition.fields,secret:{type:"text" as const,encrypted:true}}}};
+    await db.batch([
+      db.prepare("INSERT INTO application_model_access(application_id,model_key,max_access,created_by_type,created_by_id) VALUES(?,?,?,?,?)").bind(clientId,"task","read","user",owner.id),
+      db.prepare("INSERT INTO data_grants(id,source_space_id,grantee_type,grantee_id,resource_type,resource_id,permission,created_by_user_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)").bind(grantId,space,"user",reader.id,"model","task","read",owner.id,now),
+    ]);
+    await initializeSpaceEncryption(bindings,owner,space,envelope());
+    expect(await readModelSpaceEncryption(bindings,reader,space,candidate)).toEqual({...envelope(),revision:1});
+    await expect(readSpaceEncryption(bindings,{...reader,scopes:["spaces:read"]},space)).rejects.toMatchObject({status:403});
+    await expect(readModelSpaceEncryption(bindings,reader,space,task)).rejects.toMatchObject({status:404});
+    await expect(readModelSpaceEncryption(bindings,{...reader,clientId:id("app")},space,candidate)).rejects.toMatchObject({status:404});
+    await expect(readModelSpaceEncryption(bindings,{...reader,type:"agent"},space,candidate)).rejects.toMatchObject({status:403});
+    await expect(readModelSpaceEncryption(bindings,{...reader,scopes:["spaces:read"]},space,candidate)).rejects.toMatchObject({status:403});
+    await db.prepare("UPDATE data_grants SET revoked_at=? WHERE id=?").bind(now,grantId).run();
+    await expect(readModelSpaceEncryption(bindings,reader,space,candidate)).rejects.toMatchObject({status:404});
+    expect(await readSpaceEncryption(bindings,owner,space)).toEqual({...envelope(),revision:1});
   });
   it("concurrent initialization and wrapping revisions cannot overwrite each other",async()=>{
     const {owner,space}=await fixture();

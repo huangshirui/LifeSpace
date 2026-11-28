@@ -1,8 +1,9 @@
+import { getRuntimeModel } from "./model-registry";
 import type { Context, Hono } from "hono";
 import type { Bindings, Variables } from "./env";
 import { requireScope } from "./auth";
 import { ApiError, success } from "./http";
-import { initializeSpaceEncryption, readSpaceEncryption, rewrapSpaceEncryption } from "./space-encryption";
+import { initializeSpaceEncryption, readSpaceEncryption, readModelSpaceEncryption, rewrapSpaceEncryption } from "./space-encryption";
 
 type AppEnv = { Bindings: Bindings; Variables: Variables };
 const MAX_BODY_BYTES = 4096;
@@ -39,9 +40,21 @@ async function readBody(c: Context<AppEnv>): Promise<unknown> {
 
 export function registerSpaceEncryptionRoutes(app: Hono<AppEnv>): void {
   const path = "/api/v1/spaces/:spaceId/encryption";
-  app.get(path, requireScope("spaces:read"), async c => {
+  app.get(path, async c => {
     c.header("cache-control", "no-store");
-    return c.json(success(await readSpaceEncryption(c.env, c.get("principal"), c.req.param("spaceId"))));
+    const modelKeys = new URL(c.req.url).searchParams.getAll("modelKey");
+    const principal = c.get("principal");
+    const spaceId = c.req.param("spaceId");
+    if (!modelKeys.length) return c.json(success(await readSpaceEncryption(c.env, principal, spaceId)));
+    const modelKey = modelKeys[0]!;
+    if (modelKeys.length !== 1 || !/^[a-z][a-z0-9_]{1,62}$/u.test(modelKey) || modelKey.trim() !== modelKey) {
+      throw new ApiError("INVALID_REQUEST", "Expected one canonical modelKey", 400);
+    }
+    if (c.req.header("x-lifespace-delegation-id")) throw new ApiError("FORBIDDEN", "Direct User authority is required for Space encryption", 403);
+    if (principal.type !== "user" || principal.actor || principal.purpose || principal.oauthExecution || !principal.scopes.includes("resources:read")) {
+      throw new ApiError("FORBIDDEN", "Direct User authority is required for Space encryption", 403);
+    }
+    return c.json(success(await readModelSpaceEncryption(c.env, principal, spaceId, await getRuntimeModel(c.env, modelKey))));
   });
   app.post(path, requireScope("spaces:manage"), async c => {
     c.header("cache-control", "no-store");
