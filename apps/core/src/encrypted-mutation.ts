@@ -110,3 +110,21 @@ export function validateFieldEncryptionTransition(current: ModelDefinition | nul
   }
   return issues;
 }
+
+
+/** Registry control-plane check: even a field absent from the latest version
+ * cannot be reused as encrypted if its historical spelling stored plaintext.
+ * Ordinary model publications incur no extra query. Registry CAS protects
+ * publication against concurrent history changes.
+ */
+export async function validateHistoricalEncryptionFields(env: Bindings, next: ModelDefinition): Promise<ModelValidationIssue[]> {
+  const encrypted = Object.entries(next.fields).filter(([, field]) => field.encrypted).map(([key]) => key);
+  if (!encrypted.length) return [];
+  const rows = await env.DB.prepare(`SELECT DISTINCT f.key AS field_key
+    FROM model_definitions m, json_each(m.definition_json,'$.fields') f
+    WHERE m.model_key=? AND f.key IN (SELECT value FROM json_each(?))
+      AND COALESCE(json_extract(f.value,'$.encrypted'),0)<>1`)
+    .bind(next.key, JSON.stringify(encrypted)).all<{field_key:string}>();
+  return rows.results.map(row => ({path:"fields."+row.field_key+".encrypted",code:"FIELD_ENCRYPTION_IMMUTABLE",
+    message:"A historical plaintext field identity cannot be reused as encrypted"}));
+}

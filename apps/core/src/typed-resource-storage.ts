@@ -1,3 +1,4 @@
+import { parseEncryptedText } from "./field-encryption";
 import { parseEntityRef } from "./entity-ref";
 import { parseRecurrenceRule } from "./recurrence-rule";
 import { parseFileRefList } from "./file-ref";
@@ -109,6 +110,9 @@ export function typedTableSql(model: PublishedModel): string {
 }
 
 export function typedScalarExpression(model: PublishedModel, fieldKey: string, alias = "m"): string {
+  if (model.definition.fields[fieldKey]?.encrypted) {
+    throw new ApiError("INVALID_QUERY", "Encrypted fields have no server-side scalar query projection", 400);
+  }
   const plan = physicalPlanFor(model);
   if (!plan.columns.some((column) => column.fieldKey === fieldKey)) {
     throw new ApiError("INVALID_PHYSICAL_SCHEMA", `Field ${fieldKey} is not a typed scalar field for model ${model.key}`, 500);
@@ -181,6 +185,10 @@ export function typedSelectColumns(model: PublishedModel, alias = "m"): string {
 
 function encodedValue(field: FieldDefinition, value: unknown): unknown {
   if (value === undefined || value === null) return null;
+  if (field.encrypted && (field.type === "string" || field.type === "text")) {
+    if (!parseEncryptedText(value)) throw new ApiError("INVALID_RESOURCE", "Invalid encrypted text envelope", 400);
+    return value;
+  }
   if (["recurrence_rule", "entity_ref", "enum_list", "file_list", "file_ref_list"].includes(field.type)) return JSON.stringify(value);
   if (field.type === "boolean") return value ? 1 : 0;
   return value;
@@ -188,6 +196,10 @@ function encodedValue(field: FieldDefinition, value: unknown): unknown {
 
 function decodedValue(field: FieldDefinition, value: unknown): unknown {
   if (value === null || value === undefined) return value;
+  if (field.encrypted && (field.type === "string" || field.type === "text")) {
+    if (!parseEncryptedText(value)) throw new ApiError("RESOURCE_STORAGE_CORRUPT", "Stored encrypted text envelope is invalid", 500);
+    return value;
+  }
   if (["recurrence_rule", "entity_ref", "enum_list", "file_list", "file_ref_list"].includes(field.type)) {
     try {
       const parsed = JSON.parse(String(value));

@@ -172,3 +172,17 @@ describe("Physical Schema Compiler", () => {
 
 });
 
+
+
+describe("candidate encrypted physical columns",()=>{
+  it("uses TEXT with a bounded envelope check, no encrypted index and no in-place conversion",()=>{
+    const before:ModelDefinition={definitionVersion:1,key:"encrypted_probe",display:{singular:"Probe",plural:"Probes"},fields:{title:{type:"string"}},access:["read","write"]};
+    const next:ModelDefinition={...before,fields:{...before.fields,secret:{type:"text",encrypted:true,nullable:true}},query:{filterable:["title","secret"],sortable:["secret"]}};
+    const plan=compilePhysicalSchema(next);
+    expect(plan.columns.find(c=>c.fieldKey==="secret")).toMatchObject({sqlType:"TEXT",nullable:true});
+    expect(plan.createTableSql).toContain("GLOB 'lsenc1.*'");
+    expect(plan.indexes.map(i=>i.fieldKey)).toEqual(["title"]);
+    expect(compileCompatiblePhysicalChange(before,next).addedColumns.map(c=>c.fieldKey)).toEqual(["secret"]);
+    expect(()=>compileCompatiblePhysicalChange({...next,fields:{...before.fields,secret:{type:"text",nullable:true}}},next)).toThrow(/data-rewriting physical migration/);
+  });
+});
